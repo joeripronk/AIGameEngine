@@ -35,7 +35,7 @@ A production-grade, AI-assisted 3D game engine for Windows, macOS, and Linux (Ub
 
 ```bash
 # Clone with submodules
-git clone --recursive https://github.com/TheCherno/AIGameEngine.git
+git clone --recursive https://github.com/joeripronk/AIGameEngine.git
 cd AIGameEngine
 
 # Configure
