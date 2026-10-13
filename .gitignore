@@ -1,0 +1,60 @@
+# Build outputs
+build/
+bin/
+lib/
+*.o
+*.obj
+*.lib
+*.dll
+*.so
+*.dylib
+*.exe
+*.a
+
+# IDE
+.vs/
+.vscode/
+*.sln
+*.suo
+*.user
+*.vcxproj*
+*.ipr
+*.iws
+.idea/
+*.swp
+*.swo
+*~
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+install_manifest.txt
+*.cmake
+
+# OS
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# Logs
+*.log
+Forge.log
+*.json
+
+# Vendor (submodules managed separately)
+vendor/glfw/build/
+vendor/spdlog/build/
+vendor/fmt/build/
+vendor/nvrhi/build/
+vendor/assimp/build/
+vendor/lua/build/
+vendor/miniaudio/build/
+vendor/physx/build/
+
+# Resources (git-lfs for large files)
+resources/models/
+resources/textures/
+resources/hdris/

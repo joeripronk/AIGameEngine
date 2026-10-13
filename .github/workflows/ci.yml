@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          cmake \
+          g++ \
+          libvulkan-dev \
+          vulkan-tools \
+          libglfw3-dev \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev
+
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Debug -DFG_PLATFORM_LINUX=ON
+
+    - name: Build
+      run: |
+        cd build
+        cmake --build . --config Debug -j$(nproc)
+
+    - name: Run tests
+      run: |
+        cd build
+        ctest --output-on-failure -V
+
+    - name: Build Release
+      run: |
+        mkdir -p build-release
+        cd build-release
+        cmake .. -DCMAKE_BUILD_TYPE=Release -DFG_PLATFORM_LINUX=ON
+        cmake --build . --config Release -j$(nproc)

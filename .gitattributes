@@ -1,0 +1,7 @@
+# Binary files use LFS
+resources/models/*.glb filter=lfs diff=lfs merge=lfs -text
+resources/models/*.gltf filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.png filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.jpg filter=lfs diff=lfs merge=lfs -text
+resources/hdris/*.hdr filter=lfs diff=lfs merge=lfs -text
+resources/hdris/*.exr filter=lfs diff=lfs merge=lfs -text
