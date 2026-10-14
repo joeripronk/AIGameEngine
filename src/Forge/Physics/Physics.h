@@ -40,6 +40,12 @@ namespace Forge {
 		static void AddBody(PhysicsBody* body);
 		static void RemoveBody(PhysicsBody* body);
 
+		// Sleep thresholds (configurable)
+		static float GetSleepVelocityThreshold() { return s_SleepVelocityThreshold; }
+		static void SetSleepVelocityThreshold(float threshold) { s_SleepVelocityThreshold = threshold; }
+		static float GetSleepTimeThreshold() { return s_SleepTimeThreshold; }
+		static void SetSleepTimeThreshold(float threshold) { s_SleepTimeThreshold = threshold; }
+
 	private:
 		static void CreateBodies();
 		static void DestroyBodies();
@@ -47,10 +53,13 @@ namespace Forge {
 		static void DetectCollisions();
 		static void ResolveCollisions(float timestep);
 		static void IntegrateBodies(float timestep);
+		static void HandleSleeping(float timestep);
 
 		static std::vector<PhysicsBody*> s_Bodies;
 		static glm::vec3 s_Gravity;
 		static int s_StepFrames;
+		static float s_SleepVelocityThreshold;
+		static float s_SleepTimeThreshold;
 	};
 
 	// Represents a physics body in the simulation
@@ -69,6 +78,7 @@ namespace Forge {
 		bool IsStatic;
 		bool FixedRotation;
 		bool IsSleeping;
+		float SleepTime; // Accumulated sleep time (seconds)
 
 		// Collision shape
 		enum class ShapeType { Box, Sphere };

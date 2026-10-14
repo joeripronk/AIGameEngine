@@ -13,11 +13,13 @@ namespace Forge {
 	glm::vec3 Physics::s_Gravity = { 0.0f, -9.81f, 0.0f };
 	int Physics::s_StepFrames = 0;
 	std::vector<PhysicsBody*> Physics::s_Bodies;
+	float Physics::s_SleepVelocityThreshold = 0.05f;
+	float Physics::s_SleepTimeThreshold = 0.5f;
 
 	// PhysicsBody implementation
 	PhysicsBody::PhysicsBody()
 		: ID(0), Mass(0.0f), InverseMass(0.0f), Restitution(0.0f), Friction(0.5f),
-		  IsStatic(true), FixedRotation(false), IsSleeping(false), Shape(ShapeType::Box)
+		  IsStatic(true), FixedRotation(false), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
 	{
 		Position = glm::vec3(0.0f);
 		Velocity = glm::vec3(0.0f);
@@ -165,6 +167,8 @@ namespace Forge {
 		DestroyBodies();
 		s_Gravity = glm::vec3(0.0f, -9.81f, 0.0f);
 		s_StepFrames = 0;
+		s_SleepVelocityThreshold = 0.05f;
+		s_SleepTimeThreshold = 0.5f;
 		FG_CORE_INFO("Physics initialized (gravity: {0} m/s²)", s_Gravity.y);
 	}
 
@@ -211,10 +215,10 @@ namespace Forge {
 		if (s_Bodies.empty())
 			return;
 
-		// Apply gravity to dynamic bodies
+		// Apply gravity to dynamic bodies (skip sleeping bodies)
 		for (auto* body : s_Bodies)
 		{
-			if (!body->IsStatic)
+			if (!body->IsStatic && !body->IsSleeping)
 			{
 				body->Velocity.y += s_Gravity.y * timestep;
 			}
@@ -231,6 +235,9 @@ namespace Forge {
 
 		// Update transform components in scene
 		UpdateBodyTransforms();
+
+		// Handle body sleeping
+		HandleSleeping(timestep);
 	}
 
 	void Physics::CreateBodies()
@@ -377,6 +384,12 @@ namespace Forge {
 					// Only resolve if bodies are moving toward each other
 					if (velocityAlongNormal > 0.0f)
 						continue;
+
+					// Wake up sleeping bodies on collision
+					if (bodyA->IsSleeping)
+						bodyA->IsSleeping = false;
+					if (bodyB->IsSleeping)
+						bodyB->IsSleeping = false;
 
 					float e = std::min(bodyA->Restitution, bodyB->Restitution);
 					float j = -(1.0f + e) * velocityAlongNormal;
@@ -527,6 +540,37 @@ namespace Forge {
 		// direction and expanding the effective query distance.
 		uint64_t ignoredBodyID = 0;
 		return Raycast(origin, direction, maxDistance + radius, hitPosition, hitNormal, ignoredBodyID);
+	}
+
+	void Physics::HandleSleeping(float timestep)
+	{
+		for (auto* body : s_Bodies)
+		{
+			if (body->IsStatic)
+				continue;
+
+			float speed = glm::length(body->Velocity);
+
+			if (!body->IsSleeping)
+			{
+				// Body is awake - accumulate sleep time if velocity is low
+				if (speed < s_SleepVelocityThreshold)
+				{
+					body->SleepTime += timestep;
+					if (body->SleepTime >= s_SleepTimeThreshold)
+					{
+						body->IsSleeping = true;
+						body->Velocity = glm::vec3(0.0f);
+						body->AngularVelocity = glm::vec3(0.0f);
+						FG_CORE_TRACE("Body {0} sleeping", body->ID);
+					}
+				}
+				else
+				{
+					body->SleepTime = 0.0f;
+				}
+			}
+		}
 	}
 
 }
