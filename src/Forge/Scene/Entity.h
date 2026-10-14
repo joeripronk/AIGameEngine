@@ -18,7 +18,7 @@ namespace Forge {
 		template<typename T, typename... Args>
 		T& AddComponent(Args&&... args)
 		{
-			FG_CORE_ASSERT(!HasComponent<T>(), "Entity already has component!");
+			FG_CORE_ASSERT_MSG(!HasComponent<T>(), "Entity already has component!");
 			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
 			m_Scene->OnComponentAdded<T>(*this, component);
 			return component;
@@ -35,20 +35,20 @@ namespace Forge {
 		template<typename T>
 		T& GetComponent()
 		{
-			FG_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
+			FG_CORE_ASSERT_MSG(HasComponent<T>(), "Entity does not have component!");
 			return m_Scene->m_Registry.get<T>(m_EntityHandle);
 		}
 
 		template<typename T>
 		bool HasComponent()
 		{
-			return m_Scene->m_Registry.has<T>(m_EntityHandle);
+			return m_Scene->m_Registry.view<T>().contains(m_EntityHandle);
 		}
 
 		template<typename T>
 		void RemoveComponent()
 		{
-			FG_CORE_ASSERT(HasComponent<T>(), "Entity does not have component!");
+			FG_CORE_ASSERT_MSG(HasComponent<T>(), "Entity does not have component!");
 			m_Scene->m_Registry.remove<T>(m_EntityHandle);
 		}
 
@@ -71,6 +71,8 @@ namespace Forge {
 	private:
 		entt::entity m_EntityHandle{ entt::null };
 		Scene* m_Scene = nullptr;
+
+		friend class Scene;
 	};
 
 }

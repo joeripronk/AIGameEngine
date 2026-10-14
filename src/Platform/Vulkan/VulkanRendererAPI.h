@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Forge/Renderer/RendererAPI.h"
+#include <nvrhi/vulkan.h>
+#include <nvrhi/nvrhi.h>
 
 namespace Forge {
 
@@ -38,9 +40,11 @@ namespace Forge {
 		// Accessors
 		nvrhi::DeviceHandle GetDevice() const { return s_Device; }
 		nvrhi::CommandListHandle GetCommandList() { return s_CommandList; }
+		static nvrhi::DeviceHandle GetStaticDevice() { return s_Device; }
+		static nvrhi::CommandListHandle GetStaticCommandList() { return s_CommandList; }
 
 	private:
-		static void* s_Device;
+		static nvrhi::DeviceHandle s_Device;
 		static nvrhi::CommandListHandle s_CommandList;
 		static uint32_t s_Width;
 		static uint32_t s_Height;

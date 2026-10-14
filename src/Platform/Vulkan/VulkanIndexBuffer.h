@@ -2,7 +2,7 @@
 
 #include "Forge/Renderer/IndexBuffer.h"
 
-#include "Forge/Renderer/Renderer.h"
+#include <nvrhi/nvrhi.h>
 
 namespace Forge {
 
@@ -19,6 +19,7 @@ namespace Forge {
 
 	private:
 		uint32_t m_Count;
+		nvrhi::BufferHandle m_Buffer;
 	};
 
 }

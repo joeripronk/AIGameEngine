@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <catch2/catch_approx.hpp>
+using Catch::Approx;
 
 #include "Forge/Core/UUID.h"
 #include "Forge/Core/Timestep.h"
@@ -27,7 +29,9 @@ TEST_CASE("UUID from uint64_t", "[core][uuid]")
 TEST_CASE("UUID default constructor", "[core][uuid]")
 {
     Forge::UUID uuid;
-    REQUIRE(uuid.ToString() == "0");
+    // Default constructor generates a random UUID (non-zero)
+    REQUIRE((uint64_t)uuid != 0);
+    REQUIRE(uuid.ToString() != "0");
 }
 
 TEST_CASE("Timestep creation", "[core][timestep]")
@@ -69,8 +73,6 @@ TEST_CASE("LayerStack push and pop", "[core][layerstack]")
     REQUIRE(stack.begin() != stack.end());
     REQUIRE(stack.rbegin() != stack.rend());
 
-    // Clean up
-    delete layer1;
-    delete layer2;
-    delete overlay;
+    // LayerStack owns the layers - no manual delete needed
+    (void)layer1; (void)layer2; (void)overlay;
 }

@@ -6,10 +6,14 @@
 #include "glm/gtx/string_cast.hpp"
 
 // This ignores all warnings raised inside External headers
-#pragma warning(push, 0)
+#if defined(_MSC_VER)
+	#pragma warning(push, 0)
+#endif
 #include <spdlog/spdlog.h>
 #include <spdlog/fmt/fmt.h>
-#pragma warning(pop)
+#if defined(_MSC_VER)
+	#pragma warning(pop)
+#endif
 
 namespace Forge {
 
@@ -46,11 +50,16 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 }
 
 // Core log macros
-#define FG_CORE_TRACE(...)    ::Forge::Log::GetCoreLogger()->trace(__VA_ARGS__)
-#define FG_CORE_INFO(...)     ::Forge::Log::GetCoreLogger()->info(__VA_ARGS__)
-#define FG_CORE_WARN(...)     ::Forge::Log::GetCoreLogger()->warn(__VA_ARGS__)
-#define FG_CORE_ERROR(...)    ::Forge::Log::GetCoreLogger()->error(__VA_ARGS__)
-#define FG_CORE_CRITICAL(...) ::Forge::Log::GetCoreLogger()->critical(__VA_ARGS__)
+#define FG_CORE_TRACE(...)    (::Forge::Log::GetCoreLogger() ? ::Forge::Log::GetCoreLogger()->trace(__VA_ARGS__) : (void)0)
+#define FG_CORE_INFO(...)     (::Forge::Log::GetCoreLogger() ? ::Forge::Log::GetCoreLogger()->info(__VA_ARGS__) : (void)0)
+#define FG_CORE_WARN(...)     (::Forge::Log::GetCoreLogger() ? ::Forge::Log::GetCoreLogger()->warn(__VA_ARGS__) : (void)0)
+#define FG_CORE_ERROR(...)    (::Forge::Log::GetCoreLogger() ? ::Forge::Log::GetCoreLogger()->error(__VA_ARGS__) : (void)0)
+#define FG_CORE_CRITICAL(...) (::Forge::Log::GetCoreLogger() ? ::Forge::Log::GetCoreLogger()->critical(__VA_ARGS__) : (void)0)
+
+// Assert macros
+#define FG_ASSERT(x, ...) do { if(!(x)) { FG_CORE_ERROR(__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
+#define FG_CORE_ASSERT(x) do { if(!(x)) { FG_CORE_ERROR("Assertion failed: " #x); FG_DEBUGBREAK(); } } while(0)
+#define FG_CORE_ASSERT_MSG(x, msg, ...) do { if(!(x)) { FG_CORE_ERROR(msg, ##__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
 
 // Client log macros
 #define FG_TRACE(...)         ::Forge::Log::GetClientLogger()->trace(__VA_ARGS__)

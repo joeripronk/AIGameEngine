@@ -92,14 +92,26 @@ namespace YAML {
 		static Node encode(const Forge::UUID& uuid)
 		{
 			Node node;
-			node.push_back((uint64_t)uuid);
+			// Encode as string to avoid scientific notation for large uint64_t values
+			node.push_back(std::to_string((uint64_t)uuid));
+			node.SetStyle(YAML::EmitterStyle::Flow);
 			return node;
 		}
 
 		static bool decode(const Node& node, Forge::UUID& uuid)
 		{
-			uuid = node.as<uint64_t>();
-			return true;
+			try
+			{
+				uuid = Forge::UUID((uint64_t)node.as<uint64_t>());
+				return true;
+			}
+			catch (...)
+			{
+				// Fallback: parse as string (scientific notation guard)
+				std::string str = node.as<std::string>();
+				uuid = Forge::UUID((uint64_t)std::stoull(str));
+				return true;
+			}
 		}
 	};
 
@@ -114,7 +126,7 @@ namespace Forge {
 
 	static void SerializeEntity(YAML::Emitter& out, Entity entity)
 	{
-		FG_CORE_ASSERT(entity.HasComponent<IDComponent>());
+		FG_CORE_ASSERT_MSG(entity.HasComponent<IDComponent>(), "Assertion failed!");
 
 		out << YAML::BeginMap; // Entity
 		out << YAML::Key << "Entity" << YAML::Value << entity.GetUUID();
@@ -136,9 +148,28 @@ namespace Forge {
 			out << YAML::BeginMap;
 
 			auto& tc = entity.GetComponent<TransformComponent>();
-			out << YAML::Key << "Translation" << YAML::Value << tc.Translation;
-			out << YAML::Key << "Rotation" << YAML::Value << tc.Rotation;
-			out << YAML::Key << "Scale" << YAML::Value << tc.Scale;
+
+			// Explicitly build YAML node for vec3 (convert template not reliable for glm types)
+			YAML::Node translationNode;
+			translationNode.push_back(tc.Translation.x);
+			translationNode.push_back(tc.Translation.y);
+			translationNode.push_back(tc.Translation.z);
+			translationNode.SetStyle(YAML::EmitterStyle::Flow);
+			out << YAML::Key << "Translation" << YAML::Value << translationNode;
+
+			YAML::Node rotationNode;
+			rotationNode.push_back(tc.Rotation.x);
+			rotationNode.push_back(tc.Rotation.y);
+			rotationNode.push_back(tc.Rotation.z);
+			rotationNode.SetStyle(YAML::EmitterStyle::Flow);
+			out << YAML::Key << "Rotation" << YAML::Value << rotationNode;
+
+			YAML::Node scaleNode;
+			scaleNode.push_back(tc.Scale.x);
+			scaleNode.push_back(tc.Scale.y);
+			scaleNode.push_back(tc.Scale.z);
+			scaleNode.SetStyle(YAML::EmitterStyle::Flow);
+			out << YAML::Key << "Scale" << YAML::Value << scaleNode;
 
 			out << YAML::EndMap;
 		}
@@ -183,8 +214,22 @@ namespace Forge {
 			out << YAML::BeginMap;
 
 			auto& bc = entity.GetComponent<BoxColliderComponent>();
-			out << YAML::Key << "Offset" << YAML::Value << bc.Offset;
-			out << YAML::Key << "Size" << YAML::Value << bc.Size;
+
+			// Explicitly build YAML node for vec3
+			YAML::Node offsetNode;
+			offsetNode.push_back(bc.Offset.x);
+			offsetNode.push_back(bc.Offset.y);
+			offsetNode.push_back(bc.Offset.z);
+			offsetNode.SetStyle(YAML::EmitterStyle::Flow);
+			out << YAML::Key << "Offset" << YAML::Value << offsetNode;
+
+			YAML::Node sizeNode;
+			sizeNode.push_back(bc.Size.x);
+			sizeNode.push_back(bc.Size.y);
+			sizeNode.push_back(bc.Size.z);
+			sizeNode.SetStyle(YAML::EmitterStyle::Flow);
+			out << YAML::Key << "Size" << YAML::Value << sizeNode;
+
 			out << YAML::Key << "Density" << YAML::Value << bc.Density;
 			out << YAML::Key << "Friction" << YAML::Value << bc.Friction;
 			out << YAML::Key << "Restitution" << YAML::Value << bc.Restitution;
@@ -201,14 +246,14 @@ namespace Forge {
 		out << YAML::BeginMap;
 		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-		m_Scene->m_Registry.each([&](auto entityID)
+		for (auto entityID : m_Scene->m_Registry.view<IDComponent>())
 		{
-			Entity entity = { entityID, m_Scene.get() };
+			Entity entity{ entityID, m_Scene.get() };
 			if (!entity)
-				return;
+				continue;
 
 			SerializeEntity(out, entity);
-		});
+		}
 		out << YAML::EndSeq;
 		out << YAML::EndMap;
 
@@ -218,7 +263,8 @@ namespace Forge {
 
 	void SceneSerializer::SerializeRuntime(const std::string& filepath)
 	{
-		FG_CORE_ASSERT(false, "SerializeRuntime not implemented");
+		(void)filepath;
+		FG_CORE_ASSERT_MSG(false, "SerializeRuntime not implemented");
 	}
 
 	bool SceneSerializer::Deserialize(const std::string& filepath)
@@ -228,7 +274,7 @@ namespace Forge {
 		{
 			data = YAML::LoadFile(filepath);
 		}
-		catch (YAML::ParserException e)
+		catch (const YAML::ParserException& e)
 		{
 			FG_CORE_ERROR("Failed to load scene file '{0}'\n     {1}", filepath, e.what());
 			return false;
@@ -260,9 +306,12 @@ namespace Forge {
 				if (transformComponent)
 				{
 					auto& tc = deserializedEntity.GetComponent<TransformComponent>();
-					tc.Translation = transformComponent["Translation"].as<glm::vec3>();
-					tc.Rotation = transformComponent["Rotation"].as<glm::vec3>();
-					tc.Scale = transformComponent["Scale"].as<glm::vec3>();
+					auto transNode = transformComponent["Translation"];
+					tc.Translation = glm::vec3(transNode[0].as<float>(), transNode[1].as<float>(), transNode[2].as<float>());
+					auto rotNode = transformComponent["Rotation"];
+					tc.Rotation = glm::vec3(rotNode[0].as<float>(), rotNode[1].as<float>(), rotNode[2].as<float>());
+					auto scaleNode = transformComponent["Scale"];
+					tc.Scale = glm::vec3(scaleNode[0].as<float>(), scaleNode[1].as<float>(), scaleNode[2].as<float>());
 				}
 
 				auto cameraComponent = entityNode["CameraComponent"];
@@ -291,8 +340,10 @@ namespace Forge {
 				if (boxColliderComponent)
 				{
 					auto& bc = deserializedEntity.AddComponent<BoxColliderComponent>();
-					bc.Offset = boxColliderComponent["Offset"].as<glm::vec3>();
-					bc.Size = boxColliderComponent["Size"].as<glm::vec3>();
+					auto offsetNode = boxColliderComponent["Offset"];
+					bc.Offset = glm::vec3(offsetNode[0].as<float>(), offsetNode[1].as<float>(), offsetNode[2].as<float>());
+					auto sizeNode = boxColliderComponent["Size"];
+					bc.Size = glm::vec3(sizeNode[0].as<float>(), sizeNode[1].as<float>(), sizeNode[2].as<float>());
 					bc.Density = boxColliderComponent["Density"].as<float>();
 					bc.Friction = boxColliderComponent["Friction"].as<float>();
 					bc.Restitution = boxColliderComponent["Restitution"].as<float>();
@@ -305,7 +356,8 @@ namespace Forge {
 
 	bool SceneSerializer::DeserializeRuntime(const std::string& filepath)
 	{
-		FG_CORE_ASSERT(false, "DeserializeRuntime not implemented");
+		(void)filepath;
+		FG_CORE_ASSERT_MSG(false, "DeserializeRuntime not implemented");
 		return false;
 	}
 

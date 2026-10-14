@@ -21,17 +21,20 @@ namespace Forge {
 
 	Ref<class AudioBuffer> AudioEngine::LoadAudioBuffer(const std::string& filepath)
 	{
+		(void)filepath;
 		// TODO: Load audio buffer using miniaudio
 		return nullptr;
 	}
 
 	void AudioEngine::PlayAudioBuffer(Ref<class AudioBuffer> buffer)
 	{
+		(void)buffer;
 		// TODO: Play audio buffer
 	}
 
 	void AudioEngine::StopAudioBuffer(Ref<class AudioBuffer> buffer)
 	{
+		(void)buffer;
 		// TODO: Stop audio buffer
 	}
 

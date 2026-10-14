@@ -1,25 +1,29 @@
-# Forge Engine Core Library
-add_library(Forge STATIC)
+# Forge Engine Core Library (no Vulkan)
+add_library(ForgeCore STATIC)
 
-target_include_directories(Forge
+target_include_directories(ForgeCore
     PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/vendor/glm
-        ${CMAKE_SOURCE_DIR}/vendor/entt/src/include
+        ${CMAKE_SOURCE_DIR}/vendor/entt/single_include
         ${CMAKE_SOURCE_DIR}/vendor/spdlog/include
         ${CMAKE_SOURCE_DIR}/vendor/fmt/include
         ${CMAKE_SOURCE_DIR}/vendor/miniaudio
         ${CMAKE_SOURCE_DIR}/vendor/lua
         ${CMAKE_SOURCE_DIR}/vendor/stb
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi
+        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
         ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
+        ${CMAKE_BINARY_DIR}/vendor/assimp/include
         ${CMAKE_SOURCE_DIR}/vendor/physx/include
+        /usr/include
+        ${CMAKE_SOURCE_DIR}/vendor/glfw/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/Platform/Vulkan  # For null stubs in RendererAPI.cpp
 )
 
-target_sources(Forge
+target_sources(ForgeCore
     PRIVATE
         Forge/Core/Base.h
         Forge/Core/PlatformDetection.h
@@ -80,86 +84,63 @@ target_sources(Forge
         Forge/Audio/AudioEngine.h
         Forge/Audio/AudioEngine.cpp
         Forge/Debug/Instrumentor.h
-        Platform/Vulkan/VulkanWindow.h
-        Platform/Vulkan/VulkanWindow.cpp
-        Platform/Vulkan/VulkanRendererAPI.h
-        Platform/Vulkan/VulkanRendererAPI.cpp
-        Platform/Vulkan/VulkanVertexArray.h
-        Platform/Vulkan/VulkanVertexArray.cpp
-        Platform/Vulkan/VulkanVertexBuffer.h
-        Platform/Vulkan/VulkanVertexBuffer.cpp
-        Platform/Vulkan/VulkanIndexBuffer.h
-        Platform/Vulkan/VulkanIndexBuffer.cpp
-        Platform/Vulkan/VulkanShader.h
-        Platform/Vulkan/VulkanShader.cpp
-        Platform/Vulkan/VulkanMesh.h
-        Platform/Vulkan/VulkanMesh.cpp
-        Platform/Vulkan/VulkanTexture.h
-        Platform/Vulkan/VulkanTexture.cpp
-        # Lua sources (C files compiled as C++)
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lapi.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lapi.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lauxlib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lauxlib.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lbaselib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lcode.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lcode.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lcorolib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lctype.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lctype.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ldblib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ldebug.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ldebug.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ldo.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ldo.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ldump.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lfunc.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lfunc.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lgc.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lgc.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/linit.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/liolib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ljumptab.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/llex.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/llex.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/llimits.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lmathlib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lmem.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lmem.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/loadlib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lobject.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lobject.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lopcodes.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lopcodes.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lopnames.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/loslib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lparser.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lparser.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lprefix.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lstate.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lstate.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lstring.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lstring.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lstrlib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ltable.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ltable.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ltablib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ltm.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/ltm.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lua.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lua.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/luaconf.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lualib.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lundump.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lundump.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lutf8lib.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.h
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lzio.c
-        ${CMAKE_SOURCE_DIR}/vendor/lua/lzio.h
 )
 
-target_compile_definitions(Forge PRIVATE LUA_USE_C89)
+# Lua: compile as a separate C library
+add_library(lua STATIC
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lapi.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lauxlib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lbaselib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lcode.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lcorolib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lctype.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ldblib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ldebug.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ldo.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ldump.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lfunc.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lgc.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/linit.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/liolib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/llex.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lmathlib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lmem.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/loadlib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lobject.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lopcodes.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/loslib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lparser.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lstate.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lstring.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lstrlib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ltable.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ltablib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/ltm.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lua.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lundump.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lutf8lib.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.c
+    ${CMAKE_SOURCE_DIR}/vendor/lua/lzio.c
+)
+target_compile_options(lua PRIVATE -std=gnu90 -Wno-unused-parameter)
+target_include_directories(lua PUBLIC ${CMAKE_SOURCE_DIR}/vendor/lua)
+
+target_compile_definitions(ForgeCore PRIVATE LUA_USE_C89 FG_NO_VULKAN_RUNTIME)
+
+# Vulkan platform implementation (separate from core for testability)
+add_library(vulkan STATIC)
+target_sources(vulkan PRIVATE
+    Platform/Vulkan/VulkanRendererAPI.cpp
+    Platform/Vulkan/VulkanMesh.cpp
+    Platform/Vulkan/VulkanTexture.cpp
+    Platform/Vulkan/VulkanShader.cpp
+    Platform/Vulkan/VulkanVertexArray.cpp
+    Platform/Vulkan/VulkanVertexBuffer.cpp
+    Platform/Vulkan/VulkanIndexBuffer.cpp
+    Platform/Vulkan/VulkanWindow.cpp
+)
+target_include_directories(vulkan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(vulkan PRIVATE -std=gnu++20)
 
 # Dependencies
 find_package(Threads REQUIRED)
@@ -168,7 +149,7 @@ find_package(Threads REQUIRED)
 set(GLFW_BUILD_WAYLAND OFF)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
 
-# nvrhi
+# nvrhi (header-only for core)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
 
 # glm (header-only)
@@ -183,29 +164,40 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/fmt ${CMAKE_BINARY_DIR}/vendor/fmt)
 # miniaudio
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio ${CMAKE_BINARY_DIR}/vendor/miniaudio)
 
-# lua (included directly as sources)
-
 # stb (header-only)
 
 # assimp
+set(ASSIMP_WARNINGS_AS_ERRORS OFF)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp)
 
-# physx
-# add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/physx)
+# stb (compile definitions for implementation)
+target_compile_definitions(ForgeCore PRIVATE STBI_STATIC STB_IMAGE_IMPLEMENTATION)
 
-target_link_libraries(Forge
+target_link_libraries(ForgeCore PUBLIC lua)
+target_link_libraries(ForgeCore
     PRIVATE
         glfw
         nvrhi
         spdlog::spdlog
         fmt::fmt
         miniaudio
+        yaml-cpp
+        assimp
         Threads::Threads
 )
 
 # Set properties
-set_target_properties(Forge PROPERTIES
+set_target_properties(ForgeCore PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
     POSITION_INDEPENDENT_CODE ON
 )
+
+# Enable -Werror for engine code only
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ForgeCore PRIVATE -Wno-pedantic)
+    target_compile_options(ForgeCore PRIVATE -Werror)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(ForgeCore PRIVATE /WX)
+endif()

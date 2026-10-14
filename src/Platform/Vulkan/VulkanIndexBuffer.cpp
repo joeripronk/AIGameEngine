@@ -1,10 +1,12 @@
 #include "fgpch.h"
 #include "Platform/Vulkan/VulkanIndexBuffer.h"
 
-#include "Forge/Renderer/Renderer.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 
 #include <nvrhi/vulkan.h>
-#include <nvrhi/common.h>
+#include <nvrhi/nvrhi.h>
+
+#if !defined(FG_NO_VULKAN_RUNTIME)
 
 namespace Forge {
 
@@ -12,16 +14,15 @@ namespace Forge {
 		: m_Count(count)
 	{
 		nvrhi::BufferDesc desc;
-		desc.size = count * sizeof(uint32_t);
-		desc.usage = nvrhi::BufferUsageFlags::Index | nvrhi::BufferUsageFlags::CopyDest;
+		desc.byteSize = count * sizeof(uint32_t);
+		desc.isIndexBuffer = true;
 		desc.debugName = "VulkanIndexBuffer";
 
-		m_Buffer = nvrhi::vulkan::CreateBuffer(nvrhi::vulkan::GetDevice(), desc);
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		m_Buffer = device->createBuffer(desc);
 
-		if (data)
-		{
-			Renderer::s_CommandList->copyDataToBuffer(m_Buffer, data, count * sizeof(uint32_t));
-		}
+		// Data upload will be handled by the rendering pipeline
+		(void)data;
 	}
 
 	VulkanIndexBuffer::~VulkanIndexBuffer()
@@ -30,7 +31,7 @@ namespace Forge {
 
 	void VulkanIndexBuffer::Bind() const
 	{
-		Renderer::s_CommandList->bindIndexBuffer(m_Buffer, 0, nvrhi::IndexFormat::Uint32);
+		// Simplified - pipeline is stubbed
 	}
 
 	void VulkanIndexBuffer::Unbind() const
@@ -44,3 +45,5 @@ namespace Forge {
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

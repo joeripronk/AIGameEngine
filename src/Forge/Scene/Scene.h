@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Forge/Core/Base.h"
 #include "Forge/Core/Timestep.h"
 #include "Forge/Core/UUID.h"
 
@@ -21,11 +22,16 @@ namespace Forge {
 
 		Entity CreateEntity(const std::string& name = std::string());
 		Entity CreateEntityWithUUID(UUID uuid, const std::string& name = std::string());
-		void DestroyEntity(Entity entity);
+		void DestroyEntity(Entity& entity);
 
 		void OnRuntimeStart();
 		void OnRuntimeStop();
 
+		// Physics
+		void OnPhysicsStart();
+		void OnPhysicsStop();
+
+		// Simulation
 		void OnSimulationStart();
 		void OnSimulationStop();
 
@@ -53,15 +59,12 @@ namespace Forge {
 		{
 			return m_Registry.view<Components...>();
 		}
+
+		void RenderScene();
+
 	private:
 		template<typename T>
 		void OnComponentAdded(Entity entity, T& component);
-
-		void OnPhysicsStart();
-		void OnPhysicsStop();
-
-		void RenderScene();
-	private:
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 		bool m_IsRunning = false;

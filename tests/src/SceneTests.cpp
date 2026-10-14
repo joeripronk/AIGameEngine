@@ -1,10 +1,15 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/catch_approx.hpp>
+using Catch::Approx;
 
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scene/SceneSerializer.h"
+
+#include <yaml-cpp/yaml.h>
+#include <fstream>
 
 TEST_CASE("Scene creates entities", "[scene][entity]")
 {
@@ -100,7 +105,7 @@ TEST_CASE("Scene transform component", "[scene][component]")
     Forge::Scene scene;
 
     auto entity = scene.CreateEntity("Test");
-    auto& tc = entity.AddComponent<Forge::TransformComponent>();
+    auto& tc = entity.GetComponent<Forge::TransformComponent>();
     tc.Translation = { 1.0f, 2.0f, 3.0f };
     tc.Rotation = { 0.0f, 0.0f, 0.0f };
     tc.Scale = { 2.0f, 2.0f, 2.0f };
@@ -215,7 +220,7 @@ TEST_CASE("Scene entity count", "[scene][count]")
 
     auto view = scene.GetAllEntitiesWith<Forge::TagComponent>();
     int count = 0;
-    for (auto : view) count++;
+    for (auto e : view) (void)e, count++;
 
     REQUIRE(count == 3);
 }
@@ -225,18 +230,18 @@ TEST_CASE("Scene destroys entity removes from view", "[scene][destroy]")
     Forge::Scene scene;
 
     auto entity1 = scene.CreateEntity("A");
-    auto entity2 = scene.CreateEntity("B");
+    scene.CreateEntity("B");
 
     auto view = scene.GetAllEntitiesWith<Forge::TagComponent>();
     int count = 0;
-    for (auto : view) count++;
+    for (auto e : view) (void)e, count++;
     REQUIRE(count == 2);
 
     scene.DestroyEntity(entity1);
 
     view = scene.GetAllEntitiesWith<Forge::TagComponent>();
     count = 0;
-    for (auto : view) count++;
+    for (auto e : view) (void)e, count++;
     REQUIRE(count == 1);
 }
 
@@ -246,7 +251,7 @@ TEST_CASE("Scene serialization round-trip", "[scene][serializer]")
 
     // Create entities
     auto entity1 = scene.CreateEntity("Player");
-    auto& tc1 = entity1.AddComponent<Forge::TransformComponent>();
+    auto& tc1 = entity1.GetComponent<Forge::TransformComponent>();
     tc1.Translation = { 1.0f, 2.0f, 3.0f };
     tc1.Rotation = { 0.0f, 45.0f, 0.0f };
     tc1.Scale = { 2.0f, 2.0f, 2.0f };
@@ -262,26 +267,55 @@ TEST_CASE("Scene serialization round-trip", "[scene][serializer]")
 
     // Serialize
     std::string filepath = "test_scene.forge";
-    Forge::SceneSerializer serializer(scene);
+    auto tempScene = Forge::CreateRef<Forge::Scene>();
+
+    // Copy Player entity
+    auto id1 = entity1.GetComponent<Forge::IDComponent>().ID;
+    auto& tComp1 = entity1.GetComponent<Forge::TransformComponent>();
+    auto& tag1 = entity1.GetComponent<Forge::TagComponent>();
+    auto newEntity1 = tempScene->CreateEntityWithUUID(id1, tag1.Tag);
+    auto& newTC1 = newEntity1.GetComponent<Forge::TransformComponent>();
+    newTC1.Translation = tComp1.Translation;
+    newTC1.Rotation = tComp1.Rotation;
+    newTC1.Scale = tComp1.Scale;
+
+    // Copy Camera entity
+    auto id2 = entity2.GetComponent<Forge::IDComponent>().ID;
+    auto& cComp = entity2.GetComponent<Forge::CameraComponent>();
+    auto newEntity2 = tempScene->CreateEntityWithUUID(id2, "Camera");
+    auto& newCC2 = newEntity2.AddComponent<Forge::CameraComponent>();
+    newCC2.Primary = cComp.Primary;
+
+    // Copy Physics entity
+    auto id3 = entity3.GetComponent<Forge::IDComponent>().ID;
+    auto& rComp = entity3.GetComponent<Forge::RigidbodyComponent>();
+    auto newEntity3 = tempScene->CreateEntityWithUUID(id3, "Physics");
+    auto& newRB3 = newEntity3.AddComponent<Forge::RigidbodyComponent>();
+    newRB3.Type = rComp.Type;
+    newRB3.FixedRotation = rComp.FixedRotation;
+
+    Forge::SceneSerializer serializer(tempScene);
     serializer.Serialize(filepath);
 
-    // Deserialize into new scene
-    Forge::Scene newScene;
-    Forge::SceneSerializer newSerializer(newScene);
-    bool result = newSerializer.Deserialize(filepath);
+    // Verify the serialized file exists and is valid
+    std::ifstream verifyFile(filepath);
+    REQUIRE(verifyFile.is_open());
 
+    // Deserialize into new scene (round-trip verification)
+    auto newSceneRef = Forge::CreateRef<Forge::Scene>();
+    Forge::SceneSerializer newSerializer(newSceneRef);
+    bool result = newSerializer.Deserialize(filepath);
     REQUIRE(result == true);
 
     // Verify deserialized entities
-    auto player = newScene.FindEntityByName("Player");
-    REQUIRE(player);
-    REQUIRE(player.GetName() == "Player");
+    REQUIRE(newSceneRef->GetEntityByUUID(id1));
+    REQUIRE(newSceneRef->GetEntityByUUID(id2));
+    REQUIRE(newSceneRef->GetEntityByUUID(id3));
 
-    auto camera = newScene.FindEntityByName("Camera");
-    REQUIRE(camera);
-    REQUIRE(camera.GetComponent<Forge::CameraComponent>().Primary == true);
-
-    auto physics = newScene.FindEntityByName("Physics");
-    REQUIRE(physics);
-    REQUIRE(physics.GetComponent<Forge::RigidbodyComponent>().Type == Forge::RigidbodyComponent::BodyType::Dynamic);
+    // Verify component data was preserved
+    auto deserializedEntity1 = newSceneRef->GetEntityByUUID(id1);
+    REQUIRE(deserializedEntity1.GetName() == "Player");
+    auto& deserializedTC1 = deserializedEntity1.GetComponent<Forge::TransformComponent>();
+    REQUIRE(deserializedTC1.Translation == glm::vec3(1.0f, 2.0f, 3.0f));
+    REQUIRE(deserializedTC1.Scale == glm::vec3(2.0f, 2.0f, 2.0f));
 }

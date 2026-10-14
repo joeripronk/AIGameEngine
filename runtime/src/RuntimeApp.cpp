@@ -1,6 +1,7 @@
 #include "fgpch.h"
 #include "runtime/src/RuntimeApp.h"
 
+#include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Scene/SceneSerializer.h"
@@ -8,7 +9,7 @@
 namespace Forge {
 
 	RuntimeApp::RuntimeApp()
-		: Application(ApplicationSpecification{ "Forge Runtime", "" })
+		: Application(ApplicationSpecification{ "Forge Runtime", "", {0, nullptr} })
 	{
 		// Initialize renderer
 		Renderer::Init();
@@ -39,15 +40,16 @@ namespace Forge {
 
 	void RuntimeApp::Run()
 	{
-		while (m_Running)
+		float lastFrameTime = 0.0f;
+		while (IsRunning())
 		{
 			float time = (float)glfwGetTime();
-			Timestep timestep = time - m_LastFrameTime;
-			m_LastFrameTime = time;
+			Timestep timestep = time - lastFrameTime;
+			lastFrameTime = time;
 
-			if (!m_Minimized)
+			if (!IsMinimized())
 			{
-				for (Layer* layer : m_LayerStack)
+				for (Layer* layer : GetLayerStack())
 					layer->OnUpdate(timestep);
 
 				if (m_Scene)
@@ -56,13 +58,14 @@ namespace Forge {
 				}
 			}
 
-			m_Window->OnUpdate();
+			GetWindowScope()->OnUpdate();
 			ExecuteMainThreadQueue();
 		}
 	}
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
+		(void)args;
 		return new RuntimeApp();
 	}
 

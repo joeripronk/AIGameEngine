@@ -4,13 +4,18 @@
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
 
-#include <lua.hpp>
+extern "C" {
+#include <lua.h>
 #include <lauxlib.h>
 #include <lualib.h>
+}
+
+#include <fstream>
+#include <sstream>
 
 namespace Forge {
 
-	void* ScriptEngine::s_LuaState = nullptr;
+	lua_State* ScriptEngine::s_LuaState = nullptr;
 
 	// Lua bindings for Entity
 	static int LuaEntity_GetName(lua_State* L)
@@ -290,8 +295,13 @@ namespace Forge {
 
 	void ScriptEngine::Init()
 	{
-		s_LuaState = lua_newstate(nullptr, nullptr);
-		luaL_openlibs(s_LuaState);
+		// Use Lua's default allocator (Lua 5.4+ requires non-null allocator)
+		s_LuaState = luaL_newstate();
+		if (!s_LuaState)
+		{
+			FG_CORE_ERROR("Failed to create Lua state");
+			return;
+		}
 
 		// Register global functions
 		lua_register(s_LuaState, "GetTime", LuaGetTime);
@@ -365,7 +375,7 @@ namespace Forge {
 		// Create global "Scene" variable
 		lua_pushstring(s_LuaState, "Scene");
 		lua_pushlightuserdata(s_LuaState, nullptr); // Placeholder, set in OnRuntimeStart
-		lua_settable(s_LuaState, LUA_GLOBALSINDEX);
+		lua_settable(s_LuaState, 0);
 
 		FG_CORE_INFO("ScriptEngine initialized");
 	}
@@ -388,7 +398,7 @@ namespace Forge {
 		// Set global Scene reference
 		lua_pushstring(s_LuaState, "Scene");
 		lua_pushlightuserdata(s_LuaState, scene);
-		lua_settable(s_LuaState, LUA_GLOBALSINDEX);
+		lua_settable(s_LuaState, 0);
 
 		// Load and execute Lua scripts for ScriptComponent entities
 		auto view = scene->GetAllEntitiesWith<ScriptComponent>();
@@ -459,6 +469,7 @@ namespace Forge {
 
 	Ref<ScriptClass> ScriptEngine::GetEntityClass(const std::string& className)
 	{
+		(void)className;
 		// TODO: Implement Lua-based script class resolution
 		return nullptr;
 	}

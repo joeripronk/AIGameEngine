@@ -3,6 +3,8 @@
 #include "Forge/Renderer/RenderCommand.h"
 #include "Forge/Renderer/Shader.h"
 #include "Forge/Renderer/Shaders.h"
+#include <nvrhi/vulkan.h>
+#include <nvrhi/nvrhi.h>
 
 #include <glm/glm.hpp>
 

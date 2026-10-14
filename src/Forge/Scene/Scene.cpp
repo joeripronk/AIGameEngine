@@ -5,6 +5,9 @@
 #include "Forge/Scene/Components.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
+
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Renderer/Mesh.h"
 #include "Forge/Renderer/Shader.h"
@@ -14,11 +17,9 @@
 #include "Forge/Renderer/IndexBuffer.h"
 
 #include <nvrhi/vulkan.h>
-#include <nvrhi/common.h>
-#include <nvrhi/texture.h>
-#include <nvrhi/buffer.h>
-#include <nvrhi/pipeline.h>
-#include <nvrhi/descriptor_set.h>
+#include <nvrhi/nvrhi.h>
+
+#endif // FG_NO_VULKAN_RUNTIME
 
 namespace Forge {
 
@@ -28,8 +29,8 @@ namespace Forge {
 
 	Scene::~Scene()
 	{
-		if (m_PhysicsWorld)
-			delete m_PhysicsWorld;
+		// Physics world is managed externally; no delete here
+		m_PhysicsWorld = nullptr;
 	}
 
 	Entity Scene::CreateEntity(const std::string& name)
@@ -37,7 +38,7 @@ namespace Forge {
 		return CreateEntityWithUUID(UUID(), name);
 	}
 
-	Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
+		Entity Scene::CreateEntityWithUUID(UUID uuid, const std::string& name)
 	{
 		Entity entity = { m_Registry.create(), this };
 		entity.AddComponent<IDComponent>(uuid);
@@ -50,10 +51,12 @@ namespace Forge {
 		return entity;
 	}
 
-	void Scene::DestroyEntity(Entity entity)
+	void Scene::DestroyEntity(Entity& entity)
 	{
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
+		// Invalidate the entity handle so it evaluates to false
+		entity.m_EntityHandle = entt::null;
 	}
 
 	void Scene::OnRuntimeStart()
@@ -108,73 +111,75 @@ namespace Forge {
 					ScriptEngine::OnUpdateEntity(entity, ts);
 				}
 
-				m_Registry.view<NativeScriptComponent>().each([=](auto entity, auto& nsc)
+				const auto& nscView = m_Registry.view<NativeScriptComponent>();
+				for (auto e : nscView)
+				{
+					auto& nsc = std::get<0>(nscView.get(e));
+					if (!nsc.Instance)
 					{
-						if (!nsc.Instance)
-						{
-							nsc.Instance = nsc.InstantiateScript();
-							nsc.Instance->m_Entity = Entity{ entity, this };
-							nsc.Instance->OnCreate();
-						}
+						nsc.Instance = nsc.InstantiateScript();
+						nsc.Instance->SetEntity(nullptr); // TODO: Fix entity pointer lifecycle
+						nsc.Instance->OnCreate();
+					}
 
-						nsc.Instance->OnUpdate(ts);
-					});
+					nsc.Instance->OnUpdate(ts);
+				}
 			}
 
 			// Physics
 			{
-				const int32_t velocityIterations = 6;
-				const int32_t positionIterations = 2;
-				// m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
+				// m_PhysicsWorld->Step(ts, 6, 2);
 
 				// Retrieve transform from physics
 				auto view = m_Registry.view<RigidbodyComponent>();
 				for (auto e : view)
 				{
 					Entity entity = { e, this };
-					auto& transform = entity.GetComponent<TransformComponent>();
-					auto& rb = entity.GetComponent<RigidbodyComponent>();
-
 					// TODO: Update transform from physics body
+					(void)entity;
 				}
 			}
 		}
 
 		// Render
+#if !defined(FG_NO_VULKAN_RUNTIME)
 		RenderScene();
+#endif
 	}
 
 	void Scene::OnUpdateSimulation(Timestep ts)
 	{
+		(void)ts;
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			// Physics
 			{
-				const int32_t velocityIterations = 6;
-				const int32_t positionIterations = 2;
-				// m_PhysicsWorld->Step(ts, velocityIterations, positionIterations);
+				// m_PhysicsWorld->Step(ts, 6, 2);
 
 				// Retrieve transform from physics
 				auto view = m_Registry.view<RigidbodyComponent>();
 				for (auto e : view)
 				{
 					Entity entity = { e, this };
-					auto& transform = entity.GetComponent<TransformComponent>();
-					auto& rb = entity.GetComponent<RigidbodyComponent>();
-
 					// TODO: Update transform from physics body
+					(void)entity;
 				}
 			}
 		}
 
 		// Render
+#if !defined(FG_NO_VULKAN_RUNTIME)
 		RenderScene();
+#endif
 	}
 
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
+		(void)ts;
 		// Render
+#if !defined(FG_NO_VULKAN_RUNTIME)
 		RenderScene();
+#endif
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)
@@ -189,8 +194,8 @@ namespace Forge {
 		auto view = m_Registry.view<CameraComponent>();
 		for (auto entity : view)
 		{
-			auto& camera = view.get<CameraComponent>(entity);
 			// camera.SetViewportSize(width, height);
+			(void)entity;
 		}
 	}
 
@@ -217,6 +222,86 @@ namespace Forge {
 		Entity newEntity = CreateEntity(name);
 		// TODO: Copy all components
 		return newEntity;
+	}
+
+	Ref<Scene> Scene::Copy(Ref<Scene> other)
+	{
+		auto copy = CreateRef<Scene>();
+
+		// Copy entities with all components
+		auto view = other->m_Registry.view<IDComponent>();
+		for (auto entityID : view)
+		{
+			Entity originalEntity{ entityID, other.get() };
+			if (!originalEntity)
+				continue;
+
+			// Create entity with preserved UUID
+			auto id = originalEntity.GetComponent<IDComponent>().ID;
+			Entity newEntity = copy->CreateEntityWithUUID(id, originalEntity.GetName());
+
+			// Copy TagComponent
+			if (originalEntity.HasComponent<TagComponent>())
+			{
+				newEntity.AddComponent<TagComponent>(originalEntity.GetComponent<TagComponent>());
+			}
+
+			// Copy TransformComponent
+			if (originalEntity.HasComponent<TransformComponent>())
+			{
+				newEntity.AddComponent<TransformComponent>(originalEntity.GetComponent<TransformComponent>());
+			}
+
+			// Copy CameraComponent
+			if (originalEntity.HasComponent<CameraComponent>())
+			{
+				newEntity.AddComponent<CameraComponent>(originalEntity.GetComponent<CameraComponent>());
+			}
+
+			// Copy ScriptComponent
+			if (originalEntity.HasComponent<ScriptComponent>())
+			{
+				newEntity.AddComponent<ScriptComponent>(originalEntity.GetComponent<ScriptComponent>());
+			}
+
+			// Copy RigidbodyComponent
+			if (originalEntity.HasComponent<RigidbodyComponent>())
+			{
+				newEntity.AddComponent<RigidbodyComponent>(originalEntity.GetComponent<RigidbodyComponent>());
+			}
+
+			// Copy BoxColliderComponent
+			if (originalEntity.HasComponent<BoxColliderComponent>())
+			{
+				newEntity.AddComponent<BoxColliderComponent>(originalEntity.GetComponent<BoxColliderComponent>());
+			}
+
+			// Copy SphereColliderComponent
+			if (originalEntity.HasComponent<SphereColliderComponent>())
+			{
+				newEntity.AddComponent<SphereColliderComponent>(originalEntity.GetComponent<SphereColliderComponent>());
+			}
+
+			// Copy LightComponent
+			if (originalEntity.HasComponent<LightComponent>())
+			{
+				newEntity.AddComponent<LightComponent>(originalEntity.GetComponent<LightComponent>());
+			}
+
+			// Copy PBRMaterialComponent
+			if (originalEntity.HasComponent<PBRMaterialComponent>())
+			{
+				newEntity.AddComponent<PBRMaterialComponent>(originalEntity.GetComponent<PBRMaterialComponent>());
+			}
+
+			// Copy MeshComponent
+			if (originalEntity.HasComponent<MeshComponent>())
+			{
+				newEntity.AddComponent<MeshComponent>(originalEntity.GetComponent<MeshComponent>());
+			}
+		}
+
+		return copy;
 	}
 
 	Entity Scene::FindEntityByName(std::string_view name)
@@ -248,16 +333,8 @@ namespace Forge {
 		for (auto e : view)
 		{
 			Entity entity = { e, this };
-			auto& transform = entity.GetComponent<TransformComponent>();
-			auto& rb = entity.GetComponent<RigidbodyComponent>();
-
 			// TODO: Create physics body
-			// b2BodyDef bodyDef;
-			// bodyDef.type = Utils::RigidbodyTypeToBox2DBody(rb.Type);
-			// bodyDef.position.Set(transform.Translation.x, transform.Translation.y);
-			// bodyDef.angle = transform.Rotation.z;
-			// b2Body* body = m_PhysicsWorld->CreateBody(&bodyDef);
-			// rb.RuntimeBody = body;
+			(void)entity;
 		}
 	}
 
@@ -267,6 +344,8 @@ namespace Forge {
 		// delete m_PhysicsWorld;
 		// m_PhysicsWorld = nullptr;
 	}
+
+#if !defined(FG_NO_VULKAN_RUNTIME)
 
 	void Scene::RenderScene()
 	{
@@ -324,16 +403,15 @@ namespace Forge {
 		auto materialView = m_Registry.view<TransformComponent, PBRMaterialComponent>();
 		for (auto entity : materialView)
 		{
-			auto& transformComp = materialView.get<TransformComponent>(entity);
-			auto& pbr = materialView.get<PBRMaterialComponent>(entity);
-
 			// TODO: Render default cube with PBR material
-			// For now, skip
+			(void)entity;
 		}
 
 		// End scene
 		Renderer::EndScene();
 	}
+
+#endif // FG_NO_VULKAN_RUNTIME
 
 	template<typename T>
 	void Scene::OnComponentAdded(Entity entity, T& component)
@@ -344,16 +422,19 @@ namespace Forge {
 	template<>
 	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
 	{
+		(void)entity; (void)component;
 	}
 
 	template<>
 	void Scene::OnComponentAdded<TransformComponent>(Entity entity, TransformComponent& component)
 	{
+		(void)entity; (void)component;
 	}
 
 	template<>
 	void Scene::OnComponentAdded<CameraComponent>(Entity entity, CameraComponent& component)
 	{
+		(void)entity; (void)component;
 		if (m_ViewportWidth > 0 && m_ViewportHeight > 0)
 		{
 			// component.Camera.SetViewportSize(m_ViewportWidth, m_ViewportHeight);
@@ -363,26 +444,49 @@ namespace Forge {
 	template<>
 	void Scene::OnComponentAdded<ScriptComponent>(Entity entity, ScriptComponent& component)
 	{
+		(void)entity; (void)component;
 	}
 
 	template<>
 	void Scene::OnComponentAdded<TagComponent>(Entity entity, TagComponent& component)
 	{
+		(void)entity; (void)component;
 	}
 
 	template<>
 	void Scene::OnComponentAdded<RigidbodyComponent>(Entity entity, RigidbodyComponent& component)
 	{
+		(void)entity; (void)component;
 	}
 
 	template<>
 	void Scene::OnComponentAdded<BoxColliderComponent>(Entity entity, BoxColliderComponent& component)
 	{
+		(void)entity; (void)component;
 	}
 
 	template<>
 	void Scene::OnComponentAdded<SphereColliderComponent>(Entity entity, SphereColliderComponent& component)
 	{
+		(void)entity; (void)component;
+	}
+
+	template<>
+	void Scene::OnComponentAdded<LightComponent>(Entity entity, LightComponent& component)
+	{
+		(void)entity; (void)component;
+	}
+
+	template<>
+	void Scene::OnComponentAdded<PBRMaterialComponent>(Entity entity, PBRMaterialComponent& component)
+	{
+		(void)entity; (void)component;
+	}
+
+	template<>
+	void Scene::OnComponentAdded<MeshComponent>(Entity entity, MeshComponent& component)
+	{
+		(void)entity; (void)component;
 	}
 
 }

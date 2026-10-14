@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Forge/Renderer/Mesh.h"
+#include <nvrhi/vulkan.h>
 
 namespace Forge {
 

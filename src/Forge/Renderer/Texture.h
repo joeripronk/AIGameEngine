@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Forge/Core/Base.h"
 #include <string>
 
 namespace Forge {

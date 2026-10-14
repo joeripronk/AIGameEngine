@@ -10,7 +10,6 @@ namespace Forge {
 	public:
 		UUID();
 		UUID(uint64_t uuid);
-		UUID(const UUID&) = default;
 
 		operator uint64_t() const { return m_UUID; }
 

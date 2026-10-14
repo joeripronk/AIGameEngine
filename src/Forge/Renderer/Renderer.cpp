@@ -1,18 +1,18 @@
 #include "fgpch.h"
 #include "Forge/Renderer/Renderer.h"
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
 #include "Forge/Renderer/RenderCommand.h"
 #include "Forge/Renderer/Shader.h"
+#include "Forge/Renderer/ShaderLibrary.h"
 #include "Forge/Renderer/VertexArray.h"
+#include "Forge/Renderer/VertexBuffer.h"
+#include "Forge/Renderer/IndexBuffer.h"
 #include "Forge/Renderer/Texture.h"
 
 #include <nvrhi/vulkan.h>
-#include <nvrhi/common.h>
-#include <nvrhi/swapchain.h>
-#include <nvrhi/texture.h>
-#include <nvrhi/buffer.h>
-#include <nvrhi/pipeline.h>
-#include <nvrhi/descriptor_set.h>
+#include <nvrhi/nvrhi.h>
 
 namespace Forge {
 
@@ -70,14 +70,16 @@ namespace Forge {
 
 	void Renderer::BeginScene()
 	{
-		s_CommandList->begin();
-		s_CommandList->setViewport(0, 0, (float)s_Width, (float)s_Height, 0.0f, 1.0f);
-		s_CommandList->setScissor(0, 0, s_Width, s_Height);
+		// TODO: Implement Vulkan command list begin
+		// s_CommandList->begin();
+		// s_CommandList->setViewport(0, 0, (float)s_Width, (float)s_Height, 0.0f, 1.0f);
+		// s_CommandList->setScissor(0, 0, s_Width, s_Height);
 	}
 
 	void Renderer::EndScene()
 	{
-		s_CommandList->finish();
+		// TODO: Implement Vulkan command list finish
+		// s_CommandList->finish();
 	}
 
 	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform)
@@ -92,6 +94,7 @@ namespace Forge {
 
 	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture)
 	{
+		(void)albedoTexture;
 		shader->Bind();
 		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
 		shader->SetMat4("u_Transform", transform);
@@ -112,60 +115,49 @@ namespace Forge {
 
 	void Renderer::BeginShadowPass()
 	{
-		s_CommandList->begin();
+		// TODO: Implement Vulkan shadow pass
 	}
 
 	void Renderer::EndShadowPass()
 	{
-		s_CommandList->finish();
+		// TODO: Implement Vulkan shadow pass end
 	}
 
 	void Renderer::BeginHDRPass()
 	{
-		s_CommandList->begin();
+		// TODO: Implement Vulkan HDR pass
 	}
 
 	void Renderer::EndHDRPass()
 	{
-		s_CommandList->finish();
+		// TODO: Implement Vulkan HDR pass end
 	}
 
 	void Renderer::BeginSSAOPass()
 	{
-		s_CommandList->begin();
+		// TODO: Implement Vulkan SSAO pass
 	}
 
 	void Renderer::EndSSAOPass()
 	{
-		s_CommandList->finish();
+		// TODO: Implement Vulkan SSAO pass end
 	}
 
 	void Renderer::BeginFinalPass()
 	{
-		s_CommandList->begin();
+		// TODO: Implement Vulkan final pass
 	}
 
 	void Renderer::EndFinalPass()
 	{
-		s_CommandList->finish();
+		// TODO: Implement Vulkan final pass end
 	}
 
 	void Renderer::SubmitFinal()
 	{
-		s_CommandList->begin();
-		s_CommandList->setViewport(0, 0, (float)s_Width, (float)s_Height, 0.0f, 1.0f);
-		s_CommandList->setScissor(0, 0, s_Width, s_Height);
-
-		auto finalShader = s_ShaderLibrary.Get("Final");
-		finalShader->Bind();
-		finalShader->SetFloat("u_SSAOIntensity", 0.5f);
-
-		// Draw fullscreen quad
-		auto quadVA = s_ShaderLibrary.Get("Final")->GetVertexArray();
-		quadVA->Bind();
-		RenderCommand::DrawIndexed(quadVA);
-
-		s_CommandList->finish();
+		// TODO: Implement Vulkan final submit
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

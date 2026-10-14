@@ -1,5 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <catch2/catch_approx.hpp>
+using Catch::Approx;
 
 #include "Forge/Renderer/Camera.h"
 #include "Forge/Renderer/EditorCamera.h"
@@ -58,8 +60,8 @@ TEST_CASE("Camera view matrix is inverse of transform", "[renderer][camera]")
     camera.SetRotation(glm::vec3(0.0f, 0.0f, 0.0f));
 
     const auto& view = camera.GetViewMatrix();
-    // Camera at (0,0,10) looking at origin should have translation component
-    REQUIRE(view[3][2] == Approx(10.0f));
+    // Camera at (0,0,10) looking at origin: view matrix translates by (0,0,-10)
+    REQUIRE(view[3][2] == Approx(-10.0f));
 }
 
 TEST_CASE("EditorCamera default construction", "[renderer][editorcamera]")

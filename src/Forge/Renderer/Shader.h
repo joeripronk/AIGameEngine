@@ -1,7 +1,7 @@
 #pragma once
 
+#include "Forge/Core/Base.h"
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 #include <glm/glm.hpp>
@@ -30,23 +30,7 @@ namespace Forge {
 
 		static Ref<Shader> Create(const std::string& filepath);
 		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
-	};
-
-	class ShaderLibrary
-	{
-	public:
-		void Add(const std::string& name, const Ref<Shader>& shader);
-		void Add(const Ref<Shader>& shader);
-		Ref<Shader> Load(const std::string& filepath);
-		Ref<Shader> Load(const std::string& name, const std::string& filepath);
-
-		Ref<Shader> Get(const std::string& name);
-
-		bool Exists(const std::string& name) const;
-		uint32_t GetShaderCount() const { return (uint32_t)m_Shaders.size(); }
-
-	private:
-		std::unordered_map<std::string, Ref<Shader>> m_Shaders;
+		static Ref<Shader> Create(const char* name, const std::string& content);
 	};
 
 }

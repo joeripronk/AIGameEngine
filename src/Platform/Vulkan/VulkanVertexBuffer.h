@@ -2,7 +2,7 @@
 
 #include "Forge/Renderer/VertexBuffer.h"
 
-#include "Forge/Renderer/Renderer.h"
+#include <nvrhi/nvrhi.h>
 
 namespace Forge {
 
@@ -20,11 +20,12 @@ namespace Forge {
 		uint32_t GetSize() const override { return m_Size; }
 		const std::vector<float>& GetLayout() const override { return m_Layout; }
 
-		void SetLayout(const std::vector<float>& layout) { m_Layout = layout; }
+		void SetLayout(const std::vector<float>& layout);
 
 	private:
 		uint32_t m_Size;
 		std::vector<float> m_Layout;
+		nvrhi::BufferHandle m_Buffer;
 	};
 
 }

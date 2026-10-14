@@ -11,6 +11,10 @@ namespace Forge {
 
 	void Log::Init()
 	{
+		// Check if loggers already exist (idempotent initialization)
+		if (spdlog::get("FORGE"))
+			return;
+
 		std::vector<spdlog::sink_ptr> logSinks;
 		logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
 		logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>("Forge.log", true));

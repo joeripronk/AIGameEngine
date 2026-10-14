@@ -11,7 +11,7 @@ namespace Forge {
 	Application::Application(const ApplicationSpecification& specification)
 		: m_Specification(specification)
 	{
-		FG_CORE_ASSERT(!s_Instance, "Application already exists!");
+		FG_CORE_ASSERT_MSG(!s_Instance, "Application already exists!");
 		s_Instance = this;
 
 		m_Window = Window::Create(WindowProps{ specification.Name, 1600, 900 });
@@ -75,6 +75,7 @@ namespace Forge {
 
 	bool Application::OnWindowClose(WindowCloseEvent& e)
 	{
+		(void)e;
 		Close();
 		return true;
 	}

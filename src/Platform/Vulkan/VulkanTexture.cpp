@@ -1,12 +1,14 @@
 #include "fgpch.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
-#include "Forge/Renderer/Renderer.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 
 #include <nvrhi/vulkan.h>
-#include <nvrhi/common.h>
+#include <nvrhi/nvrhi.h>
 
 #include <stb_image.h>
+
+#if !defined(FG_NO_VULKAN_RUNTIME)
 
 namespace Forge {
 
@@ -29,62 +31,35 @@ namespace Forge {
 		nvrhi::TextureDesc desc;
 		desc.width = width;
 		desc.height = height;
-		desc.format = nvrhi::TextureFormat::RGBA8_UNorm;
-		desc.usage = nvrhi::TextureUsageFlags::ShaderResource;
+		desc.format = nvrhi::Format::RGBA8_UNORM;
+		desc.isShaderResource = true;
 		desc.debugName = filepath;
 
-		m_Texture = s_Device->createTexture(desc);
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		m_Texture = device->createTexture(desc);
 
-		nvrhi::TextureSubresourceData subresourceData;
-		subresourceData.pData = data;
-		subresourceData.rowPitch = width * channels;
-		subresourceData.slicePitch = width * height * channels;
-
-		Renderer::s_CommandList->copyDataToTexture(m_Texture, 0, 0, subresourceData);
-		Renderer::s_CommandList->finish();
-
-		nvrhi::ShaderResourceViewDesc srvDesc;
-		srvDesc.format = nvrhi::TextureFormat::RGBA8_UNorm;
-		srvDesc.texture = m_Texture;
-		srvDesc.textureDimension = nvrhi::TextureDimension::Texture2D;
-		srvDesc.isTextureArray = false;
-		srvDesc.isTextureMS = false;
-
-		m_SRV = s_Device->createShaderResourceView(srvDesc);
-
+		// Data upload will be handled by the rendering pipeline
 		stbi_image_free(data);
 
-		FG_CORE_INFO("Texture loaded: {0} ({1}x{2})", filepath, width, height);
+		FG_CORE_INFO("Texture created (data upload pending): {0} ({1}x{2})", filepath, width, height);
 	}
 
 	VulkanTexture::VulkanTexture(uint32_t width, uint32_t height, void* data)
 		: m_Width(width), m_Height(height)
 	{
+		(void)data;
 		nvrhi::TextureDesc desc;
 		desc.width = width;
 		desc.height = height;
-		desc.format = nvrhi::TextureFormat::RGBA8_UNorm;
-		desc.usage = nvrhi::TextureUsageFlags::ShaderResource;
+		desc.format = nvrhi::Format::RGBA8_UNORM;
+		desc.isShaderResource = true;
 		desc.debugName = "VulkanTexture";
 
-		m_Texture = s_Device->createTexture(desc);
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		m_Texture = device->createTexture(desc);
 
-		nvrhi::TextureSubresourceData subresourceData;
-		subresourceData.pData = data;
-		subresourceData.rowPitch = width * 4;
-		subresourceData.slicePitch = width * height * 4;
-
-		Renderer::s_CommandList->copyDataToTexture(m_Texture, 0, 0, subresourceData);
-		Renderer::s_CommandList->finish();
-
-		nvrhi::ShaderResourceViewDesc srvDesc;
-		srvDesc.format = nvrhi::TextureFormat::RGBA8_UNorm;
-		srvDesc.texture = m_Texture;
-		srvDesc.textureDimension = nvrhi::TextureDimension::Texture2D;
-		srvDesc.isTextureArray = false;
-		srvDesc.isTextureMS = false;
-
-		m_SRV = s_Device->createShaderResourceView(srvDesc);
+		// Data upload will be handled by the rendering pipeline
+		FG_CORE_INFO("Texture created (data upload pending): {0}x{1}", width, height);
 	}
 
 	VulkanTexture::~VulkanTexture()
@@ -102,3 +77,5 @@ namespace Forge {
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

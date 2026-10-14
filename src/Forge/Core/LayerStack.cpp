@@ -11,7 +11,8 @@ namespace Forge {
 
 	void LayerStack::PushLayer(Layer* layer)
 	{
-		m_Layers[m_LayerInsertIndex++] = layer;
+		m_Layers.insert(m_Layers.begin() + m_LayerInsertIndex, layer);
+		m_LayerInsertIndex++;
 	}
 
 	void LayerStack::PushOverlay(Layer* overlay)

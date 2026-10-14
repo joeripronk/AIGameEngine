@@ -3,6 +3,8 @@
 #include "Forge/Renderer/Texture.h"
 
 #include "Forge/Renderer/Renderer.h"
+#include <nvrhi/vulkan.h>
+#include <nvrhi/nvrhi.h>
 
 namespace Forge {
 
@@ -20,7 +22,6 @@ namespace Forge {
 		uint32_t m_Width;
 		uint32_t m_Height;
 		nvrhi::TextureHandle m_Texture;
-		nvrhi::ResourceViewHandle m_SRV;
 	};
 
 }

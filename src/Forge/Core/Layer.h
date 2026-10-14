@@ -12,9 +12,9 @@ namespace Forge {
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
-		virtual void OnUpdate(float ts) {}
+		virtual void OnUpdate(float ts) { (void)ts; }
 		virtual void OnImGuiRender() {}
-		virtual void OnEvent(class Event& event) {}
+		virtual void OnEvent(class Event& event) { (void)event; }
 
 		const std::string& GetName() const { return m_DebugName; }
 	protected:

@@ -18,7 +18,7 @@ namespace Forge {
 
 		const char* operator[](int index) const
 		{
-			FG_CORE_ASSERT(index < Count);
+			FG_CORE_ASSERT_MSG(index < Count, "Assertion failed!");
 			return Args[index];
 		}
 	};
@@ -50,8 +50,18 @@ namespace Forge {
 		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
 		void SubmitToMainThread(const std::function<void()>& function);
-	private:
-		void Run();
+
+		// Accessors for runtime/editor
+		bool IsRunning() const { return m_Running; }
+		float GetLastFrameTime() const { return m_LastFrameTime; }
+		bool IsMinimized() const { return m_Minimized; }
+		LayerStack& GetLayerStack() { return m_LayerStack; }
+		Scope<Window>& GetWindowScope() { return m_Window; }
+		std::vector<std::function<void()>>& GetMainThreadQueue() { return m_MainThreadQueue; }
+		std::mutex& GetMainThreadQueueMutex() { return m_MainThreadQueueMutex; }
+
+	protected:
+		virtual void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 
@@ -68,7 +78,7 @@ namespace Forge {
 		std::mutex m_MainThreadQueueMutex;
 	private:
 		static Application* s_Instance;
-		friend int ::main(int argc, char** argv);
+		friend int main(int argc, char** argv);
 	};
 
 	// To be defined in CLIENT

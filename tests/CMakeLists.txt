@@ -21,9 +21,15 @@ target_sources(ForgeTests
 
 target_link_libraries(ForgeTests
     PRIVATE
-        Forge
+        ForgeCore
         Catch2::Catch2WithMain
         ${CMAKE_DL_LIBS}
+)
+
+target_compile_definitions(ForgeTests
+    PRIVATE
+        FG_NO_VULKAN_RUNTIME
+        CATCH_CONFIG_NO_PARALLEL_EXECUTION
 )
 
 # Set properties
@@ -31,6 +37,14 @@ set_target_properties(ForgeTests PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON
 )
+
+# Enable -Werror for tests
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ForgeTests PRIVATE -Werror)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(ForgeTests PRIVATE /WX)
+endif()
 
 # Add test executable
 enable_testing()

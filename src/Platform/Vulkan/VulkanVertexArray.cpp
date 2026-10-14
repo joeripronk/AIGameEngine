@@ -1,11 +1,12 @@
 #include "fgpch.h"
 #include "Platform/Vulkan/VulkanVertexArray.h"
+#include <nvrhi/vulkan.h>
+#include <nvrhi/nvrhi.h>
 
 #include "Platform/Vulkan/VulkanVertexBuffer.h"
 #include "Platform/Vulkan/VulkanIndexBuffer.h"
 
-#include <nvrhi/vulkan.h>
-#include <nvrhi/common.h>
+#if !defined(FG_NO_VULKAN_RUNTIME)
 
 namespace Forge {
 
@@ -54,3 +55,5 @@ namespace Forge {
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

@@ -1,6 +1,8 @@
 #include "fgpch.h"
 #include "Forge/Core/Window.h"
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
 #if defined(FG_PLATFORM_WINDOWS)
 	#include "Platform/Vulkan/VulkanWindow.h"
 #elif defined(FG_PLATFORM_LINUX)
@@ -27,4 +29,6 @@ namespace Forge {
 #endif
 	}
 
-}
+} // namespace Forge
+
+#endif // FG_NO_VULKAN_RUNTIME

@@ -5,8 +5,14 @@
 
 namespace Forge {
 
+	static std::mt19937_64& GetRandomGenerator()
+	{
+		static std::mt19937_64 generator(std::random_device{}());
+		return generator;
+	}
+
 	UUID::UUID()
-		: m_UUID(0)
+		: m_UUID(GetRandomGenerator()())
 	{
 	}
 
@@ -20,17 +26,9 @@ namespace Forge {
 		return std::to_string(m_UUID);
 	}
 
-	static std::mt19937_64& GetRandomGenerator()
-	{
-		static std::mt19937_64 generator(std::random_device{}());
-		return generator;
-	}
-
-	static UUID GenerateUUID()
+	[[maybe_unused]] static UUID GenerateUUID()
 	{
 		return UUID(GetRandomGenerator()());
 	}
-
-	UUID::UUID(const UUID&) = default;
 
 }

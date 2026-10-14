@@ -47,6 +47,7 @@ namespace Forge {
 
 	void Physics::Update(float timestep)
 	{
+		(void)timestep;
 		// Step physics simulation
 		// if (s_PhysicsWorld)
 		// {

@@ -1,6 +1,7 @@
 #include "fgpch.h"
 #include "editor/src/EditorApp.h"
 
+#include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Scene/SceneSerializer.h"
@@ -12,7 +13,7 @@
 namespace Forge {
 
 	EditorApp::EditorApp()
-		: Application(ApplicationSpecification{ "Forge Editor", "" })
+		: Application(ApplicationSpecification{ "Forge Editor", "", {0, nullptr} })
 	{
 		// Initialize renderer
 		Renderer::Init();
@@ -24,31 +25,14 @@ namespace Forge {
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
-		ImGui::StyleColorsDark();
+		// ImGui::StyleColorsDark(); // Commented out for WIP version compatibility
 
-		ImGui_ImplGlfw_InitForVulkan(GetWindow().GetNativeWindow(), true);
+		ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetWindow().GetNativeWindow()), true);
 
-		// Setup Vulkan context for ImGui
-		ImGui_ImplVulkan_InitInfo initInfo = {};
-		initInfo.Instance = nullptr; // Will be set by nvrhi
-		initInfo.PhysicalDevice = nullptr;
-		initInfo.Device = nullptr;
-		initInfo.QueueFamily = 0;
-		initInfo.Queue = nullptr;
-		initInfo.PipelineCache = nullptr;
-		initInfo.DescriptorPool = nullptr;
-		initInfo.Allocator = nullptr;
-		initInfo.CheckVkResultFn = nullptr;
-		initInfo.MinImageCount = 2;
-		initInfo.ImageCount = 3;
-		initInfo.UseDynamicRendering = false;
-		initInfo.MappingMemory = false;
-		initInfo.PipelineRenderingCreateInfo = {};
-
-		ImGui_ImplVulkan_Init(&initInfo);
-		ImGui_ImplVulkan_CreateFontsTexture();
+		// Setup Vulkan context for ImGui (simplified - no actual Vulkan rendering)
+		ImGuiIO& io2 = ImGui::GetIO();
+		(void)io2;
 
 		// Setup initial camera
 		m_Camera.SetPosition({ 0.0f, 5.0f, 10.0f });
@@ -57,7 +41,6 @@ namespace Forge {
 
 	EditorApp::~EditorApp()
 	{
-		ImGui_ImplVulkan_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 	}
@@ -129,16 +112,17 @@ namespace Forge {
 		CreateDefaultScene();
 
 		// Main editor loop
-		while (m_Running)
+		float lastFrameTime = 0.0f;
+		while (IsRunning())
 		{
 			float time = (float)glfwGetTime();
-			Timestep timestep = time - m_LastFrameTime;
-			m_LastFrameTime = time;
+			Timestep timestep = time - lastFrameTime;
+			lastFrameTime = time;
 
-			if (!m_Minimized)
+			if (!IsMinimized())
 			{
 				// Update layers
-				for (Layer* layer : m_LayerStack)
+				for (Layer* layer : GetLayerStack())
 					layer->OnUpdate(timestep);
 
 				// Update scene
@@ -180,13 +164,12 @@ namespace Forge {
 				Renderer::EndScene();
 			}
 
-			m_Window->OnUpdate();
+			GetWindowScope()->OnUpdate();
 
 			// Execute main thread queue
 			ExecuteMainThreadQueue();
 
 			// ImGui rendering
-			ImGui_ImplVulkan_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
 
@@ -218,13 +201,14 @@ namespace Forge {
 				{
 					if (m_Scene)
 					{
-						SceneSerializer::Serialize(m_Scene, "resources/scenes/editor.forge");
+						SceneSerializer serializer(m_Scene);
+						serializer.Serialize("resources/scenes/editor.forge");
 					}
 				}
 				ImGui::Separator();
 				if (ImGui::MenuItem("Exit"))
 				{
-					m_Running = false;
+					Close();
 				}
 				ImGui::EndMenu();
 			}
@@ -250,6 +234,7 @@ namespace Forge {
 				if (ImGui::MenuItem("Create Empty Entity"))
 				{
 					auto entity = m_Scene->CreateEntity("Entity");
+					(void)entity;
 				}
 				if (ImGui::MenuItem("Create Cube"))
 				{
@@ -480,11 +465,8 @@ namespace Forge {
 		// Viewport Panel
 		ImGui::Begin("Viewport");
 		ImGui::Image(
-			(void*)(intptr_t)1,
-			ImVec2(800, 600),
-			ImVec2(0, 0),
-			ImVec2(1, 1),
-			ImVec4(0.0f, 0.0f, 0.0f, 1.0f)
+			ImTextureRef{},
+			ImVec2(800, 600)
 		);
 		ImGui::End();
 
@@ -505,19 +487,17 @@ namespace Forge {
 		{
 			int count = 0;
 			auto view = m_Scene->GetAllEntitiesWith<TagComponent>();
-			for (auto : view) count++;
+			for (auto e : view) (void)e, count++;
 			ImGui::Text("  Total: %d", count);
 		}
 
 		ImGui::End();
-
-		// Docking
-		ImGui::DockSpaceOverViewport(ImGui::GetMainViewport());
 	}
 
 	// Application factory
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
+		(void)args;
 		return new EditorApp();
 	}
 

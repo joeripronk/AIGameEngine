@@ -28,9 +28,6 @@ namespace Forge {
 		void CreateShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
 
 		std::string m_Name;
-		nvrhi::ShaderHandle m_Shader;
-		nvrhi::ShaderReflectionHandle m_Reflection;
-		std::unordered_map<std::string, nvrhi::BindingInfo> m_BindingMap;
 	};
 
 }

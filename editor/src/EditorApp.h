@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Forge/Core/Application.h"
+#include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Renderer/EditorCamera.h"
 
@@ -20,6 +21,8 @@ namespace Forge {
 		// Editor state
 		Entity GetSelectedEntity() const { return m_SelectedEntity; }
 		void SetSelectedEntity(Entity entity) { m_SelectedEntity = entity; }
+
+		void DrawEditorUI(Timestep ts);
 
 	private:
 		void CreateDefaultScene();

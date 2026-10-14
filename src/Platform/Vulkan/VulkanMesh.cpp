@@ -10,6 +10,8 @@
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
 namespace Forge {
 
 	VulkanMesh::VulkanMesh(const std::vector<Vertex>& vertices, const std::vector<uint32_t>& indices, const Material& material)
@@ -47,7 +49,7 @@ namespace Forge {
 			aiProcess_Triangulate |
 			aiProcess_FlipUVs |
 			aiProcess_GenNormals |
-			aiProcess_GenTangentSpace |
+			aiProcess_CalcTangentSpace |
 			aiProcess_JoinIdenticalVertices |
 			aiProcess_OptimizeMeshes);
 
@@ -122,14 +124,14 @@ namespace Forge {
 			for (uint32_t j = 0; j < mesh->mNumFaces; j++)
 			{
 				aiFace& face = mesh->mFaces[j];
-				FG_CORE_ASSERT(face.mNumIndices == 3, "Face must have exactly 3 indices");
+				FG_CORE_ASSERT_MSG(face.mNumIndices == 3, "Face must have exactly 3 indices");
 				indices.push_back(face.mIndices[0]);
 				indices.push_back(face.mIndices[1]);
 				indices.push_back(face.mIndices[2]);
 			}
 
 			// Extract material
-			if (mesh->mMaterialIndex >= 0)
+			if (mesh->mMaterialIndex != (uint32_t)-1)
 			{
 				aiMaterial* aiMat = scene->mMaterials[mesh->mMaterialIndex];
 
@@ -151,10 +153,10 @@ namespace Forge {
 					material.Roughness = roughness;
 				}
 
-				float ao = 1.0f;
-				if (aiMat->Get(AI_MATKEY_GLOSSINESS, ao) == AI_SUCCESS)
+				float shininess = 0.0f;
+				if (aiMat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS)
 				{
-					material.AO = ao / 255.0f;
+					material.AO = shininess / 255.0f;
 				}
 
 				// Load textures
@@ -165,7 +167,7 @@ namespace Forge {
 					material.AlbedoTexture = Texture::Create(texPath);
 				}
 
-				if (aiMat->GetTexture(aiTextureType_METALLIC, 0, &path) == AI_SUCCESS)
+				if (aiMat->GetTexture(aiTextureType_METALNESS, 0, &path) == AI_SUCCESS)
 				{
 					std::string texPath = filepath.substr(0, filepath.find_last_of("/\\") + 1) + path.C_Str();
 					material.MetallicRoughnessTexture = Texture::Create(texPath);
@@ -189,3 +191,5 @@ namespace Forge {
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

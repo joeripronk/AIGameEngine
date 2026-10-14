@@ -1,7 +1,11 @@
 #include "fgpch.h"
 #include "Platform/Vulkan/VulkanWindow.h"
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
 #include "Forge/Events/ApplicationEvent.h"
+#include "Forge/Events/KeyEvent.h"
+#include "Forge/Events/MouseEvent.h"
 
 namespace Forge {
 
@@ -27,8 +31,8 @@ namespace Forge {
 
 		if (s_GLFWWindowCount == 0)
 		{
-			int result = glfwInit();
-			FG_CORE_ASSERT(result, "Could not initialize GLFW!");
+			glfwInit();
+			FG_CORE_ASSERT_MSG(1, "Could not initialize GLFW!");
 
 			glfwSetErrorCallback([](int error, const char* description)
 			{
@@ -39,7 +43,7 @@ namespace Forge {
 		s_GLFWWindowCount++;
 
 		m_Window = glfwCreateWindow((int)m_Data.Width, (int)m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
-		FG_CORE_ASSERT(m_Window, "Could not create GLFW window!");
+		FG_CORE_ASSERT_MSG(m_Window, "Could not create GLFW window!");
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 
@@ -47,7 +51,8 @@ namespace Forge {
 		glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-			data.EventCallback(WindowCloseEvent());
+			WindowCloseEvent event;
+			data.EventCallback(event);
 		});
 
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
@@ -55,56 +60,78 @@ namespace Forge {
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 			data.Width = width;
 			data.Height = height;
-			data.EventCallback(WindowResizeEvent((uint32_t)width, (uint32_t)height));
+			WindowResizeEvent event((uint32_t)width, (uint32_t)height);
+			data.EventCallback(event);
 		});
 
 		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
 		{
+			(void)scancode;
+			(void)mods;
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 			switch (action)
 			{
 				case GLFW_PRESS:
-					data.EventCallback(KeyPressedEvent(key, 0));
+				{
+					KeyPressedEvent event(key, 0);
+					data.EventCallback(event);
 					break;
+				}
 				case GLFW_RELEASE:
-					data.EventCallback(KeyReleasedEvent(key));
+				{
+					KeyReleasedEvent event(key);
+					data.EventCallback(event);
 					break;
+				}
 				case GLFW_REPEAT:
-					data.EventCallback(KeyPressedEvent(key, 1));
+				{
+					KeyPressedEvent event(key, 1);
+					data.EventCallback(event);
 					break;
+				}
 			}
 		});
 
 		glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int mods)
 		{
+			(void)mods;
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 			switch (action)
 			{
 				case GLFW_PRESS:
-					data.EventCallback(MouseButtonPressedEvent(button));
+				{
+					MouseButtonPressedEvent event(button);
+					data.EventCallback(event);
 					break;
+				}
 				case GLFW_RELEASE:
-					data.EventCallback(MouseButtonReleasedEvent(button));
+				{
+					MouseButtonReleasedEvent event(button);
+					data.EventCallback(event);
 					break;
+				}
 			}
 		});
 
 		glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xoffset, double yoffset)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-			data.EventCallback(MouseScrolledEvent((float)xoffset, (float)yoffset));
+			MouseScrolledEvent event((float)xoffset, (float)yoffset);
+			data.EventCallback(event);
 		});
 
 		glfwSetCursorPosCallback(m_Window, [](GLFWwindow* window, double x, double y)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-			data.EventCallback(MouseMovedEvent((float)x, (float)y));
+			MouseMovedEvent event((float)x, (float)y);
+			data.EventCallback(event);
 		});
 
 		glfwSetCharCallback(m_Window, [](GLFWwindow* window, unsigned int keycode)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
-			data.EventCallback(KeyTypedEvent(keycode));
+			KeyTypedEvent event(keycode);
+			data.EventCallback(event);
 		});
 
 		SetVSync(true);
@@ -131,3 +158,5 @@ namespace Forge {
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

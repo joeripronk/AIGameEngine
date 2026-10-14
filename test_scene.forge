@@ -1,0 +1,28 @@
+Scene: Untitled
+Entities:
+  - Entity: 7734705094845747872
+    TagComponent:
+      Tag: Physics
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RigidbodyComponent:
+      BodyType: 1
+      FixedRotation: true
+  - Entity: 12615788394968613843
+    TagComponent:
+      Tag: Camera
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Primary: true
+  - Entity: 7055094228982177742
+    TagComponent:
+      Tag: Player
+    TransformComponent:
+      Translation: [1, 2, 3]
+      Rotation: [0, 45, 0]
+      Scale: [2, 2, 2]

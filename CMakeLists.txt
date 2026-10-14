@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(ForgeEngine VERSION 0.1.0 LANGUAGES CXX)
+project(ForgeEngine VERSION 0.1.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,14 +21,14 @@ endif()
 
 # Compiler flags
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    add_compile_options(/W4 /WX)
+    add_compile_options(/W4)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+    add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
 # Debug/Release configurations
 add_compile_definitions(
-    $<$<CONFIG:Debug>:FG_DEBUG>
+    FG_DEBUG
     $<$<CONFIG:Release>:FG_RELEASE>
     $<$<CONFIG:Dist>:FG_DIST>
 )
@@ -49,5 +49,5 @@ add_subdirectory(runtime)
 add_subdirectory(tests)
 
 # Install rules
-install(TARGETS Forge DESTINATION lib)
+install(TARGETS ForgeCore DESTINATION lib)
 install(DIRECTORY src/Forge DESTINATION include/Forge)

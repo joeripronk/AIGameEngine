@@ -42,11 +42,15 @@ namespace Forge {
 		// Camera movement (WASD + Q/E)
 		float speed = 5.0f * ts;
 		float zoomSpeed = 2.0f * ts;
+		(void)speed;
+		(void)zoomSpeed;
 
 		// Movement direction based on camera rotation (yaw)
 		float yaw = glm::radians(m_Rotation.y);
 		glm::vec3 forward = glm::vec3(-sin(yaw), 0.0f, -cos(yaw));
 		glm::vec3 right = glm::vec3(cos(yaw), 0.0f, -sin(yaw));
+		(void)forward;
+		(void)right;
 
 		// TODO: This would need access to GLFW keys
 		// if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
@@ -71,6 +75,7 @@ namespace Forge {
 
 	void EditorCamera::OnEvent(Event& event)
 	{
+		(void)event;
 		// Mouse look
 		// if (auto& e = (MouseEvent&)event; e.GetButton() == GLFW_MOUSE_BUTTON_RIGHT)
 		// {

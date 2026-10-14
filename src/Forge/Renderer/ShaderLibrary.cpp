@@ -4,11 +4,13 @@
 #include <fstream>
 #include <sstream>
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
 namespace Forge {
 
 	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
 	{
-		FG_CORE_ASSERT(!Exists(name), "Shader already exists!");
+		FG_CORE_ASSERT_MSG(!Exists(name), "Shader already exists!");
 		m_Shaders[name] = shader;
 	}
 
@@ -44,7 +46,7 @@ namespace Forge {
 
 	Ref<Shader> ShaderLibrary::Get(const std::string& name)
 	{
-		FG_CORE_ASSERT(Exists(name), "Shader not found!");
+		FG_CORE_ASSERT_MSG(Exists(name), "Shader not found!");
 		return m_Shaders.at(name);
 	}
 
@@ -54,3 +56,5 @@ namespace Forge {
 	}
 
 }
+
+#endif // FG_NO_VULKAN_RUNTIME

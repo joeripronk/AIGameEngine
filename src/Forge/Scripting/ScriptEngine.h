@@ -5,6 +5,10 @@
 
 #include "Forge/Scene/Scene.h"
 
+extern "C" {
+#include <lua.h>
+}
+
 namespace Forge {
 
 	class ScriptEngine
@@ -22,7 +26,7 @@ namespace Forge {
 		static Ref<class ScriptClass> GetEntityClass(const std::string& className);
 
 	private:
-		static void* s_LuaState;
+		static lua_State* s_LuaState;
 	};
 
 	class ScriptClass

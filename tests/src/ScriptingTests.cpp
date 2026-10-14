@@ -47,7 +47,7 @@ TEST_CASE("ScriptableEntity with derived class", "[scripting]")
         int UpdateCount = 0;
 
         void OnCreate() override { CreateCount++; }
-        void OnUpdate(Forge::Timestep ts) override { UpdateCount++; }
+        void OnUpdate(Forge::Timestep ts) override { (void)ts; UpdateCount++; }
     };
 
     TestScript script;

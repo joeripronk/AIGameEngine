@@ -1,22 +1,29 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
+using Catch::Approx;
 
 #include "Forge/Physics/Physics.h"
+#include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Core/Log.h"
 
 TEST_CASE("Physics initializes", "[physics]")
 {
+    REQUIRE_NOTHROW(Forge::Log::Init());
     REQUIRE_NOTHROW(Forge::Physics::Init());
 }
 
 TEST_CASE("Physics shuts down", "[physics]")
 {
+    REQUIRE_NOTHROW(Forge::Log::Init());
     Forge::Physics::Init();
     REQUIRE_NOTHROW(Forge::Physics::Shutdown());
 }
 
 TEST_CASE("Physics init and shutdown multiple times", "[physics]")
 {
+    REQUIRE_NOTHROW(Forge::Log::Init());
     Forge::Physics::Init();
     Forge::Physics::Shutdown();
     Forge::Physics::Init();

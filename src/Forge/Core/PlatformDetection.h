@@ -5,7 +5,9 @@
 	/* Windows x64/x86 */
 	#ifdef _WIN64
 		/* Windows x64  */
-		#define FG_PLATFORM_WINDOWS
+		#ifndef FG_PLATFORM_WINDOWS
+			#define FG_PLATFORM_WINDOWS
+		#endif
 	#else
 		/* Windows x86 */
 		#error "x86 Builds are not supported!"
@@ -19,10 +21,14 @@
 	#if TARGET_IPHONE_SIMULATOR == 1
 		#error "IOS simulator is not supported!"
 	#elif TARGET_OS_IPHONE == 1
-		#define FG_PLATFORM_IOS
+		#ifndef FG_PLATFORM_IOS
+			#define FG_PLATFORM_IOS
+		#endif
 		#error "IOS is not supported!"
 	#elif TARGET_OS_MAC == 1
-		#define FG_PLATFORM_MACOS
+		#ifndef FG_PLATFORM_MACOS
+			#define FG_PLATFORM_MACOS
+		#endif
 	#else
 		#error "Unknown Apple platform!"
 	#endif
@@ -30,10 +36,14 @@
  * since android is based on the linux kernel
  * it has __linux__ defined */
 #elif defined(__ANDROID__)
-	#define FG_PLATFORM_ANDROID
+	#ifndef FG_PLATFORM_ANDROID
+		#define FG_PLATFORM_ANDROID
+	#endif
 	#error "Android is not supported!"
 #elif defined(__linux__)
-	#define FG_PLATFORM_LINUX
+	#ifndef FG_PLATFORM_LINUX
+		#define FG_PLATFORM_LINUX
+	#endif
 #else
 	/* Unknown compiler/platform */
 	#error "Unknown platform!"
