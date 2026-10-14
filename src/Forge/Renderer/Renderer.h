@@ -21,6 +21,11 @@ namespace Forge {
 		static void BeginScene();
 		static void EndScene();
 
+		// Records any pending CPU->GPU buffer uploads for a vertex array. Must
+		// be called between BeginScene() and EndScene() (i.e. while the frame's
+		// command list is open).
+		static void FlushPendingUploads(const Ref<class VertexArray>& vertexArray);
+
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture);
 
@@ -53,6 +58,10 @@ namespace Forge {
 		static uint32_t s_Width;
 		static uint32_t s_Height;
 		static nvrhi::CommandListHandle s_CommandList;
+
+		// Fullscreen triangle-pair used by the post-processing passes. Retained so
+		// its GPU buffers stay alive and can be uploaded on the first frame.
+		static Ref<class VertexArray> s_FullscreenQuad;
 	};
 
 }

@@ -89,7 +89,9 @@
 - [x] CPU model importer (glTF/OBJ/FBX via assimp)
 - [x] Default cube/plane/sphere primitives (CPU, testable)
 - [x] Texture loading (stb_image, LDR + Radiance HDR)
-- [ ] GPU VertexArray/VertexBuffer/IndexBuffer upload (Vulkan buffers)
+- [x] GPU vertex/index buffer upload (nvrhi buffers + deferred writeBuffer upload)
+- [x] Vertex input layouts built from shader SPIR-V (createInputLayout)
+- [x] Frame command list lifecycle (open / record / close / execute)
 - [ ] Swapchain + present (VkSwapchainKHR, acquire/present)
 - [ ] PBR pipeline (G-buffer, deferred lighting, shadow map, SSAO, tonemap, final)
 - [ ] IBL prefiltering / irradiance maps

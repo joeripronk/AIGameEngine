@@ -6,6 +6,8 @@
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
 
+#include <cstring>
+
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
 namespace Forge {
@@ -13,18 +15,22 @@ namespace Forge {
 	VulkanVertexBuffer::VulkanVertexBuffer(uint32_t size, const void* data)
 		: m_Size(size), m_Layout({ 0.0f, 0.0f, 0.0f, 0.0f, 0.0f })
 	{
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+		{
+			FG_CORE_ERROR("VulkanVertexBuffer: renderer device not initialized");
+			return;
+		}
+
 		nvrhi::BufferDesc desc;
 		desc.byteSize = size;
 		desc.isVertexBuffer = true;
 		desc.debugName = "VulkanVertexBuffer";
 
-		auto device = VulkanRendererAPI::GetStaticDevice();
 		m_Buffer = device->createBuffer(desc);
 
 		if (data)
-		{
 			SetData(data, size);
-		}
 	}
 
 	VulkanVertexBuffer::~VulkanVertexBuffer()
@@ -33,19 +39,36 @@ namespace Forge {
 
 	void VulkanVertexBuffer::Bind() const
 	{
-		// Simplified - pipeline is stubbed
+		// nvrhi binds vertex buffers as part of the graphics state recorded
+		// into the command list; there is no persistent binding to do here.
 	}
 
 	void VulkanVertexBuffer::Unbind() const
 	{
-		// No explicit unbind needed with nvrhi
+		// See Bind().
 	}
 
 	void VulkanVertexBuffer::SetData(const void* data, uint32_t size)
 	{
+		if (!data || size == 0)
+			return;
+
 		m_Size = size;
-		// Data upload will be handled by the rendering pipeline
-		(void)data;
+
+		// Keep a CPU-side copy; the GPU upload is recorded into the frame's
+		// command list by UploadTo() (nvrhi requires an open command list).
+		const uint8_t* bytes = static_cast<const uint8_t*>(data);
+		m_StagingData.assign(bytes, bytes + size);
+		m_PendingUpload = true;
+	}
+
+	void VulkanVertexBuffer::UploadTo(nvrhi::ICommandList* commandList)
+	{
+		if (!m_PendingUpload || !commandList || !m_Buffer || m_StagingData.empty())
+			return;
+
+		commandList->writeBuffer(m_Buffer, m_StagingData.data(), m_StagingData.size(), 0);
+		m_PendingUpload = false;
 	}
 
 	void VulkanVertexBuffer::SetLayout(const std::vector<float>& layout)

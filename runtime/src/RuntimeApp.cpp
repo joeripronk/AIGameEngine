@@ -104,6 +104,10 @@ namespace Forge {
 				for (Layer* layer : GetLayerStack())
 					layer->OnUpdate(Timestep(frameTime));
 
+				// Open the frame's GPU command list, then drive the scene and
+				// close/submit it.
+				Renderer::BeginScene();
+
 				if (m_Scene)
 				{
 					// Fixed-step the simulation so physics/scripting are stable
@@ -119,6 +123,9 @@ namespace Forge {
 						frameCount++;
 					}
 				}
+
+				// Close and submit the frame's GPU work.
+				Renderer::EndScene();
 			}
 
 			GetWindowScope()->OnUpdate();
