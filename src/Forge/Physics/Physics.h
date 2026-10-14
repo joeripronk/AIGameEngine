@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Forge/Core/Base.h"
+
 namespace Forge {
 
 	class Physics
@@ -12,6 +14,7 @@ namespace Forge {
 		static void OnSceneStop();
 
 		static void Update(float timestep);
+
 	private:
 		static void* s_PhysicsWorld;
 	};

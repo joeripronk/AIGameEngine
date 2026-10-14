@@ -1,6 +1,9 @@
 # Forge Tests
 add_executable(ForgeTests)
 
+# Catch2
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/catch2 ${CMAKE_BINARY_DIR}/vendor/catch2)
+
 target_include_directories(ForgeTests
     PRIVATE
         ${CMAKE_SOURCE_DIR}/src

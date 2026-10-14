@@ -11,6 +11,7 @@ namespace Forge {
 
 		void SetPosition(const glm::vec3& position);
 		void SetRotation(const glm::vec3& rotation);
+		void SetProjection(float fov, float aspectRatio, float nearClip, float farClip);
 
 		const glm::vec3& GetPosition() const { return m_Position; }
 		const glm::vec3& GetRotation() const { return m_Rotation; }
@@ -26,6 +27,7 @@ namespace Forge {
 
 		glm::vec3 GetCameraPosition() const { return m_Position; }
 		glm::vec3 GetCameraRotation() const { return m_Rotation; }
+
 	private:
 		void Recalculate();
 

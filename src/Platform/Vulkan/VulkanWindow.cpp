@@ -1,6 +1,8 @@
 #include "fgpch.h"
 #include "Platform/Vulkan/VulkanWindow.h"
 
+#include "Forge/Events/ApplicationEvent.h"
+
 namespace Forge {
 
 	static uint32_t s_GLFWWindowCount = 0;
@@ -40,6 +42,71 @@ namespace Forge {
 		FG_CORE_ASSERT(m_Window, "Could not create GLFW window!");
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
+
+		// Set up GLFW callbacks
+		glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.EventCallback(WindowCloseEvent());
+		});
+
+		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.Width = width;
+			data.Height = height;
+			data.EventCallback(WindowResizeEvent((uint32_t)width, (uint32_t)height));
+		});
+
+		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			switch (action)
+			{
+				case GLFW_PRESS:
+					data.EventCallback(KeyPressedEvent(key, 0));
+					break;
+				case GLFW_RELEASE:
+					data.EventCallback(KeyReleasedEvent(key));
+					break;
+				case GLFW_REPEAT:
+					data.EventCallback(KeyPressedEvent(key, 1));
+					break;
+			}
+		});
+
+		glfwSetMouseButtonCallback(m_Window, [](GLFWwindow* window, int button, int action, int mods)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			switch (action)
+			{
+				case GLFW_PRESS:
+					data.EventCallback(MouseButtonPressedEvent(button));
+					break;
+				case GLFW_RELEASE:
+					data.EventCallback(MouseButtonReleasedEvent(button));
+					break;
+			}
+		});
+
+		glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xoffset, double yoffset)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.EventCallback(MouseScrolledEvent((float)xoffset, (float)yoffset));
+		});
+
+		glfwSetCursorPosCallback(m_Window, [](GLFWwindow* window, double x, double y)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.EventCallback(MouseMovedEvent((float)x, (float)y));
+		});
+
+		glfwSetCharCallback(m_Window, [](GLFWwindow* window, unsigned int keycode)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.EventCallback(KeyTypedEvent(keycode));
+		});
+
 		SetVSync(true);
 	}
 

@@ -11,7 +11,7 @@ We're building a production-grade, simple and straight-forward 3D Game Engine fo
 - Do things properly, this is production-grade and not a hack project
 - Create AGENTS.md and relevant skills to support development, and contain concrete development guidelines
 - Code style to match [Hazel](https://docs.hazelengine.com/HazelForEngineers/DeveloperGuide#naming), full repo [here](https://github.com/TheCherno/Hazel)
-- Create git repository, commit and push to [GitHub repo](https://github.com/TheCherno/AIGameEngine). IMPORTANT: do a code review before committing, and make sure all changes comply with code style, production-grade quality standards, and have been properly tested/have unit tests that have passed where necessary
+- Create git repository, commit and push to [GitHub repo](https://github.com/joeripronk/AIGameEngine). IMPORTANT: do a code review before committing, and make sure all changes comply with code style, production-grade quality standards, and have been properly tested/have unit tests that have passed where necessary
 
 ## Tech stack
 - C++ and CMake for core engine

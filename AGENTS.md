@@ -19,7 +19,7 @@ ForgeEngine/
 │   └── Debug/          # Profiling/Instrumentation
 ├── src/Platform/Vulkan/ # Platform-specific Vulkan implementations
 ├── vendor/             # Third-party dependencies
-├── editor/             # Editor application
+├── editor/             # Editor application (ImGui-based)
 ├── runtime/            # Standalone runtime application
 ├── tests/              # Unit tests (Catch2)
 └── resources/          # Game assets (scenes, models, textures, HDRIs)
@@ -50,6 +50,7 @@ ForgeEngine/
 | Box2D/PhysX | Physics |
 | Catch2 | Testing |
 | yaml-cpp | Scene serialization |
+| ImGui | Editor UI |
 
 ## Code Style (Hazel Convention)
 
@@ -176,6 +177,7 @@ Entities:
 - Run with: `ctest --output-on-failure`
 - Every new feature must have at least one test
 - Tests should be fast and deterministic (no real Vulkan calls in unit tests)
+- Test categories: `[core]`, `[scene]`, `[renderer]`, `[physics]`, `[scripting]`, `[audio]`
 
 ## Git Workflow
 
@@ -206,3 +208,81 @@ The editor must be fully controllable by AI agents:
 - Play/Stop simulation
 - Camera control
 - Gizmo manipulation
+
+### Editor Architecture
+
+- **Scene Hierarchy Panel**: Shows all entities in the scene, supports selection
+- **Inspector Panel**: Shows component properties of selected entity, allows editing
+- **Viewport**: 3D rendering area with editor camera
+- **Toolbar**: File operations, entity creation, play/pause/stop
+- **Properties Panel**: Global editor settings
+
+### Editor API for AI Agents
+
+```cpp
+// AI can access the editor through the Application singleton
+auto& app = Forge::Application::Get();
+auto* editor = static_cast<EditorApp*>(&app);
+
+// Create entities
+auto entity = editor->GetScene()->CreateEntity("NewEntity");
+auto& transform = entity.AddComponent<Forge::TransformComponent>();
+transform.Translation = { 0.0f, 1.0f, 0.0f };
+
+// Modify components
+auto& pbr = entity.AddComponent<Forge::PBRMaterialComponent>();
+pbr.Albedo = { 1.0f, 0.0f, 0.0f };
+
+// Delete entities
+editor->GetScene()->DestroyEntity(entity);
+
+// Save scene
+Forge::SceneSerializer::Serialize(editor->GetScene(), "scene.forge");
+```
+
+## Renderer Architecture
+
+### Pipeline Stages
+
+1. **G-Buffer Pass**: Render position, normal, material to textures
+2. **Shadow Pass**: Render shadow map from light perspective
+3. **HDR Pass**: Apply PBR lighting, accumulate to HDR buffer
+4. **SSAO Pass**: Screen-space ambient occlusion
+5. **Tonemapping Pass**: ACES tonemapping, convert to LDR
+6. **Final Pass**: Composite SSAO, output to swapchain
+
+### Shader Types
+
+- **PBR Shader**: Main mesh rendering with PBR materials
+- **SSAO Shader**: Screen-space ambient occlusion
+- **HDR Shader**: HDR accumulation and tonemapping
+- **Final Shader**: Final composite with SSAO overlay
+- **Shadow Shader**: Shadow map rendering
+
+## Scripting System
+
+### Lua Integration
+
+- Global functions: `GetTime()`, `GetDeltaTime(ts)`, `SpawnPrefab(name)`
+- Entity metatable: `entity:GetName()`, `entity:SetPosition(x,y,z)`, etc.
+- Scene metatable: `Scene.CreateEntity(name)`, `Scene.DestroyEntity(entity)`
+
+### Native Scripting
+
+- Derive from `ScriptableEntity`
+- Override `OnCreate()`, `OnUpdate(Timestep)`, `OnDestroy()`
+- Bind via `NativeScriptComponent::Bind<T>()`
+
+## Physics
+
+### Components
+
+- `RigidbodyComponent`: Body type (Static/Dynamic/Kinematic), fixed rotation
+- `BoxColliderComponent`: Offset, size, density, friction, restitution
+- `SphereColliderComponent`: Offset, radius, density, friction, restitution
+
+### Integration
+
+- Physics step runs in `OnUpdateRuntime` and `OnUpdateSimulation`
+- Transforms are updated from physics bodies after step
+- Collision detection via Box2D (2D) or PhysX (3D)

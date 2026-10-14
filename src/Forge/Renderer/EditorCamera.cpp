@@ -39,21 +39,47 @@ namespace Forge {
 
 	void EditorCamera::OnUpdate(float ts)
 	{
-		// TODO: Handle camera movement (WASD, mouse look)
-		// float speed = 5.0f * ts;
-		// if (Input::IsKeyPressed(KEY_W)) m_Position += speed * GetCameraDirection();
-		// if (Input::IsKeyPressed(KEY_S)) m_Position -= speed * GetCameraDirection();
-		// if (Input::IsKeyPressed(KEY_A)) m_Position -= speed * GetCameraRight();
-		// if (Input::IsKeyPressed(KEY_D)) m_Position += speed * GetCameraRight();
-		// if (Input::IsKeyPressed(KEY_Q)) m_Position -= speed * glm::vec3(0, 1, 0);
-		// if (Input::IsKeyPressed(KEY_E)) m_Position += speed * glm::vec3(0, 1, 0);
+		// Camera movement (WASD + Q/E)
+		float speed = 5.0f * ts;
+		float zoomSpeed = 2.0f * ts;
+
+		// Movement direction based on camera rotation (yaw)
+		float yaw = glm::radians(m_Rotation.y);
+		glm::vec3 forward = glm::vec3(-sin(yaw), 0.0f, -cos(yaw));
+		glm::vec3 right = glm::vec3(cos(yaw), 0.0f, -sin(yaw));
+
+		// TODO: This would need access to GLFW keys
+		// if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+		//     m_Position += speed * forward;
+		// if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		//     m_Position -= speed * forward;
+		// if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+		//     m_Position -= speed * right;
+		// if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+		//     m_Position += speed * right;
+		// if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+		//     m_Position.y -= speed;
+		// if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+		//     m_Position.y += speed;
+
+		// Zoom
+		// m_ZoomLevel -= zoomSpeed * glfwGetMouseWheel();
+		// m_ZoomLevel = glm::clamp(m_ZoomLevel, 0.1f, 10.0f);
 
 		Recalculate();
 	}
 
 	void EditorCamera::OnEvent(Event& event)
 	{
-		// TODO: Handle mouse events for camera rotation
+		// Mouse look
+		// if (auto& e = (MouseEvent&)event; e.GetButton() == GLFW_MOUSE_BUTTON_RIGHT)
+		// {
+		//     float dx = e.GetXOffset();
+		//     float dy = e.GetYOffset();
+		//     m_Rotation.y += dx * 0.1f;
+		//     m_Rotation.x += dy * 0.1f;
+		//     m_Rotation.x = glm::clamp(m_Rotation.x, -89.0f, 89.0f);
+		// }
 	}
 
 }

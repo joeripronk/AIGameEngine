@@ -5,6 +5,20 @@
 #include "Forge/Scene/Components.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
+#include "Forge/Renderer/Renderer.h"
+#include "Forge/Renderer/Mesh.h"
+#include "Forge/Renderer/Shader.h"
+#include "Forge/Renderer/ShaderLibrary.h"
+#include "Forge/Renderer/VertexArray.h"
+#include "Forge/Renderer/VertexBuffer.h"
+#include "Forge/Renderer/IndexBuffer.h"
+
+#include <nvrhi/vulkan.h>
+#include <nvrhi/common.h>
+#include <nvrhi/texture.h>
+#include <nvrhi/buffer.h>
+#include <nvrhi/pipeline.h>
+#include <nvrhi/descriptor_set.h>
 
 namespace Forge {
 
@@ -52,7 +66,6 @@ namespace Forge {
 		{
 			ScriptEngine::OnRuntimeStart(this);
 			// Instantiate all script entities
-
 			auto view = m_Registry.view<ScriptComponent>();
 			for (auto e : view)
 			{
@@ -257,7 +270,69 @@ namespace Forge {
 
 	void Scene::RenderScene()
 	{
-		// TODO: Implement 3D rendering
+		// Get primary camera
+		auto cameraEntity = GetPrimaryCameraEntity();
+		if (!cameraEntity)
+			return;
+
+		auto& camera = cameraEntity.GetComponent<CameraComponent>();
+		auto& transform = cameraEntity.GetComponent<TransformComponent>();
+
+		// Update camera view matrix from transform
+		glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
+		glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.Translation);
+
+		camera.ViewMatrix = glm::inverse(translation * rotation);
+		camera.ViewProjectionMatrix = camera.ProjectionMatrix * camera.ViewMatrix;
+
+		// Begin scene
+		Renderer::BeginScene();
+
+		// Set view projection matrix in shader
+		{
+			auto pbrShader = Renderer::GetShaderLibrary().Get("PBR");
+			if (pbrShader)
+			{
+				pbrShader->SetMat4("u_ViewProjection", camera.ViewProjectionMatrix);
+			}
+		}
+
+		// Render all mesh entities
+		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
+		for (auto entity : meshView)
+		{
+			auto& transformComp = meshView.get<TransformComponent>(entity);
+			auto& meshComp = meshView.get<MeshComponent>(entity);
+
+			if (!meshComp.Mesh)
+			{
+				// Load mesh from file
+				meshComp.Mesh = Mesh::Create(meshComp.ModelPath);
+			}
+
+			if (meshComp.Mesh)
+			{
+				Renderer::Submit(
+					Renderer::GetShaderLibrary().Get("PBR"),
+					meshComp.Mesh->GetVertexArray(),
+					transformComp.GetTransform()
+				);
+			}
+		}
+
+		// Render entities with PBR material but no mesh (use default cube)
+		auto materialView = m_Registry.view<TransformComponent, PBRMaterialComponent>();
+		for (auto entity : materialView)
+		{
+			auto& transformComp = materialView.get<TransformComponent>(entity);
+			auto& pbr = materialView.get<PBRMaterialComponent>(entity);
+
+			// TODO: Render default cube with PBR material
+			// For now, skip
+		}
+
+		// End scene
+		Renderer::EndScene();
 	}
 
 	template<typename T>

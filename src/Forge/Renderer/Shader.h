@@ -2,10 +2,13 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <glm/glm.hpp>
 
 namespace Forge {
+
+	class ShaderLibrary;
 
 	class Shader
 	{
@@ -40,6 +43,8 @@ namespace Forge {
 		Ref<Shader> Get(const std::string& name);
 
 		bool Exists(const std::string& name) const;
+		uint32_t GetShaderCount() const { return (uint32_t)m_Shaders.size(); }
+
 	private:
 		std::unordered_map<std::string, Ref<Shader>> m_Shaders;
 	};

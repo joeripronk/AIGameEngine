@@ -50,6 +50,8 @@ target_sources(Forge
         Forge/Renderer/RendererAPI.cpp
         Forge/Renderer/Shader.h
         Forge/Renderer/Shader.cpp
+        Forge/Renderer/ShaderLibrary.h
+        Forge/Renderer/ShaderLibrary.cpp
         Forge/Renderer/Texture.h
         Forge/Renderer/Texture.cpp
         Forge/Renderer/Mesh.h
@@ -58,6 +60,10 @@ target_sources(Forge
         Forge/Renderer/Camera.cpp
         Forge/Renderer/EditorCamera.h
         Forge/Renderer/EditorCamera.cpp
+        Forge/Renderer/Shaders.h
+        Forge/Renderer/VertexArray.h
+        Forge/Renderer/VertexBuffer.h
+        Forge/Renderer/IndexBuffer.h
         Forge/Scene/Components.h
         Forge/Scene/Entity.h
         Forge/Scene/Entity.cpp
@@ -78,37 +84,111 @@ target_sources(Forge
         Platform/Vulkan/VulkanWindow.cpp
         Platform/Vulkan/VulkanRendererAPI.h
         Platform/Vulkan/VulkanRendererAPI.cpp
+        Platform/Vulkan/VulkanVertexArray.h
+        Platform/Vulkan/VulkanVertexArray.cpp
+        Platform/Vulkan/VulkanVertexBuffer.h
+        Platform/Vulkan/VulkanVertexBuffer.cpp
+        Platform/Vulkan/VulkanIndexBuffer.h
+        Platform/Vulkan/VulkanIndexBuffer.cpp
+        Platform/Vulkan/VulkanShader.h
+        Platform/Vulkan/VulkanShader.cpp
+        Platform/Vulkan/VulkanMesh.h
+        Platform/Vulkan/VulkanMesh.cpp
+        Platform/Vulkan/VulkanTexture.h
+        Platform/Vulkan/VulkanTexture.cpp
+        # Lua sources (C files compiled as C++)
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lapi.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lapi.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lauxlib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lauxlib.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lbaselib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lcode.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lcode.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lcorolib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lctype.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lctype.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ldblib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ldebug.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ldebug.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ldo.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ldo.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ldump.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lfunc.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lfunc.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lgc.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lgc.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/linit.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/liolib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ljumptab.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/llex.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/llex.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/llimits.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lmathlib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lmem.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lmem.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/loadlib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lobject.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lobject.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lopcodes.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lopcodes.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lopnames.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/loslib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lparser.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lparser.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lprefix.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lstate.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lstate.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lstring.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lstring.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lstrlib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ltable.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ltable.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ltablib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ltm.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/ltm.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lua.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lua.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/luaconf.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lualib.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lundump.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lundump.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lutf8lib.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.h
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lzio.c
+        ${CMAKE_SOURCE_DIR}/vendor/lua/lzio.h
 )
 
+target_compile_definitions(Forge PRIVATE LUA_USE_C89)
+
 # Dependencies
-find_package(Vulkan REQUIRED)
 find_package(Threads REQUIRED)
 
 # GLFW
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw)
+set(GLFW_BUILD_WAYLAND OFF)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
 
 # nvrhi
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
 
 # glm (header-only)
 # entt (header-only)
 
 # spdlog
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
 
 # fmt
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/fmt)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/fmt ${CMAKE_BINARY_DIR}/vendor/fmt)
 
 # miniaudio
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio ${CMAKE_BINARY_DIR}/vendor/miniaudio)
 
-# lua
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/lua)
+# lua (included directly as sources)
 
 # stb (header-only)
 
 # assimp
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp)
 
 # physx
 # add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/physx)
@@ -120,7 +200,6 @@ target_link_libraries(Forge
         spdlog::spdlog
         fmt::fmt
         miniaudio
-        ${Vulkan_LIBRARIES}
         Threads::Threads
 )
 

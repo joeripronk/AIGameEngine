@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Forge/Core/Application.h"
+#include "Forge/Scene/Scene.h"
+#include "Forge/Renderer/EditorCamera.h"
 
 namespace Forge {
 
@@ -10,8 +12,23 @@ namespace Forge {
 		EditorApp();
 		~EditorApp() override;
 
-	private:
 		void Run() override;
+
+		// Scene management
+		Ref<Scene> GetScene() { return m_Scene; }
+
+		// Editor state
+		Entity GetSelectedEntity() const { return m_SelectedEntity; }
+		void SetSelectedEntity(Entity entity) { m_SelectedEntity = entity; }
+
+	private:
+		void CreateDefaultScene();
+
+		Ref<Scene> m_Scene;
+		Entity m_SelectedEntity;
+		EditorCamera m_Camera;
+		bool m_IsPlaying = false;
+		bool m_IsPaused = false;
 	};
 
 }

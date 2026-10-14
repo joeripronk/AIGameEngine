@@ -20,8 +20,19 @@ namespace Forge {
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 
 		static Ref<class ScriptClass> GetEntityClass(const std::string& className);
+
 	private:
 		static void* s_LuaState;
+	};
+
+	class ScriptClass
+	{
+	public:
+		virtual ~ScriptClass() = default;
+
+		virtual void OnCreate() = 0;
+		virtual void OnUpdate(Timestep ts) = 0;
+		virtual void OnDestroy() = 0;
 	};
 
 }

@@ -13,6 +13,37 @@ namespace Forge {
 		void Clear() override;
 		void DrawIndexed(const Ref<class VertexArray>& vertexArray, uint32_t indexCount = 0) override;
 		void SetLineWidth(float width) override;
+
+		// Pipeline management
+		void SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height);
+		void BeginFrame();
+		void EndFrame();
+
+		// G-buffer management
+		void CreateGBuffer(uint32_t width, uint32_t height);
+		void CreateShadowMap(uint32_t width, uint32_t height);
+		void CreateHDRBuffer(uint32_t width, uint32_t height);
+		void CreateSSAOBuffer(uint32_t width, uint32_t height);
+
+		// Pipeline creation
+		void CreatePBRPipeline();
+		void CreateSSAOPipeline();
+		void CreateHDRPipeline();
+		void CreateFinalPipeline();
+		void CreateShadowPipeline();
+
+		// Descriptor set management
+		void UpdateDescriptorSets();
+
+		// Accessors
+		nvrhi::DeviceHandle GetDevice() const { return s_Device; }
+		nvrhi::CommandListHandle GetCommandList() { return s_CommandList; }
+
+	private:
+		static void* s_Device;
+		static nvrhi::CommandListHandle s_CommandList;
+		static uint32_t s_Width;
+		static uint32_t s_Height;
 	};
 
 }

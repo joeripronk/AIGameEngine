@@ -1,79 +1,63 @@
 # Forge Engine
 
-A production-grade, AI-assisted 3D game engine for Windows, macOS, and Linux (Ubuntu 24+).
+A production-grade, simple and straightforward 3D Game Engine for Windows, macOS and Linux (Ubuntu 24+). Built with C++, CMake, and Vulkan.
 
 ## Features
 
-- **3D Rendering**: Vulkan-based renderer with PBR materials, IBL/HDRIs, soft shadow maps, SSAO, and HDR pipeline
-- **ECS Architecture**: Entity-Component-System using enTT for flexible scene authoring
-- **Physics**: Integrated 3D physics (Box2D/PhysX) controllable via scripting
-- **Scripting**: Lua-based scripting API for entity behavior
-- **Audio**: miniaudio-based audio system
-- **Editor**: Full-featured editor with scene graph, gizmo manipulation, and AI agent control
-- **Cross-Platform**: Windows, macOS, Linux
+- **3D Rendering**: PBR materials, IBL with HDRIs, soft shadow maps, SSAO, HDR pipeline with tonemapping
+- **ECS Architecture**: Entity-Component-System using enTT
+- **Lua Scripting**: Full Lua integration for game logic
+- **Physics**: Box2D/PhysX integration with rigidbody and collider components
+- **Editor**: Full-featured ImGui-based editor with scene graph, inspector, and viewport
+- **Scene Serialization**: YAML-based scene format (.forge)
+- **Multi-platform**: Windows, macOS, Linux (Ubuntu 24+)
 
-## Tech Stack
+## Architecture
 
-- **Core**: C++20, CMake
-- **Rendering**: Vulkan + nvrhi
-- **Math**: GLM
-- **Audio**: miniaudio
-- **Scripting**: Lua
-- **Physics**: Box2D/PhysX
-- **Testing**: Catch2
+```
+ForgeEngine/
+├── src/Forge/          # Core engine library (static lib)
+├── src/Platform/Vulkan/ # Vulkan platform implementations
+├── editor/             # Editor application
+├── runtime/            # Standalone runtime
+├── tests/              # Unit tests
+├── resources/          # Game assets
+└── vendor/             # Third-party dependencies
+```
 
 ## Building
 
 ### Prerequisites
 
 - CMake 3.22+
-- C++20 compiler (GCC 11+, Clang 12+, MSVC 2019+)
+- C++20 compiler (GCC 11+, Clang 14+, MSVC 2022+)
 - Vulkan SDK
-- Git
+- GLFW, GLM, enTT, spdlog, fmt, Lua, miniaudio, stb, assimp, Box2D/PhysX, Catch2, yaml-cpp, ImGui
 
-### Setup
+### Build Steps
 
 ```bash
-# Clone with submodules
-git clone --recursive https://github.com/joeripronk/AIGameEngine.git
-cd AIGameEngine
-
-# Configure
 mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Debug
-
-# Build
-cmake --build . --config Debug
+make -j$(nproc)
 ```
 
-### Running
+### Output
+
+- `bin/ForgeEditor` - Editor application
+- `bin/ForgeRuntime` - Runtime application
+- `bin/ForgeTests` - Test executable
+
+## Testing
 
 ```bash
-# Editor
-./bin/ForgeEditor
-
-# Runtime
-./bin/ForgeRuntime
-
-# Tests
+cd build
 ctest --output-on-failure
-```
-
-## Project Structure
-
-```
-src/Forge/          # Core engine library
-src/Platform/       # Platform-specific implementations
-editor/             # Editor application
-runtime/            # Standalone runtime
-tests/              # Unit tests
-resources/          # Game assets
-vendor/             # Third-party dependencies
 ```
 
 ## Development
 
-See [AGENTS.md](AGENTS.md) for development guidelines and code style conventions.
+See [AGENTS.md](AGENTS.md) for detailed development guidelines and coding standards.
 
 ## License
 

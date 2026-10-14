@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Forge/Core/Application.h"
+#include "Forge/Scene/Scene.h"
 
 namespace Forge {
 
@@ -10,8 +11,10 @@ namespace Forge {
 		RuntimeApp();
 		~RuntimeApp() override;
 
-	private:
 		void Run() override;
+
+	private:
+		Ref<Scene> m_Scene;
 	};
 
 }
