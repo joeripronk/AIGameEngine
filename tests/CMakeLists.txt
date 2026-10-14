@@ -53,5 +53,4 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 endif()
 
 # Add test executable
-enable_testing()
 add_test(NAME ForgeTests COMMAND ForgeTests)

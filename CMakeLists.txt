@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+enable_testing()
+
 # Repeat static libraries on the link line so inter-archive symbol
 # dependencies (nvrhi <-> nvrhi_vk, ForgeCore <-> vulkan) resolve regardless
 # of declaration order.
