@@ -5,6 +5,7 @@
 #include "Forge/Scene/Components.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
+#include "Forge/Physics/Physics.h"
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
@@ -128,7 +129,8 @@ namespace Forge {
 
 			// Physics
 			{
-				// m_PhysicsWorld->Step(ts, 6, 2);
+				// Step physics simulation
+				Physics::Update(ts);
 
 				// Retrieve transform from physics
 				auto view = m_Registry.view<RigidbodyComponent>();
@@ -154,7 +156,7 @@ namespace Forge {
 		{
 			// Physics
 			{
-				// m_PhysicsWorld->Step(ts, 6, 2);
+				Physics::Update(ts);
 
 				// Retrieve transform from physics
 				auto view = m_Registry.view<RigidbodyComponent>();
@@ -326,23 +328,53 @@ namespace Forge {
 
 	void Scene::OnPhysicsStart()
 	{
-		// TODO: Initialize physics world
-		// m_PhysicsWorld = new b2World({ 0.0f, -9.8f });
+		// Initialize physics world and create bodies from scene components
+		Physics::Init();
+		Physics::OnSceneStart();
 
-		auto view = m_Registry.view<RigidbodyComponent>();
+		// Create physics bodies from entities with RigidbodyComponent
+		auto view = m_Registry.view<RigidbodyComponent, TransformComponent, BoxColliderComponent>();
 		for (auto e : view)
 		{
-			Entity entity = { e, this };
-			// TODO: Create physics body
-			(void)entity;
+			auto& rb = std::get<0>(view.get(e));
+			auto& transform = std::get<1>(view.get(e));
+
+			PhysicsBody* body = nullptr;
+
+			if (rb.Type == RigidbodyComponent::BodyType::Static)
+			{
+				body = new PhysicsBody(0, rb, std::get<2>(view.get(e)), Physics::GetGravityY());
+				body->Position = transform.Translation;
+			}
+			else
+			{
+				body = new PhysicsBody(0, rb, std::get<2>(view.get(e)), Physics::GetGravityY());
+				body->Position = transform.Translation;
+			}
+
+			Physics::AddBody(body);
 		}
+
+		// Also handle sphere colliders
+		auto sphereView = m_Registry.view<RigidbodyComponent, TransformComponent, SphereColliderComponent>();
+		for (auto e : sphereView)
+		{
+			auto& rb = std::get<0>(sphereView.get(e));
+			auto& transform = std::get<1>(sphereView.get(e));
+
+			PhysicsBody* body = new PhysicsBody(0, rb, std::get<2>(sphereView.get(e)), Physics::GetGravityY());
+			body->Position = transform.Translation;
+
+			Physics::AddBody(body);
+		}
+
+		FG_CORE_INFO("Physics started with {0} bodies", Physics::GetBodies().size());
 	}
 
 	void Scene::OnPhysicsStop()
 	{
-		// TODO: Delete physics world
-		// delete m_PhysicsWorld;
-		// m_PhysicsWorld = nullptr;
+		Physics::OnSceneStop();
+		Physics::Shutdown();
 	}
 
 #if !defined(FG_NO_VULKAN_RUNTIME)

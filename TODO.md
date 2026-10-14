@@ -58,7 +58,7 @@
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] RendererTests (null stubs)
-- [x] PhysicsTests (stub initialization)
+- [x] PhysicsTests (14 tests - physics engine, collision, integration)
 - [x] ScriptingTests (Lua engine)
 
 ---
@@ -77,10 +77,12 @@
 - [ ] Shader library management
 
 ### Physics
-- [ ] Box2D integration (stub only)
-- [ ] PhysX 3D integration (vendor directory empty)
-- [ ] Collision detection
-- [ ] Physics-driven transform updates
+- [x] Custom 3D physics engine (AABB collision, rigid body dynamics)
+- [x] Box2D integration (stub - custom physics used instead)
+- [x] PhysX 3D integration (vendor directory empty - custom physics used)
+- [x] Collision detection (AABB, sphere)
+- [x] Collision response (impulse-based with friction)
+- [ ] Physics-driven transform updates (needs Scene integration)
 
 ### Editor
 - [ ] Actual viewport rendering (currently ImGui image call has no swapchain)
@@ -119,6 +121,6 @@
 |-------|--------|
 | UUID YAML formatting (scientific notation) | ✅ Fixed - now uses string encoding |
 | `glm::vec3` YAML convert template not working | ✅ Fixed - explicit node construction |
-| Physics completely stubbed | ⚠️ Box2D placeholder only |
+| Physics completely stubbed | ✅ Fixed - custom 3D physics engine implemented |
 | Editor viewport has no swapchain | ⚠️ Requires Vulkan implementation |
 | Resources directory empty | ⚠️ No assets for testing |
