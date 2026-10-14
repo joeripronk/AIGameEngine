@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Forge/Renderer/Shader.h"
+#include <nvrhi/vulkan.h>
+#include <nvrhi/nvrhi.h>
 
 namespace Forge {
 
@@ -24,9 +26,14 @@ namespace Forge {
 
 		const std::string& GetName() const override { return m_Name; }
 
-	private:
-		void CreateShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+		// Get the internal nvrhi shader handles
+		nvrhi::ShaderHandle GetVertexShader() const { return m_VertexShader; }
+		nvrhi::ShaderHandle GetFragmentShader() const { return m_FragmentShader; }
 
+	private:
+		nvrhi::ShaderHandle m_VertexShader;
+		nvrhi::ShaderHandle m_FragmentShader;
+		nvrhi::ShaderHandle m_Shader;
 		std::string m_Name;
 	};
 
