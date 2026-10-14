@@ -254,6 +254,40 @@ namespace Forge {
 
 		// Number of mip levels in the prefilter map.
 		uint32_t m_PrefilterMipCount = 0;
+
+		// Fullscreen quad for IBL rendering (vertex buffer + binding).
+		nvrhi::BufferHandle m_IBLQuadVBO;
+		nvrhi::VertexBufferBinding m_IBLQuadVertexBinding;
+
+		// IBL shader handles.
+		nvrhi::ShaderHandle m_IrradianceVertexShader;
+		nvrhi::ShaderHandle m_IrradianceFragmentShader;
+		nvrhi::ShaderHandle m_PrefilterVertexShader;
+		nvrhi::ShaderHandle m_PrefilterFragmentShader;
+
+		// IBL binding layout (sampler2D env map + params).
+		nvrhi::BindingLayoutHandle m_IBLBindingLayout;
+
+		// IBL pipelines.
+		nvrhi::GraphicsPipelineHandle m_IrradiancePipeline;
+		nvrhi::GraphicsPipelineHandle m_PrefilterPipeline;
+
+		// IBL parameters uniform buffer.
+		nvrhi::BufferHandle m_IBLParamsBuffer;
+
+		// Irradiance cubemap framebuffer (6-face rendering).
+		nvrhi::FramebufferHandle m_IrradianceFramebuffer;
+
+		// Prefilter cubemap framebuffer (mip-level rendering).
+		nvrhi::FramebufferHandle m_PrefilterFramebuffer;
+
+		// --- IBL prefiltering (private) ---
+		bool CreateIBLFullscreenQuad();
+		bool CreateIBLShaders();
+		bool CreateIBLBindingLayout();
+		bool CreateIBLPipelines();
+		bool RenderIrradianceMap();
+		bool RenderPrefilterMap(uint32_t mipCount);
 	};
 
 }

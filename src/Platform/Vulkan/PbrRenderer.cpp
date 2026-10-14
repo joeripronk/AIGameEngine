@@ -90,6 +90,12 @@ namespace Forge {
 		if (!CreateShadowResources())		return false;
 		if (!CreateShadowPipelines())		return false;
 
+		// IBL setup (deferred until environment map is loaded).
+		if (!CreateIBLFullscreenQuad())		return false;
+		if (!CreateIBLShaders())			return false;
+		if (!CreateIBLBindingLayout())		return false;
+		if (!CreateIBLPipelines())			return false;
+
 		FG_CORE_INFO("PBR renderer initialized (colour format {0}, shadow map 2048x2048)", (int)colorFormat);
 		return true;
 	}
@@ -99,7 +105,8 @@ namespace Forge {
 		auto device = VulkanRendererAPI::GetStaticDevice();
 
 		// Set 0: camera block, object block, albedo (combined), shadow (combined),
-		// linear sampler (unused in PBR but kept for compatibility), shadow params, env map (combined).
+		// linear sampler (unused in PBR but kept for compatibility), shadow params,
+		// env map (combined), irradiance map (combined).
 		nvrhi::BindingLayoutDesc frameLayoutDesc;
 		frameLayoutDesc.visibility = nvrhi::ShaderType::All;
 		frameLayoutDesc.bindings = {
@@ -110,6 +117,7 @@ namespace Forge {
 			{ 4, nvrhi::ResourceType::Sampler, 0, 1 },
 			{ 5, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 			{ 6, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 7, nvrhi::ResourceType::Texture_SRV, 0, 1 },
 		};
 		m_FrameLayout = device->createBindingLayout(frameLayoutDesc);
 		if (!m_FrameLayout)
@@ -458,6 +466,19 @@ namespace Forge {
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			setDesc.bindings.push_back(item);
 			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 6));
+		}
+
+		// Binding 7: combined samplerCube u_IrradianceMap.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = m_IrradianceMap ? m_IrradianceMap.Get() : m_EnvMapFallback.Get();
+			item.slot = 7;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::TextureCube;
+			item.format = m_IrradianceMap ? m_IrradianceMap->getDesc().format : m_EnvMapFallback->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 7));
 		}
 
 		draw.bindingSet = device->createBindingSet(setDesc, m_FrameLayout);
@@ -886,21 +907,485 @@ namespace Forge {
 	{
 		m_EnvMap = envMap;
 		FG_CORE_INFO("PbrRenderer: environment map loaded");
+
+		// Generate IBL maps from the environment map.
+		if (!CreateIrradianceMap())
+		{
+			FG_CORE_WARN("PbrRenderer: failed to create irradiance map");
+		}
+		if (!CreatePrefilterMap(7)) // 7 mip levels for roughness 0..1
+		{
+			FG_CORE_WARN("PbrRenderer: failed to create prefilter map");
+		}
+
+		return true;
+	}
+
+	bool PbrRenderer::CreateIBLFullscreenQuad()
+	{
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+			return false;
+
+		// Fullscreen quad in NDC space.
+		struct Vertex
+		{
+			glm::vec2 position;
+			glm::vec2 uv;
+		};
+
+		const Vertex quad[4] = {
+			{ {-1.0f, -1.0f}, {0.0f, 0.0f} },
+			{ { 1.0f, -1.0f}, {1.0f, 0.0f} },
+			{ { 1.0f,  1.0f}, {1.0f, 1.0f} },
+			{ {-1.0f,  1.0f}, {0.0f, 1.0f} }
+		};
+
+		nvrhi::BufferDesc vboDesc;
+		vboDesc.byteSize = sizeof(quad);
+		vboDesc.isConstantBuffer = false;
+		vboDesc.debugName = "PbrRenderer.IBLQuadVBO";
+		vboDesc.keepInitialState = true;
+		vboDesc.initialState = nvrhi::ResourceStates::VertexBuffer;
+
+		nvrhi::BufferHandle vbo = device->createBuffer(vboDesc);
+		if (!vbo)
+			return false;
+
+		// Upload vertices.
+		nvrhi::CommandListParameters params;
+		nvrhi::CommandListHandle cmd = device->createCommandList(params);
+		cmd->open();
+		cmd->writeBuffer(vbo, quad, sizeof(quad), 0);
+		cmd->close();
+		device->executeCommandList(cmd, nvrhi::CommandQueue::Graphics);
+		cmd->Release();
+
+		// Store the vertex buffer for later use.
+		m_IBLQuadVBO = vbo;
+		m_IBLQuadVertexBinding = { vbo.Get(), 0, sizeof(Vertex) };
+
+		FG_CORE_INFO("IBL: fullscreen quad created");
+		return true;
+	}
+
+	bool PbrRenderer::CreateIBLShaders()
+	{
+		// Load irradiance shader.
+		auto irrShader = Renderer::GetShaderLibrary().Get("Irradiance");
+		if (!irrShader)
+		{
+			FG_CORE_WARN("IBL: irradiance shader not loaded");
+			return false;
+		}
+		auto vulkanIrr = std::dynamic_pointer_cast<VulkanShader>(irrShader);
+		if (!vulkanIrr || !vulkanIrr->GetVertexShader() || !vulkanIrr->GetFragmentShader())
+		{
+			FG_CORE_WARN("IBL: irradiance shader not properly compiled");
+			return false;
+		}
+		m_IrradianceVertexShader = vulkanIrr->GetVertexShader();
+		m_IrradianceFragmentShader = vulkanIrr->GetFragmentShader();
+
+		// Load prefilter shader.
+		auto prefShader = Renderer::GetShaderLibrary().Get("Prefilter");
+		if (!prefShader)
+		{
+			FG_CORE_WARN("IBL: prefilter shader not loaded");
+			return false;
+		}
+		auto vulkanPref = std::dynamic_pointer_cast<VulkanShader>(prefShader);
+		if (!vulkanPref || !vulkanPref->GetVertexShader() || !vulkanPref->GetFragmentShader())
+		{
+			FG_CORE_WARN("IBL: prefilter shader not properly compiled");
+			return false;
+		}
+		m_PrefilterVertexShader = vulkanPref->GetVertexShader();
+		m_PrefilterFragmentShader = vulkanPref->GetFragmentShader();
+
+		FG_CORE_INFO("IBL: shaders loaded");
+		return true;
+	}
+
+	bool PbrRenderer::CreateIBLBindingLayout()
+	{
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+			return false;
+
+		// IBL layout: binding 0 = sampler2D env map, binding 1 = params uniform buffer.
+		nvrhi::BindingLayoutDesc iblLayoutDesc;
+		iblLayoutDesc.visibility = nvrhi::ShaderType::All;
+		iblLayoutDesc.bindings = {
+			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		};
+		m_IBLBindingLayout = device->createBindingLayout(iblLayoutDesc);
+		if (!m_IBLBindingLayout)
+		{
+			FG_CORE_ERROR("IBL: failed to create binding layout");
+			return false;
+		}
+
+		// IBL params buffer.
+		nvrhi::BufferDesc paramsDesc;
+		paramsDesc.byteSize = 64; // Enough for both IrradianceParams and PrefilterParams
+		paramsDesc.isConstantBuffer = true;
+		paramsDesc.debugName = "PbrRenderer.IBLParams";
+		paramsDesc.keepInitialState = true;
+		paramsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+		m_IBLParamsBuffer = device->createBuffer(paramsDesc);
+		if (!m_IBLParamsBuffer)
+		{
+			FG_CORE_ERROR("IBL: failed to create params buffer");
+			return false;
+		}
+
+		FG_CORE_INFO("IBL: binding layout created");
+		return true;
+	}
+
+	bool PbrRenderer::CreateIBLPipelines()
+	{
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+			return false;
+
+		// Irradiance pipeline.
+		{
+			nvrhi::GraphicsPipelineDesc pipelineDesc;
+			pipelineDesc.VS = m_IrradianceVertexShader;
+			pipelineDesc.PS = m_IrradianceFragmentShader;
+			pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+			pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+			pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+			pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+			pipelineDesc.bindingLayouts.push_back(m_IBLBindingLayout);
+
+			// Irradiance output: RGBA16_FLOAT cubemap face.
+			nvrhi::FramebufferInfo fbInfo;
+			fbInfo.colorFormats.push_back(nvrhi::Format::RGBA16_FLOAT);
+			fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
+			fbInfo.sampleCount = 1;
+
+			m_IrradiancePipeline = device->createGraphicsPipeline(pipelineDesc, fbInfo);
+			if (!m_IrradiancePipeline)
+			{
+				FG_CORE_ERROR("IBL: failed to create irradiance pipeline");
+				return false;
+			}
+		}
+
+		// Prefilter pipeline.
+		{
+			nvrhi::GraphicsPipelineDesc pipelineDesc;
+			pipelineDesc.VS = m_PrefilterVertexShader;
+			pipelineDesc.PS = m_PrefilterFragmentShader;
+			pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+			pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+			pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+			pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+			pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+			pipelineDesc.bindingLayouts.push_back(m_IBLBindingLayout);
+
+			// Prefilter output: RGBA16_FLOAT cubemap face.
+			nvrhi::FramebufferInfo fbInfo;
+			fbInfo.colorFormats.push_back(nvrhi::Format::RGBA16_FLOAT);
+			fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
+			fbInfo.sampleCount = 1;
+
+			m_PrefilterPipeline = device->createGraphicsPipeline(pipelineDesc, fbInfo);
+			if (!m_PrefilterPipeline)
+			{
+				FG_CORE_ERROR("IBL: failed to create prefilter pipeline");
+				return false;
+			}
+		}
+
+		FG_CORE_INFO("IBL: pipelines created");
+		return true;
+	}
+
+	bool PbrRenderer::RenderIrradianceMap()
+	{
+		if (!m_EnvMap || !m_IrradiancePipeline || !m_IBLBindingLayout)
+			return false;
+
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+			return false;
+
+		const int faceCount = 6;
+		const int size = 256; // Irradiance cubemap resolution
+
+		// Create irradiance cubemap (6 faces, 1 mip level).
+		nvrhi::TextureDesc irradianceDesc;
+		irradianceDesc.width = size;
+		irradianceDesc.height = size;
+		irradianceDesc.depth = 1;
+		irradianceDesc.arraySize = 6;
+		irradianceDesc.mipLevels = 1;
+		irradianceDesc.format = nvrhi::Format::RGBA16_FLOAT;
+		irradianceDesc.isShaderResource = true;
+		irradianceDesc.isRenderTarget = true;
+		irradianceDesc.dimension = nvrhi::TextureDimension::TextureCube;
+		irradianceDesc.debugName = "PbrRenderer.IrradianceMap";
+		irradianceDesc.keepInitialState = true;
+		irradianceDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		m_IrradianceMap = device->createTexture(irradianceDesc);
+		if (!m_IrradianceMap)
+		{
+			FG_CORE_ERROR("IBL: failed to create irradiance cubemap");
+			return false;
+		}
+
+		// Create irradiance framebuffer (6 faces).
+		nvrhi::FramebufferDesc irradianceFbDesc;
+		for (int i = 0; i < faceCount; i++)
+		{
+			nvrhi::TextureSubresourceSet subres(0, 1, i, 1);
+			irradianceFbDesc.addColorAttachment(m_IrradianceMap.Get(), subres);
+		}
+		m_IrradianceFramebuffer = device->createFramebuffer(irradianceFbDesc);
+		if (!m_IrradianceFramebuffer)
+		{
+			FG_CORE_ERROR("IBL: failed to create irradiance framebuffer");
+			return false;
+		}
+
+		// Render each face.
+		nvrhi::CommandListParameters params;
+		nvrhi::CommandListHandle cmd = device->createCommandList(params);
+		cmd->open();
+
+		// Create IBL binding set (env map + params).
+		nvrhi::BindingSetDesc iblSetDesc;
+		{
+			nvrhi::BindingSetItem texItem{};
+			texItem.resourceHandle = m_EnvMap.Get();
+			texItem.slot = 0;
+			texItem.type = nvrhi::ResourceType::Texture_SRV;
+			texItem.dimension = nvrhi::TextureDimension::Texture2D;
+			texItem.format = m_EnvMap->getDesc().format;
+			texItem.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			iblSetDesc.bindings.push_back(texItem);
+		}
+		{
+			nvrhi::BindingSetItem bufItem{};
+			bufItem.resourceHandle = m_IBLParamsBuffer.Get();
+			bufItem.slot = 1;
+			bufItem.type = nvrhi::ResourceType::ConstantBuffer;
+			bufItem.range = nvrhi::BufferRange(0, 0);
+			iblSetDesc.bindings.push_back(bufItem);
+		}
+		nvrhi::BindingSetHandle iblSet = device->createBindingSet(iblSetDesc, m_IBLBindingLayout);
+		if (!iblSet)
+		{
+			FG_CORE_ERROR("IBL: failed to create IBL binding set");
+			cmd->Release();
+			return false;
+		}
+
+		for (int face = 0; face < faceCount; face++)
+		{
+			// Set the irradiance params (normal direction for this face).
+			glm::vec3 faceNormals[6] = {
+				{ 1.0f, 0.0f, 0.0f },  // +X
+				{ -1.0f, 0.0f, 0.0f }, // -X
+				{ 0.0f, 1.0f, 0.0f },  // +Y
+				{ 0.0f, -1.0f, 0.0f }, // -Y
+				{ 0.0f, 0.0f, 1.0f },  // +Z
+				{ 0.0f, 0.0f, -1.0f }  // -Z
+			};
+
+			// Write irradiance params: normal (vec3) + radius (float) = 16 bytes
+			glm::vec4 irradianceParams(faceNormals[face], 1.0f);
+			cmd->writeBuffer(m_IBLParamsBuffer, &irradianceParams, sizeof(irradianceParams), 0);
+
+			nvrhi::GraphicsState state;
+			state.framebuffer = m_IrradianceFramebuffer.Get();
+
+			nvrhi::Viewport viewport(0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f);
+			state.viewport.addViewportAndScissorRect(viewport);
+			state.pipeline = m_IrradiancePipeline.Get();
+			state.bindings.push_back(iblSet.Get());
+			state.vertexBuffers.push_back(m_IBLQuadVertexBinding);
+
+			cmd->setGraphicsState(state);
+
+			// Draw fullscreen quad.
+			nvrhi::DrawArguments args;
+			args.vertexCount = 4;
+			args.instanceCount = 1;
+			cmd->draw(args);
+		}
+
+		cmd->close();
+		device->executeCommandList(cmd, nvrhi::CommandQueue::Graphics);
+		cmd->Release();
+
+		FG_CORE_INFO("IBL: irradiance map generated ({0}x{1})", size, size);
+		return true;
+	}
+
+	bool PbrRenderer::RenderPrefilterMap(uint32_t mipCount)
+	{
+		if (!m_EnvMap || !m_PrefilterPipeline || !m_IBLBindingLayout)
+			return false;
+
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+			return false;
+
+		const int faceCount = 6;
+		const int baseSize = 512; // Prefilter cubemap base resolution
+
+		// Create prefilter cubemap with mip levels.
+		nvrhi::TextureDesc prefDesc;
+		prefDesc.width = baseSize;
+		prefDesc.height = baseSize;
+		prefDesc.depth = 1;
+		prefDesc.arraySize = 6;
+		prefDesc.mipLevels = mipCount;
+		prefDesc.format = nvrhi::Format::RGBA16_FLOAT;
+		prefDesc.isShaderResource = true;
+		prefDesc.isRenderTarget = true;
+		prefDesc.dimension = nvrhi::TextureDimension::TextureCube;
+		prefDesc.debugName = "PbrRenderer.PrefilterMap";
+		prefDesc.keepInitialState = true;
+		prefDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		m_PrefilterMap = device->createTexture(prefDesc);
+		if (!m_PrefilterMap)
+		{
+			FG_CORE_ERROR("IBL: failed to create prefilter cubemap");
+			return false;
+		}
+		m_PrefilterMipCount = mipCount;
+
+		// Create prefilter framebuffer (base mip level, 6 faces).
+		nvrhi::FramebufferDesc prefFbDesc;
+		for (int i = 0; i < faceCount; i++)
+		{
+			nvrhi::TextureSubresourceSet subres(0, 1, i, 1);
+			prefFbDesc.addColorAttachment(m_PrefilterMap.Get(), subres);
+		}
+		m_PrefilterFramebuffer = device->createFramebuffer(prefFbDesc);
+		if (!m_PrefilterFramebuffer)
+		{
+			FG_CORE_ERROR("IBL: failed to create prefilter framebuffer");
+			return false;
+		}
+
+		// Create IBL binding set.
+		nvrhi::BindingSetDesc iblSetDesc;
+		{
+			nvrhi::BindingSetItem texItem{};
+			texItem.resourceHandle = m_EnvMap.Get();
+			texItem.slot = 0;
+			texItem.type = nvrhi::ResourceType::Texture_SRV;
+			texItem.dimension = nvrhi::TextureDimension::Texture2D;
+			texItem.format = m_EnvMap->getDesc().format;
+			texItem.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			iblSetDesc.bindings.push_back(texItem);
+		}
+		{
+			nvrhi::BindingSetItem bufItem{};
+			bufItem.resourceHandle = m_IBLParamsBuffer.Get();
+			bufItem.slot = 1;
+			bufItem.type = nvrhi::ResourceType::ConstantBuffer;
+			bufItem.range = nvrhi::BufferRange(0, 0);
+			iblSetDesc.bindings.push_back(bufItem);
+		}
+		nvrhi::BindingSetHandle iblSet = device->createBindingSet(iblSetDesc, m_IBLBindingLayout);
+		if (!iblSet)
+		{
+			FG_CORE_ERROR("IBL: failed to create IBL binding set");
+			return false;
+		}
+
+		// Render each mip level.
+		nvrhi::CommandListParameters params;
+		nvrhi::CommandListHandle cmd = device->createCommandList(params);
+		cmd->open();
+
+		for (uint32_t mip = 0; mip < mipCount; mip++)
+		{
+			// Roughness for this mip level (0.0 to ~1.0).
+			float roughness = static_cast<float>(mip) / static_cast<float>(mipCount - 1);
+
+			// Write prefilter params: reflection vector (vec3) + roughness (float).
+			glm::vec4 prefParams(glm::vec3(0.0f, 0.0f, 1.0f), roughness);
+			cmd->writeBuffer(m_IBLParamsBuffer, &prefParams, sizeof(prefParams), 0);
+
+			// Render to each face at this mip level.
+			for (int face = 0; face < faceCount; face++)
+			{
+				// Update framebuffer to point to this mip level.
+				nvrhi::TextureSubresourceSet subres(mip, 1, face, 1);
+				nvrhi::FramebufferDesc mipFbDesc;
+				mipFbDesc.addColorAttachment(m_PrefilterMap.Get(), subres);
+				nvrhi::FramebufferHandle mipFb = device->createFramebuffer(mipFbDesc);
+
+				nvrhi::Viewport viewport(0.0f, 0.0f,
+					static_cast<float>(baseSize >> mip),
+					static_cast<float>(baseSize >> mip),
+					0.0f, 1.0f);
+
+				nvrhi::GraphicsState state;
+				state.framebuffer = mipFb.Get();
+				state.viewport.addViewportAndScissorRect(viewport);
+				state.pipeline = m_PrefilterPipeline.Get();
+				state.bindings.push_back(iblSet.Get());
+				state.vertexBuffers.push_back(m_IBLQuadVertexBinding);
+
+				cmd->setGraphicsState(state);
+				cmd->draw(nvrhi::DrawArguments{ 4, 1 });
+
+				mipFb->Release();
+			}
+		}
+
+		cmd->close();
+		device->executeCommandList(cmd, nvrhi::CommandQueue::Graphics);
+		cmd->Release();
+
+		FG_CORE_INFO("IBL: prefilter map generated ({0} mip levels)", mipCount);
 		return true;
 	}
 
 	bool PbrRenderer::CreateIrradianceMap()
 	{
-		// TODO: Implement irradiance map prefiltering.
-		FG_CORE_INFO("PbrRenderer: irradiance map prefiltering not yet implemented");
-		return true;
+		if (!m_EnvMap)
+		{
+			FG_CORE_WARN("IBL: no environment map loaded, skipping irradiance");
+			return true;
+		}
+
+		if (!m_IrradiancePipeline || !m_IBLBindingLayout)
+		{
+			FG_CORE_WARN("IBL: IBL infrastructure not initialized");
+			return false;
+		}
+
+		return RenderIrradianceMap();
 	}
 
 	bool PbrRenderer::CreatePrefilterMap(uint32_t mipCount)
 	{
-		// TODO: Implement prefilter map generation.
-		FG_CORE_INFO("PbrRenderer: prefilter map generation not yet implemented");
-		return true;
+		if (!m_EnvMap)
+		{
+			FG_CORE_WARN("IBL: no environment map loaded, skipping prefilter");
+			return true;
+		}
+
+		if (!m_PrefilterPipeline || !m_IBLBindingLayout)
+		{
+			FG_CORE_WARN("IBL: IBL infrastructure not initialized");
+			return false;
+		}
+
+		return RenderPrefilterMap(mipCount);
 	}
 
 }

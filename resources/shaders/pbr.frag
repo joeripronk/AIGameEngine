@@ -47,6 +47,9 @@ layout(binding = 5) uniform ShadowMapParams
 // Set 0, binding 6: environment map (cube map for IBL, combined sampler).
 layout(binding = 6) uniform samplerCube u_EnvMap;
 
+// Set 0, binding 7: irradiance map (cube map for diffuse IBL, combined sampler).
+layout(binding = 7) uniform samplerCube u_IrradianceMap;
+
 const float PI = 3.14159265359;
 
 float DistributionGGX(vec3 N, vec3 H, float roughness)
@@ -153,9 +156,14 @@ void main()
     vec3 envSpecularContrib = envSpecular * F;
 
     vec3 radiance = (diffuse + specular) * u_Camera.u_LightColor.rgb * u_Camera.u_LightColor.a;
+
+    // Diffuse IBL: sample irradiance map for ambient diffuse lighting.
+    vec3 irradiance = texture(u_IrradianceMap, N).rgb;
+    vec3 diffuseIBL = irradiance * albedo * ao;
+
     vec3 ambient = u_Camera.u_AmbientLight.rgb * albedo * ao;
 
-    vec3 color = ambient + radiance * NdotL * shadow + envSpecularContrib + emissive;
+    vec3 color = ambient + radiance * NdotL * shadow + envSpecularContrib + diffuseIBL + emissive;
 
     oColor = vec4(color, 1.0);
 }
