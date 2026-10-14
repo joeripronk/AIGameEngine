@@ -32,6 +32,11 @@ namespace Forge {
 		glm::vec3 GetMin() const;
 		glm::vec3 GetMax() const;
 
+		// Imports a model file (glTF/GLB/OBJ/FBX/...) via assimp into CPU data.
+		// Returns nullptr on failure. This is the device-independent import path
+		// used by tests, the asset pipeline and content baking.
+		static Ref<CpuMesh> LoadFromFile(const std::string& filepath);
+
 	private:
 		std::vector<Vertex> m_Vertices;
 		std::vector<uint32_t> m_Indices;

@@ -59,8 +59,20 @@ namespace Forge {
 
 		bool Primary = true;
 
+		// Projection parameters (kept so the projection can be rebuilt on resize).
+		float FieldOfView = 45.0f;   // degrees
+		float NearClip = 0.1f;
+		float FarClip = 1000.0f;
+		float AspectRatio = 16.0f / 9.0f;
+
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
+
+		// (Re)build the projection matrix from the stored parameters.
+		void UpdateProjection()
+		{
+			ProjectionMatrix = glm::perspective(glm::radians(FieldOfView), AspectRatio, NearClip, FarClip);
+		}
 	};
 
 	struct ScriptComponent

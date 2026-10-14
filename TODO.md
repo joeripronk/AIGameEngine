@@ -64,7 +64,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (102 test cases, 1004 assertions - all passing)
+### Tests (105 test cases, 1020 assertions - all passing)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
@@ -87,10 +87,12 @@
 - [ ] HDR pass (HDR accumulation and tonemapping)
 - [ ] Final pass (composite with SSAO overlay)
 - [ ] Shadow map pass
-- [ ] Assimp glTF model loader (code complete, needs assets)
-- [ ] VertexArray/VertexBuffer/IndexBuffer (null stubs in tests)
-- [ ] Texture loading (stb_image)
-- [ ] Shader library management
+- [x] Assimp model importer (CPU path: CpuMesh::LoadFromFile, glTF/OBJ/FBX)
+- [x] Default cube/plane/sphere primitives (CPU, testable)
+- [x] Texture loading (stb_image, LDR + Radiance HDR)
+- [ ] VertexArray/VertexBuffer/IndexBuffer GPU buffers (null stubs in tests)
+- [ ] Shader compilation (GLSL -> SPIR-V; needs glslang at build time)
+- [ ] IBL prefiltering / irradiance maps (needs GPU passes)
 
 ### Editor (AI-controllable)
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
@@ -112,8 +114,9 @@
 - [x] Physics-driven transform updates (Scene sync)
 - [x] DuplicateEntity copies all components
 - [x] SerializeRuntime/DeserializeRuntime (binary format)
-- [ ] Mesh loading from file (needs Assimp + vulkan)
-- [ ] Camera viewport resize handling
+- [x] Camera viewport resize handling (CameraComponent::UpdateProjection)
+- [x] Mesh loading from file (CPU assimp path; GPU path pending)
+- [ ] Audio (miniaudio) playback integration
 
 ### Deployment
 - [ ] Game export (package runtime + scene + resources)

@@ -177,12 +177,17 @@ namespace Forge {
 		m_ViewportWidth = width;
 		m_ViewportHeight = height;
 
-		// Resize cameras
+		if (width == 0 || height == 0)
+			return;
+
+		// Rebuild each camera's projection for the new aspect ratio.
+		float aspect = (float)width / (float)height;
 		auto view = m_Registry.view<CameraComponent>();
-		for (auto entity : view)
+		for (auto e : view)
 		{
-			// camera.SetViewportSize(width, height);
-			(void)entity;
+			auto& camera = view.get<CameraComponent>(e);
+			camera.AspectRatio = aspect;
+			camera.UpdateProjection();
 		}
 	}
 

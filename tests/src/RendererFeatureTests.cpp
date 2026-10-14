@@ -76,6 +76,34 @@ TEST_CASE("CpuMesh recalculates normals", "[mesh][primitive]")
         REQUIRE(v.Normal.y == Approx(1.0f).margin(1e-4f));
 }
 
+TEST_CASE("CpuMesh imports a model file via assimp", "[mesh][import]")
+{
+    auto mesh = Forge::CpuMesh::LoadFromFile(std::string(FORGE_SOURCE_DIR) + "/resources/models/test_triangle.obj");
+    REQUIRE(mesh);
+
+    // A single triangle: 3 vertices, 3 indices.
+    REQUIRE(mesh->GetVertices().size() == 3);
+    REQUIRE(mesh->GetIndexCount() == 3);
+
+    // Indices must be in range.
+    for (uint32_t index : mesh->GetIndices())
+        REQUIRE(index < mesh->GetVertices().size());
+
+    // Bounds reflect the fixture (-1..1 x, -1..1 y).
+    REQUIRE(mesh->GetMin() == glm::vec3(-1.0f, -1.0f, 0.0f));
+    REQUIRE(mesh->GetMax() == glm::vec3(1.0f, 1.0f, 0.0f));
+
+    // Normals were generated (unit length); UVs present (assimp may flip V).
+    REQUIRE(glm::length(mesh->GetVertices()[0].Normal) == Approx(1.0f));
+    REQUIRE(mesh->GetVertices()[0].UV.x == Approx(0.0f));
+    REQUIRE(mesh->GetVertices()[1].UV.x == Approx(1.0f));
+}
+
+TEST_CASE("CpuMesh import rejects missing files", "[mesh][import]")
+{
+    REQUIRE(Forge::CpuMesh::LoadFromFile("does_not_exist.obj") == nullptr);
+}
+
 TEST_CASE("CpuTexture wraps raw bytes", "[texture]")
 {
     std::vector<uint8_t> pixels(2 * 2 * 4, 255);

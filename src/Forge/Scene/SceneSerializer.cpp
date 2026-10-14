@@ -211,6 +211,10 @@ namespace Forge {
 			out << YAML::Key << "CameraComponent";
 			out << YAML::BeginMap;
 			out << YAML::Key << "Primary" << YAML::Value << cameraComponent.Primary;
+			out << YAML::Key << "FieldOfView" << YAML::Value << cameraComponent.FieldOfView;
+			out << YAML::Key << "NearClip" << YAML::Value << cameraComponent.NearClip;
+			out << YAML::Key << "FarClip" << YAML::Value << cameraComponent.FarClip;
+			out << YAML::Key << "AspectRatio" << YAML::Value << cameraComponent.AspectRatio;
 			out << YAML::EndMap;
 		}
 
@@ -344,7 +348,16 @@ namespace Forge {
 		}
 
 		if (HasNode(entityNode, "CameraComponent"))
-			deserializedEntity.AddComponent<CameraComponent>().Primary = GetBool(entityNode["CameraComponent"], "Primary", true);
+		{
+			auto cameraNode = entityNode["CameraComponent"];
+			auto& camera = deserializedEntity.AddComponent<CameraComponent>();
+			camera.Primary = GetBool(cameraNode, "Primary", true);
+			camera.FieldOfView = GetFloat(cameraNode, "FieldOfView", camera.FieldOfView);
+			camera.NearClip = GetFloat(cameraNode, "NearClip", camera.NearClip);
+			camera.FarClip = GetFloat(cameraNode, "FarClip", camera.FarClip);
+			camera.AspectRatio = GetFloat(cameraNode, "AspectRatio", camera.AspectRatio);
+			camera.UpdateProjection();
+		}
 
 		if (HasNode(entityNode, "ScriptComponent"))
 			deserializedEntity.AddComponent<ScriptComponent>().ClassName = GetString(entityNode["ScriptComponent"], "ClassName");

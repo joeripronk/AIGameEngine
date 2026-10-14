@@ -230,6 +230,31 @@ TEST_CASE("EditorContext SetPlaying toggles play/stop", "[editor][tooling]")
 	Forge::Physics::Shutdown();
 }
 
+TEST_CASE("Camera projection updates on viewport resize", "[scene][camera][tooling]")
+{
+	Forge::Scene scene;
+	auto entity = scene.CreateEntity("Camera");
+	auto& camera = entity.AddComponent<Forge::CameraComponent>();
+	camera.FieldOfView = 60.0f;
+	camera.NearClip = 0.1f;
+	camera.FarClip = 1000.0f;
+	camera.AspectRatio = 16.0f / 9.0f;
+	camera.UpdateProjection();
+
+	// Resize to a 1:1 viewport.
+	scene.OnViewportResize(800, 800);
+	REQUIRE(camera.AspectRatio == Approx(1.0f));
+
+	// The projection matrix reflects the new aspect ratio.
+	glm::mat4 expected = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 1000.0f);
+	REQUIRE(camera.ProjectionMatrix[0][0] == Approx(expected[0][0]));
+	REQUIRE(camera.ProjectionMatrix[1][1] == Approx(expected[1][1]));
+
+	// A zero-sized viewport is ignored.
+	scene.OnViewportResize(0, 0);
+	REQUIRE(camera.AspectRatio == Approx(1.0f));
+}
+
 TEST_CASE("EditorContext prefab instantiation", "[editor][tooling]")
 {
 	Forge::Log::Init();
