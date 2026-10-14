@@ -7,15 +7,9 @@
 
 namespace Forge {
 
-	Ref<Texture> Texture::Create(const std::string& filepath)
-	{
-		return CreateRef<VulkanTexture>(filepath);
-	}
-
-	Ref<Texture> Texture::Create(uint32_t width, uint32_t height, void* data)
-	{
-		return CreateRef<VulkanTexture>(width, height, data);
-	}
+	// NOTE: The GPU-backed Texture::Create factories live in the Vulkan platform
+	// layer (VulkanTexture.cpp). Forge::CpuTexture provides device-independent
+	// decoding for tests and asset pipelines.
 
 }
 

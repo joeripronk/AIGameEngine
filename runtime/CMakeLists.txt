@@ -18,9 +18,8 @@ target_sources(ForgeRuntime
 
 target_link_libraries(ForgeRuntime
     PRIVATE
-        ForgeCore
-        vulkan
-        nvrhi_vk
+        ForgeApp
+        forge_vk_dispatch
 )
 
 # Set properties

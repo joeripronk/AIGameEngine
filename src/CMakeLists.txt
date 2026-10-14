@@ -33,47 +33,27 @@ target_sources(ForgeCore
         Forge/Core/UUID.h
         Forge/Core/UUID.cpp
         Forge/Core/Timestep.h
-        Forge/Core/Window.h
-        Forge/Core/Window.cpp
         Forge/Core/Layer.h
         Forge/Core/Layer.cpp
         Forge/Core/LayerStack.h
         Forge/Core/LayerStack.cpp
-        Forge/Core/Application.h
-        Forge/Core/Application.cpp
         Forge/Core/EntryPoint.h
         Forge/Events/Event.h
         Forge/Events/ApplicationEvent.h
         Forge/Events/KeyEvent.h
         Forge/Events/MouseEvent.h
-        Forge/Renderer/Renderer.h
-        Forge/Renderer/Renderer.cpp
-        Forge/Renderer/RenderCommand.h
-        Forge/Renderer/RenderCommand.cpp
-        Forge/Renderer/RendererAPI.h
-        Forge/Renderer/RendererAPI.cpp
-        Forge/Renderer/Shader.h
-        Forge/Renderer/Shader.cpp
-        Forge/Renderer/ShaderLibrary.h
-        Forge/Renderer/ShaderLibrary.cpp
-        Forge/Renderer/Texture.h
-        Forge/Renderer/Texture.cpp
+        Forge/Renderer/Camera.h
+        Forge/Renderer/Camera.cpp
+        Forge/Renderer/EditorCamera.h
+        Forge/Renderer/EditorCamera.cpp
         Forge/Renderer/CpuTexture.h
         Forge/Renderer/CpuTexture.cpp
         Forge/Renderer/CpuMesh.h
         Forge/Renderer/CpuMesh.cpp
         Forge/Renderer/Mesh.h
         Forge/Renderer/Mesh.cpp
-        Forge/Renderer/Camera.h
-        Forge/Renderer/Camera.cpp
-        Forge/Renderer/EditorCamera.h
-        Forge/Renderer/EditorCamera.cpp
-        Forge/Renderer/Shaders.h
-        Forge/Renderer/ViewportRenderer.h
-        Forge/Renderer/ViewportRenderer.cpp
-        Forge/Renderer/VertexArray.h
-        Forge/Renderer/VertexBuffer.h
-        Forge/Renderer/IndexBuffer.h
+        Forge/Renderer/Texture.h
+        Forge/Renderer/Texture.cpp
         Forge/Scene/Components.h
         Forge/Scene/Entity.h
         Forge/Scene/Entity.cpp
@@ -221,12 +201,90 @@ target_link_libraries(ForgeCore
         Threads::Threads
 )
 
-# Vulkan backend depends on GLFW (window/input) and the nvrhi Vulkan device.
+# Vulkan backend depends on GLFW (window/input), the nvrhi Vulkan device and
+# ForgeCore (for CpuTexture decoding used by VulkanTexture).
 target_link_libraries(vulkan
     PRIVATE
         glfw
         nvrhi_vk
+        nvrhi
+        ForgeCore
 )
+
+# ---------------------------------------------------------------------------
+# ForgeApp: the platform layer (window + renderer + application shell).
+#
+# ForgeCore above is deliberately headless (FG_NO_VULKAN_RUNTIME) so unit tests
+# can exercise the ECS, physics and scripting without a graphics device.
+# ForgeApp carries the window/renderer/app sources, links the Vulkan backend,
+# and is what the editor and runtime executables link against.
+# ---------------------------------------------------------------------------
+add_library(ForgeApp STATIC)
+target_sources(ForgeApp
+    PRIVATE
+        Forge/Core/Window.h
+        Forge/Core/Window.cpp
+        Forge/Core/Application.h
+        Forge/Core/Application.cpp
+        Forge/Renderer/Renderer.h
+        Forge/Renderer/Renderer.cpp
+        Forge/Renderer/RenderCommand.h
+        Forge/Renderer/RenderCommand.cpp
+        Forge/Renderer/RendererAPI.h
+        Forge/Renderer/RendererAPI.cpp
+        Forge/Renderer/Shader.h
+        Forge/Renderer/Shader.cpp
+        Forge/Renderer/ShaderLibrary.h
+        Forge/Renderer/ShaderLibrary.cpp
+        Forge/Renderer/Shaders.h
+        Forge/Renderer/ViewportRenderer.h
+        Forge/Renderer/ViewportRenderer.cpp
+        Forge/Renderer/VertexArray.h
+        Forge/Renderer/VertexBuffer.h
+        Forge/Renderer/IndexBuffer.h
+)
+target_include_directories(ForgeApp
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/vendor/glm
+        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
+        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
+        ${CMAKE_SOURCE_DIR}/vendor/glfw/include
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/Platform/Vulkan
+)
+target_compile_definitions(ForgeApp PRIVATE STBI_STATIC)
+target_link_libraries(ForgeApp
+    PUBLIC
+        ForgeCore
+        vulkan
+        nvrhi_vk
+        nvrhi
+        glfw
+        spdlog::spdlog
+        fmt::fmt
+        yaml-cpp
+        Threads::Threads
+)
+set_target_properties(ForgeApp PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    POSITION_INDEPENDENT_CODE ON
+)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ForgeApp PRIVATE -Wno-pedantic -Werror)
+endif()
+
+# nvrhi's Vulkan backend expects the Vulkan-Hpp dynamic dispatch storage
+# (vk::detail::defaultDispatchLoaderDynamic) to be provided by a single
+# translation unit. Newer Vulkan-Hpp releases gate that definition behind the
+# C++20 module path, so we provide it explicitly in a tiny static library. Link
+# this AFTER nvrhi_vk (editor/runtime do) so the symbol resolves.
+add_library(forge_vk_dispatch STATIC
+    Platform/Vulkan/VulkanDispatch.cpp
+)
+target_link_libraries(forge_vk_dispatch PUBLIC nvrhi_vk)
 
 # Set properties
 set_target_properties(ForgeCore PROPERTIES

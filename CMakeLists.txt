@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Repeat static libraries on the link line so inter-archive symbol
+# dependencies (nvrhi <-> nvrhi_vk, ForgeCore <-> vulkan) resolve regardless
+# of declaration order.
+set(CMAKE_LINK_INTERFACE_MULTIPLICITY 3)
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)

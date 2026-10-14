@@ -1,20 +1,20 @@
 # Forge Editor
 add_executable(ForgeEditor)
 
-# Dear ImGui library
+# Dear ImGui library (v1.91.9: split core translation units + backends/)
 add_library(imgui STATIC)
 target_sources(imgui PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_impl_glfw.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_impl_opengl3.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_draw.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_tables.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_widgets.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_demo.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_glfw.cpp
     ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_vulkan.cpp
 )
 target_include_directories(imgui PUBLIC
     ${CMAKE_SOURCE_DIR}/vendor/imgui
     ${CMAKE_SOURCE_DIR}/vendor/imgui/backends
-)
-target_compile_definitions(imgui PRIVATE IMGUI_IMPL_OPENGL_LOADER_GLAD)
-target_include_directories(imgui PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor/glfw/include
 )
 
@@ -38,10 +38,9 @@ target_sources(ForgeEditor
 
 target_link_libraries(ForgeEditor
     PRIVATE
-        ForgeCore
-        vulkan
-        nvrhi_vk
+        ForgeApp
         imgui
+        forge_vk_dispatch
         ${CMAKE_DL_LIBS}
 )
 

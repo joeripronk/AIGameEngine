@@ -54,13 +54,13 @@ namespace Forge {
 
 		// Create a ground plane
 		auto ground = m_Scene->CreateEntity("Ground");
-		auto& groundTransform = ground.AddComponent<TransformComponent>();
+		auto& groundTransform = ground.GetComponent<TransformComponent>();
 		groundTransform.Translation = { 0.0f, -1.0f, 0.0f };
 		groundTransform.Scale = { 10.0f, 1.0f, 10.0f };
 
 		// Create a camera entity
 		auto camera = m_Scene->CreateEntity("Camera");
-		auto& cameraTransform = camera.AddComponent<TransformComponent>();
+		auto& cameraTransform = camera.GetComponent<TransformComponent>();
 		cameraTransform.Translation = { 0.0f, 5.0f, 10.0f };
 		cameraTransform.Rotation = { 30.0f, 0.0f, 0.0f };
 
@@ -71,7 +71,7 @@ namespace Forge {
 
 		// Create a directional light
 		auto light = m_Scene->CreateEntity("DirectionalLight");
-		auto& lightTransform = light.AddComponent<TransformComponent>();
+		auto& lightTransform = light.GetComponent<TransformComponent>();
 		lightTransform.Translation = { 5.0f, 10.0f, 5.0f };
 		auto& lightComponent = light.AddComponent<LightComponent>();
 		lightComponent.Type = LightComponent::Type::Directional;
@@ -80,19 +80,19 @@ namespace Forge {
 
 		// Create a test cube entity
 		auto cube = m_Scene->CreateEntity("TestCube");
-		auto& cubeTransform = cube.AddComponent<TransformComponent>();
+		auto& cubeTransform = cube.GetComponent<TransformComponent>();
 		cubeTransform.Translation = { 0.0f, 0.5f, 0.0f };
 		cubeTransform.Scale = { 1.0f, 1.0f, 1.0f };
 
 		// Create a test sphere entity
 		auto sphere = m_Scene->CreateEntity("TestSphere");
-		auto& sphereTransform = sphere.AddComponent<TransformComponent>();
+		auto& sphereTransform = sphere.GetComponent<TransformComponent>();
 		sphereTransform.Translation = { 3.0f, 0.5f, 0.0f };
 		sphereTransform.Scale = { 0.5f, 0.5f, 0.5f };
 
 		// Create a physics-enabled entity
 		auto physicsEntity = m_Scene->CreateEntity("PhysicsBox");
-		auto& physTransform = physicsEntity.AddComponent<TransformComponent>();
+		auto& physTransform = physicsEntity.GetComponent<TransformComponent>();
 		physTransform.Translation = { -3.0f, 5.0f, 0.0f };
 		physTransform.Scale = { 1.0f, 1.0f, 1.0f };
 		auto& physRb = physicsEntity.AddComponent<RigidbodyComponent>();
@@ -102,7 +102,7 @@ namespace Forge {
 
 		// Create a script entity
 		auto scriptEntity = m_Scene->CreateEntity("ScriptEntity");
-		auto& scriptTransform = scriptEntity.AddComponent<TransformComponent>();
+		auto& scriptTransform = scriptEntity.GetComponent<TransformComponent>();
 		scriptTransform.Translation = { 6.0f, 0.5f, 0.0f };
 		scriptTransform.Scale = { 0.5f, 0.5f, 0.5f };
 		auto& scriptComp = scriptEntity.AddComponent<ScriptComponent>();
@@ -111,9 +111,6 @@ namespace Forge {
 
 	void EditorApp::Run()
 	{
-		// Create scene window
-		CreateDefaultScene();
-
 		// Main editor loop
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
@@ -159,7 +156,7 @@ namespace Forge {
 				// Render
 				if (m_Scene)
 				{
-					m_Viewport.Render(m_Scene, m_Camera.GetViewProjectionMatrix());
+					m_Viewport.Render(m_Scene.get(), m_Camera.GetViewProjectionMatrix());
 				}
 			}
 
@@ -238,14 +235,14 @@ namespace Forge {
 				if (ImGui::MenuItem("Create Cube"))
 				{
 					auto entity = m_Scene->CreateEntity("Cube");
-					auto& tc = entity.AddComponent<TransformComponent>();
+					auto& tc = entity.GetComponent<TransformComponent>();
 					tc.Translation = { 0.0f, 0.5f, 0.0f };
 					tc.Scale = { 1.0f, 1.0f, 1.0f };
 				}
 				if (ImGui::MenuItem("Create Sphere"))
 				{
 					auto entity = m_Scene->CreateEntity("Sphere");
-					auto& tc = entity.AddComponent<TransformComponent>();
+					auto& tc = entity.GetComponent<TransformComponent>();
 					tc.Translation = { 0.0f, 0.5f, 0.0f };
 					tc.Scale = { 0.5f, 0.5f, 0.5f };
 				}

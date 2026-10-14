@@ -19,12 +19,12 @@ namespace Forge {
 
 		// Create a simple test scene
 		auto ground = m_Scene->CreateEntity("Ground");
-		auto& groundTransform = ground.AddComponent<TransformComponent>();
+		auto& groundTransform = ground.GetComponent<TransformComponent>();
 		groundTransform.Translation = { 0.0f, -1.0f, 0.0f };
 		groundTransform.Scale = { 10.0f, 1.0f, 10.0f };
 
 		auto camera = m_Scene->CreateEntity("Camera");
-		auto& cameraTransform = camera.AddComponent<TransformComponent>();
+		auto& cameraTransform = camera.GetComponent<TransformComponent>();
 		cameraTransform.Translation = { 0.0f, 5.0f, 10.0f };
 		auto& cameraComp = camera.AddComponent<CameraComponent>();
 		cameraComp.Primary = true;

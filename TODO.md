@@ -57,11 +57,20 @@
 - [x] FG_NO_VULKAN_RUNTIME for testability
 - [x] Catch2 test targets
 
-### Tests (82 test cases, 272 assertions - all passing)
+### Build & Architecture
+- [x] ForgeCore (headless, testable) + ForgeApp (platform) + Vulkan backend split
+- [x] ForgeEditor and ForgeRuntime link and build
+- [x] Clean ImGui v1.91.9 vendored (fixes missing BeginMenu/Separator/MenuItem)
+- [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
+- [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
+
+### Tests (99 test cases, 960 assertions - all passing)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
 - [x] EngineFeatureTests (serializer, runtime format, physics sync, raycast, prefabs, scripting)
+- [x] RendererFeatureTests (cube/plane/sphere primitives, PNG/HDR texture decoding)
+- [x] ToolingTests (gizmo math, asset registry, game export, editor context)
 - [x] RendererTests (null stubs)
 - [x] PhysicsTests (physics engine, collision, integration)
 - [x] ScriptingTests (Lua engine)
@@ -82,11 +91,13 @@
 - [ ] Shader library management
 
 ### Editor (AI-controllable)
-- [ ] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
-- [ ] Gizmo manipulation
-- [ ] Asset browser (AssetRegistry)
-- [ ] Properties panel for global settings
-- [ ] Actual viewport rendering (currently ImGui image call has no swapchain)
+- [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
+- [x] Gizmo manipulation (math layer)
+- [x] AssetRegistry / asset browser backend
+- [ ] ImGui asset browser panel (backend done)
+- [ ] ImGui gizmo interaction (math layer done)
+- [x] Properties panel for global settings
+- [ ] Actual viewport rendering (needs real Vulkan device + swapchain)
 
 ### Assets & Resources
 - [ ] AssetRegistry / asset browser backend
