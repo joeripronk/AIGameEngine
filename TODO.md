@@ -102,7 +102,7 @@
 - [x] SSAO pass (depth reconstruction - shader requires G-Buffer inputs)
 - [x] HDR tonemapping pass (reads HDR buffer, applies ACES tone mapping)
 - [x] Final composite pass (reads tonemapped + SSAO, outputs to swapchain)
-- [ ] IBL prefiltering / irradiance maps
+- [x] IBL prefiltering / irradiance maps (irradiance cubemap + prefilter mipmapped cubemap)
 - [x] ImGui Vulkan backend init + viewport present (ImGui draw data rendered to swapchain)
 
 ### Editor (AI-controllable)
@@ -119,7 +119,7 @@
 - [x] CPU texture loading (stb_image LDR + Radiance HDR)
 - [x] CPU model import (assimp: glTF/GLB/OBJ/FBX)
 - [x] Resource fixtures committed (scene, scripts, prefab, model, texture, audio)
-- [ ] IBL (Image-Based Lighting) with HDRIs (needs GPU prefilter passes)
+- [x] IBL (Image-Based Lighting) with HDRIs (irradiance + prefilter cubemaps)
 - [x] Soft shadow maps (implemented)
 
 ### Engine Polish
