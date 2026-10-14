@@ -1,9 +1,7 @@
 #pragma once
 
 #include "Forge/Core/Application.h"
-#include "Forge/Scene/Entity.h"
-#include "Forge/Scene/Scene.h"
-#include "Forge/Renderer/EditorCamera.h"
+#include "Forge/Editor/EditorContext.h"
 #include "Forge/Renderer/ViewportRenderer.h"
 
 namespace Forge {
@@ -16,24 +14,24 @@ namespace Forge {
 
 		void Run() override;
 
-		// Scene management
-		Ref<Scene> GetScene() { return m_Scene; }
-
-		// Editor state
-		Entity GetSelectedEntity() const { return m_SelectedEntity; }
-		void SetSelectedEntity(Entity entity) { m_SelectedEntity = entity; }
-
-		void DrawEditorUI(Timestep ts);
+		// The editor model (window-independent; shared with AI tooling/tests).
+		EditorContext& GetEditor() { return m_Editor; }
 
 	private:
 		void CreateDefaultScene();
+		void DrawMenuBar();
+		void DrawHierarchyPanel();
+		void DrawInspectorPanel();
+		void DrawViewportPanel();
+		void DrawAssetBrowserPanel();
+		void DrawPropertiesPanel();
+		void DrawGizmoToolbar();
 
-		Ref<Scene> m_Scene;
-		Entity m_SelectedEntity;
-		EditorCamera m_Camera;
+		// Mirrors the currently playing scene's camera into the editor camera.
+		void SyncEditorCamera();
+
+		EditorContext m_Editor;
 		ViewportRenderer m_Viewport;
-		bool m_IsPlaying = false;
-		bool m_IsPaused = false;
 	};
 
 }

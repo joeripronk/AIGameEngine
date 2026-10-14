@@ -50,6 +50,8 @@ namespace Forge {
 		void Step(int frames = 1);
 		bool IsPlaying() const { return m_IsPlaying; }
 		bool IsPaused() const { return m_IsPaused; }
+		// Toggle play/pause; used by UI checkbox bindings.
+		void SetPlaying(bool playing);
 
 		// --- Per-frame update -------------------------------------------------
 		void Update(Timestep ts);

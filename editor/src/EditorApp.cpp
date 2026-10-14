@@ -1,10 +1,10 @@
 #include "fgpch.h"
 #include "editor/src/EditorApp.h"
 
-#include "Forge/Scene/Entity.h"
-#include "Forge/Scene/Components.h"
+#include "Forge/Core/Log.h"
 #include "Forge/Renderer/Renderer.h"
-#include "Forge/Scene/SceneSerializer.h"
+#include "Forge/Assets/AssetRegistry.h"
+#include "Forge/Scene/Components.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -13,105 +13,78 @@
 namespace Forge {
 
 	EditorApp::EditorApp()
-		: Application(ApplicationSpecification{ "Forge Editor", "", {0, nullptr} })
+		: Application(ApplicationSpecification{ "Forge Editor", "", { 0, nullptr } })
 	{
-		// Initialize renderer
 		Renderer::Init();
 
-		// Create default scene
 		CreateDefaultScene();
 
-		// Setup ImGui
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
-		// ImGui::StyleColorsDark(); // Commented out for WIP version compatibility
-
 		ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetWindow().GetNativeWindow()), true);
 
-		// Setup Vulkan context for ImGui (simplified - no actual Vulkan rendering)
-		ImGuiIO& io2 = ImGui::GetIO();
-		(void)io2;
+		m_Editor.GetCamera().SetPosition({ 0.0f, 5.0f, 12.0f });
+		m_Editor.GetCamera().SetRotation({ 20.0f, 0.0f, 0.0f });
 
-		// Setup initial camera
-		m_Camera.SetPosition({ 0.0f, 5.0f, 10.0f });
-		m_Camera.SetRotation({ 0.0f, 0.0f, 0.0f });
-
-		// Setup viewport renderer
 		m_Viewport.Init(800, 600);
 	}
 
 	EditorApp::~EditorApp()
 	{
+		m_Viewport.Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 	}
 
 	void EditorApp::CreateDefaultScene()
 	{
-		m_Scene = CreateRef<Scene>();
+		m_Editor.NewScene();
 
-		// Create a ground plane
-		auto ground = m_Scene->CreateEntity("Ground");
-		auto& groundTransform = ground.GetComponent<TransformComponent>();
-		groundTransform.Translation = { 0.0f, -1.0f, 0.0f };
-		groundTransform.Scale = { 10.0f, 1.0f, 10.0f };
+		auto camera = m_Editor.CreateEntity("MainCamera");
+		camera.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, 12.0f };
+		camera.AddComponent<CameraComponent>().Primary = true;
 
-		// Create a camera entity
-		auto camera = m_Scene->CreateEntity("Camera");
-		auto& cameraTransform = camera.GetComponent<TransformComponent>();
-		cameraTransform.Translation = { 0.0f, 5.0f, 10.0f };
-		cameraTransform.Rotation = { 30.0f, 0.0f, 0.0f };
-
-		auto& cameraComponent = camera.AddComponent<CameraComponent>();
-		cameraComponent.Primary = true;
-		cameraComponent.ProjectionMatrix = glm::perspective(
-			glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 1000.0f);
-
-		// Create a directional light
-		auto light = m_Scene->CreateEntity("DirectionalLight");
-		auto& lightTransform = light.GetComponent<TransformComponent>();
-		lightTransform.Translation = { 5.0f, 10.0f, 5.0f };
+		auto light = m_Editor.CreateEntity("DirectionalLight");
 		auto& lightComponent = light.AddComponent<LightComponent>();
 		lightComponent.Type = LightComponent::Type::Directional;
-		lightComponent.Direction = { 0.0f, -1.0f, 0.0f };
-		lightComponent.Intensity = 1.0f;
+		lightComponent.Direction = { -0.5f, -1.0f, -0.3f };
 
-		// Create a test cube entity
-		auto cube = m_Scene->CreateEntity("TestCube");
+		auto cube = m_Editor.CreateEntity("Cube");
 		auto& cubeTransform = cube.GetComponent<TransformComponent>();
 		cubeTransform.Translation = { 0.0f, 0.5f, 0.0f };
-		cubeTransform.Scale = { 1.0f, 1.0f, 1.0f };
+		cube.AddComponent<PBRMaterialComponent>().Albedo = { 0.8f, 0.3f, 0.3f };
 
-		// Create a test sphere entity
-		auto sphere = m_Scene->CreateEntity("TestSphere");
-		auto& sphereTransform = sphere.GetComponent<TransformComponent>();
-		sphereTransform.Translation = { 3.0f, 0.5f, 0.0f };
-		sphereTransform.Scale = { 0.5f, 0.5f, 0.5f };
+		auto physics = m_Editor.CreateEntity("PhysicsBox");
+		physics.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, 0.0f };
+		auto& rigidbody = physics.AddComponent<RigidbodyComponent>();
+		rigidbody.Type = RigidbodyComponent::BodyType::Dynamic;
+		physics.AddComponent<BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
 
-		// Create a physics-enabled entity
-		auto physicsEntity = m_Scene->CreateEntity("PhysicsBox");
-		auto& physTransform = physicsEntity.GetComponent<TransformComponent>();
-		physTransform.Translation = { -3.0f, 5.0f, 0.0f };
-		physTransform.Scale = { 1.0f, 1.0f, 1.0f };
-		auto& physRb = physicsEntity.AddComponent<RigidbodyComponent>();
-		physRb.Type = RigidbodyComponent::BodyType::Dynamic;
-		auto& physCollider = physicsEntity.AddComponent<BoxColliderComponent>();
-		physCollider.Size = { 1.0f, 1.0f, 1.0f };
+		auto scriptEntity = m_Editor.CreateEntity("ScriptEntity");
+		scriptEntity.GetComponent<TransformComponent>().Translation = { 4.0f, 0.5f, 0.0f };
+		scriptEntity.AddComponent<ScriptComponent>().ClassName = "Mover";
 
-		// Create a script entity
-		auto scriptEntity = m_Scene->CreateEntity("ScriptEntity");
-		auto& scriptTransform = scriptEntity.GetComponent<TransformComponent>();
-		scriptTransform.Translation = { 6.0f, 0.5f, 0.0f };
-		scriptTransform.Scale = { 0.5f, 0.5f, 0.5f };
-		auto& scriptComp = scriptEntity.AddComponent<ScriptComponent>();
-		scriptComp.ClassName = "TestScript";
+		m_Editor.SelectEntity(cube);
+	}
+
+	void EditorApp::SyncEditorCamera()
+	{
+		// Follow the primary camera so the viewport matches the scene.
+		auto cameraEntity = m_Editor.GetScene()->GetPrimaryCameraEntity();
+		if (cameraEntity)
+		{
+			auto& tc = cameraEntity.GetComponent<TransformComponent>();
+			m_Editor.GetCamera().SetPosition(tc.Translation);
+			m_Editor.GetCamera().SetRotation(tc.Rotation);
+		}
 	}
 
 	void EditorApp::Run()
 	{
-		// Main editor loop
+		AssetRegistry::Scan("resources/");
+
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
 		{
@@ -121,383 +94,300 @@ namespace Forge {
 
 			if (!IsMinimized())
 			{
-				// Update layers
 				for (Layer* layer : GetLayerStack())
 					layer->OnUpdate(timestep);
 
-				// Update scene
-				if (m_Scene)
-				{
-					if (m_IsPlaying)
-					{
-						if (m_IsPaused)
-							m_Scene->OnUpdateEditor(timestep);
-						else
-							m_Scene->OnUpdateRuntime(timestep);
-					}
-					else
-					{
-						m_Scene->OnUpdateEditor(timestep);
-					}
-				}
-
-				// Update camera
-				if (m_Scene)
-				{
-					auto cameraEntity = m_Scene->GetPrimaryCameraEntity();
-					if (cameraEntity)
-					{
-						auto& tc = cameraEntity.GetComponent<TransformComponent>();
-						m_Camera.SetPosition(tc.Translation);
-						m_Camera.SetRotation(tc.Rotation);
-					}
-				}
-
-				// Render
-				if (m_Scene)
-				{
-					m_Viewport.Render(m_Scene.get(), m_Camera.GetViewProjectionMatrix());
-				}
+				SyncEditorCamera();
+				m_Editor.Update(timestep);
 			}
 
 			GetWindowScope()->OnUpdate();
-
-			// Execute main thread queue
 			ExecuteMainThreadQueue();
 
-			// ImGui rendering
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
 
-			// Editor UI
-			DrawEditorUI(timestep);
+			DrawMenuBar();
+			DrawGizmoToolbar();
+			DrawHierarchyPanel();
+			DrawInspectorPanel();
+			DrawViewportPanel();
+			DrawAssetBrowserPanel();
+			DrawPropertiesPanel();
 
 			ImGui::Render();
-
-			// TODO: ImGui render to swapchain
+			// TODO: present the ImGui draw data to the Vulkan swapchain.
 		}
 	}
 
-	void EditorApp::DrawEditorUI(Timestep ts)
+	void EditorApp::DrawMenuBar()
 	{
-		// Menu Bar
-		if (ImGui::BeginMainMenuBar())
+		if (!ImGui::BeginMainMenuBar())
+			return;
+
+		if (ImGui::BeginMenu("File"))
 		{
-			if (ImGui::BeginMenu("File"))
-			{
-				if (ImGui::MenuItem("New Scene"))
-				{
-					m_Scene = CreateRef<Scene>();
-				}
-				if (ImGui::MenuItem("Open Scene"))
-				{
-					// TODO: File dialog
-				}
-				if (ImGui::MenuItem("Save Scene"))
-				{
-					if (m_Scene)
-					{
-						SceneSerializer serializer(m_Scene);
-						serializer.Serialize("resources/scenes/editor.forge");
-					}
-				}
-				ImGui::Separator();
-				if (ImGui::MenuItem("Exit"))
-				{
-					Close();
-				}
-				ImGui::EndMenu();
-			}
+			if (ImGui::MenuItem("New Scene"))
+				CreateDefaultScene();
 
-			if (ImGui::BeginMenu("Edit"))
-			{
-				if (ImGui::MenuItem("Undo")) { }
-				if (ImGui::MenuItem("Redo")) { }
-				ImGui::Separator();
-				if (ImGui::MenuItem("Delete Selected"))
-				{
-					if (m_SelectedEntity)
-					{
-						m_Scene->DestroyEntity(m_SelectedEntity);
-						m_SelectedEntity = {};
-					}
-				}
-				ImGui::EndMenu();
-			}
+			if (ImGui::MenuItem("Save Scene"))
+				m_Editor.SaveScene("resources/scenes/editor.forge");
 
-			if (ImGui::BeginMenu("Scene"))
-			{
-				if (ImGui::MenuItem("Create Empty Entity"))
-				{
-					auto entity = m_Scene->CreateEntity("Entity");
-					(void)entity;
-				}
-				if (ImGui::MenuItem("Create Cube"))
-				{
-					auto entity = m_Scene->CreateEntity("Cube");
-					auto& tc = entity.GetComponent<TransformComponent>();
-					tc.Translation = { 0.0f, 0.5f, 0.0f };
-					tc.Scale = { 1.0f, 1.0f, 1.0f };
-				}
-				if (ImGui::MenuItem("Create Sphere"))
-				{
-					auto entity = m_Scene->CreateEntity("Sphere");
-					auto& tc = entity.GetComponent<TransformComponent>();
-					tc.Translation = { 0.0f, 0.5f, 0.0f };
-					tc.Scale = { 0.5f, 0.5f, 0.5f };
-				}
-				ImGui::Separator();
-				if (ImGui::MenuItem("Play"))
-				{
-					m_IsPlaying = true;
-					m_IsPaused = false;
-					m_Scene->OnRuntimeStart();
-				}
-				if (ImGui::MenuItem("Pause"))
-				{
-					m_IsPaused = !m_IsPaused;
-				}
-				if (ImGui::MenuItem("Stop"))
-				{
-					m_IsPlaying = false;
-					m_IsPaused = false;
-					m_Scene->OnRuntimeStop();
-				}
-				ImGui::EndMenu();
-			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Exit"))
+				Close();
 
-			ImGui::EndMainMenuBar();
+			ImGui::EndMenu();
 		}
 
-		// Scene Hierarchy Panel
+		if (ImGui::BeginMenu("Scene"))
+		{
+			if (ImGui::MenuItem("Create Empty Entity"))
+				m_Editor.SelectEntity(m_Editor.CreateEntity("Entity"));
+			if (ImGui::MenuItem("Create Cube"))
+			{
+				auto cube = m_Editor.CreateEntity("Cube");
+				cube.GetComponent<TransformComponent>().Translation = { 0.0f, 0.5f, 0.0f };
+				cube.AddComponent<PBRMaterialComponent>();
+				m_Editor.SelectEntity(cube);
+			}
+			if (ImGui::MenuItem("Create Sphere"))
+			{
+				auto sphere = m_Editor.CreateEntity("Sphere");
+				sphere.GetComponent<TransformComponent>().Translation = { 0.0f, 0.5f, 0.0f };
+				sphere.AddComponent<PBRMaterialComponent>();
+				m_Editor.SelectEntity(sphere);
+			}
+			if (ImGui::MenuItem("Delete Selected"))
+			{
+				if (m_Editor.HasSelection())
+					m_Editor.DestroyEntity(m_Editor.GetSelectedEntity());
+			}
+
+			ImGui::EndMenu();
+		}
+
+		ImGui::EndMainMenuBar();
+	}
+
+	void EditorApp::DrawGizmoToolbar()
+	{
+		ImGui::Begin("Gizmo");
+		ImGui::Text("Mode:");
+		ImGui::SameLine();
+		if (ImGui::RadioButton("Move", m_Editor.GetGizmoMode() == Gizmo::Mode::Translate))
+			m_Editor.SetGizmoMode(Gizmo::Mode::Translate);
+		ImGui::SameLine();
+		if (ImGui::RadioButton("Rotate", m_Editor.GetGizmoMode() == Gizmo::Mode::Rotate))
+			m_Editor.SetGizmoMode(Gizmo::Mode::Rotate);
+		ImGui::SameLine();
+		if (ImGui::RadioButton("Scale", m_Editor.GetGizmoMode() == Gizmo::Mode::Scale))
+			m_Editor.SetGizmoMode(Gizmo::Mode::Scale);
+
+		ImGui::Text("Snap:");
+		ImGui::SameLine();
+		float snap = m_Editor.GetTranslationSnap();
+		if (ImGui::DragFloat("##snap", &snap, 0.05f, 0.0f, 10.0f))
+			m_Editor.SetTranslationSnap(snap);
+		ImGui::End();
+	}
+
+	void EditorApp::DrawHierarchyPanel()
+	{
 		ImGui::Begin("Scene Hierarchy");
-		if (m_Scene)
+
+		for (Entity entity : m_Editor.GetAllEntities())
 		{
-			auto view = m_Scene->GetAllEntitiesWith<TagComponent>();
-			for (auto entity : view)
-			{
-				Entity e = { entity, m_Scene.get() };
-				bool selected = (e == m_SelectedEntity);
-
-				ImGui::PushID((int)e);
-				ImGui::Selectable(e.GetName().c_str(), selected);
-
-				if (ImGui::IsItemClicked())
-				{
-					m_SelectedEntity = e;
-				}
-
-				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
-				{
-					// Rename
-					ImGui::OpenPopup("Rename");
-				}
-
-				ImGui::PopID();
-			}
+			ImGui::PushID((int)entity);
+			bool selected = (entity == m_Editor.GetSelectedEntity());
+			if (ImGui::Selectable(entity.GetName().c_str(), selected))
+				m_Editor.SelectEntity(entity);
+			ImGui::PopID();
 		}
-		ImGui::End();
 
-		// Inspector Panel
+		ImGui::End();
+	}
+
+	void EditorApp::DrawInspectorPanel()
+	{
 		ImGui::Begin("Inspector");
-		if (m_SelectedEntity)
+
+		if (!m_Editor.HasSelection())
 		{
-			ImGui::Text("Selected: %s", m_SelectedEntity.GetName().c_str());
-			ImGui::Separator();
-
-			// Tag
-			ImGui::Text("Tag");
-			ImGui::SameLine();
-			char tagBuf[256];
-			strncpy(tagBuf, m_SelectedEntity.GetName().c_str(), sizeof(tagBuf));
-			tagBuf[sizeof(tagBuf) - 1] = '\0';
-			ImGui::InputText("##Tag", tagBuf, sizeof(tagBuf));
-			if (ImGui::IsItemDeactivatedAfterEdit())
-			{
-				auto& tag = m_SelectedEntity.GetComponent<TagComponent>();
-				tag.Tag = tagBuf;
-			}
-
-			ImGui::Separator();
-
-			// Transform
-			ImGui::Text("Transform");
-			ImGui::Separator();
-
-			auto& tc = m_SelectedEntity.GetComponent<TransformComponent>();
-
-			ImGui::Text("Translation");
-			ImGui::DragFloat3("##Translation", (float*)&tc.Translation, 0.1f);
-
-			ImGui::Text("Rotation");
-			ImGui::DragFloat3("##Rotation", (float*)&tc.Rotation, 1.0f);
-
-			ImGui::Text("Scale");
-			ImGui::DragFloat3("##Scale", (float*)&tc.Scale, 0.01f, 0.01f);
-
-			ImGui::Separator();
-
-			// Components
-			ImGui::Text("Components");
-			ImGui::Separator();
-
-			if (m_SelectedEntity.HasComponent<TransformComponent>())
-			{
-				ImGui::Text("  Transform (always present)");
-			}
-			if (m_SelectedEntity.HasComponent<RigidbodyComponent>())
-			{
-				ImGui::Text("  Rigidbody");
-				ImGui::SameLine();
-				ImGui::Checkbox("Fixed Rotation", &m_SelectedEntity.GetComponent<RigidbodyComponent>().FixedRotation);
-			}
-			if (m_SelectedEntity.HasComponent<BoxColliderComponent>())
-			{
-				ImGui::Text("  BoxCollider");
-				ImGui::DragFloat3("Size", (float*)&m_SelectedEntity.GetComponent<BoxColliderComponent>().Size, 0.01f);
-			}
-			if (m_SelectedEntity.HasComponent<SphereColliderComponent>())
-			{
-				ImGui::Text("  SphereCollider");
-				ImGui::DragFloat("Radius", &m_SelectedEntity.GetComponent<SphereColliderComponent>().Radius, 0.01f);
-			}
-			if (m_SelectedEntity.HasComponent<PBRMaterialComponent>())
-			{
-				ImGui::Text("  PBR Material");
-				ImGui::ColorEdit3("Albedo", (float*)&m_SelectedEntity.GetComponent<PBRMaterialComponent>().Albedo);
-				ImGui::SliderFloat("Metallic", &m_SelectedEntity.GetComponent<PBRMaterialComponent>().Metallic, 0.0f, 1.0f);
-				ImGui::SliderFloat("Roughness", &m_SelectedEntity.GetComponent<PBRMaterialComponent>().Roughness, 0.0f, 1.0f);
-			}
-			if (m_SelectedEntity.HasComponent<LightComponent>())
-			{
-				ImGui::Text("  Light");
-				ImGui::ColorEdit3("Color", (float*)&m_SelectedEntity.GetComponent<LightComponent>().Color);
-				ImGui::SliderFloat("Intensity", &m_SelectedEntity.GetComponent<LightComponent>().Intensity, 0.0f, 10.0f);
-			}
-
-			ImGui::Separator();
-
-			// Add Component
-			ImGui::Text("Add Component");
-			ImGui::Separator();
-
-			if (ImGui::Button("Rigidbody"))
-			{
-				m_SelectedEntity.AddComponent<RigidbodyComponent>();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Box Collider"))
-			{
-				m_SelectedEntity.AddComponent<BoxColliderComponent>();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Sphere Collider"))
-			{
-				m_SelectedEntity.AddComponent<SphereColliderComponent>();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("PBR Material"))
-			{
-				m_SelectedEntity.AddComponent<PBRMaterialComponent>();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Light"))
-			{
-				m_SelectedEntity.AddComponent<LightComponent>();
-			}
-			ImGui::SameLine();
-			if (ImGui::Button("Script"))
-			{
-				ImGui::OpenPopup("AddScript");
-			}
-
-			// Remove Component
-			ImGui::Separator();
-			ImGui::Text("Remove Component");
-			ImGui::Separator();
-
-			if (m_SelectedEntity.HasComponent<RigidbodyComponent>())
-			{
-				if (ImGui::Button("Remove Rigidbody"))
-				{
-					m_SelectedEntity.RemoveComponent<RigidbodyComponent>();
-				}
-			}
-			if (m_SelectedEntity.HasComponent<BoxColliderComponent>())
-			{
-				if (ImGui::Button("Remove BoxCollider"))
-				{
-					m_SelectedEntity.RemoveComponent<BoxColliderComponent>();
-				}
-			}
-			if (m_SelectedEntity.HasComponent<SphereColliderComponent>())
-			{
-				if (ImGui::Button("Remove SphereCollider"))
-				{
-					m_SelectedEntity.RemoveComponent<SphereColliderComponent>();
-				}
-			}
-			if (m_SelectedEntity.HasComponent<PBRMaterialComponent>())
-			{
-				if (ImGui::Button("Remove PBRMaterial"))
-				{
-					m_SelectedEntity.RemoveComponent<PBRMaterialComponent>();
-				}
-			}
-			if (m_SelectedEntity.HasComponent<LightComponent>())
-			{
-				if (ImGui::Button("Remove Light"))
-				{
-					m_SelectedEntity.RemoveComponent<LightComponent>();
-				}
-			}
+			ImGui::TextDisabled("No entity selected");
+			ImGui::End();
+			return;
 		}
-		else
+
+		Entity entity = m_Editor.GetSelectedEntity();
+
+		char nameBuffer[256];
+		strncpy(nameBuffer, entity.GetName().c_str(), sizeof(nameBuffer) - 1);
+		nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+		if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
+			entity.GetComponent<TagComponent>().Tag = nameBuffer;
+
+		ImGui::Separator();
+		ImGui::Text("Transform");
+
+		auto& tc = entity.GetComponent<TransformComponent>();
+		ImGui::DragFloat3("Translation", &tc.Translation.x, 0.1f);
+		ImGui::DragFloat3("Rotation", &tc.Rotation.x, 1.0f);
+		ImGui::DragFloat3("Scale", &tc.Scale.x, 0.01f);
+
+		ImGui::Separator();
+		ImGui::Text("Components");
+
+		if (entity.HasComponent<CameraComponent>())
 		{
-			ImGui::Text("No entity selected");
+			ImGui::Checkbox("Primary Camera##camera", &entity.GetComponent<CameraComponent>().Primary);
 		}
+
+		if (entity.HasComponent<RigidbodyComponent>())
+		{
+			auto& rb = entity.GetComponent<RigidbodyComponent>();
+			ImGui::Text("Rigidbody");
+			const char* bodyTypes[] = { "Static", "Dynamic", "Kinematic" };
+			int current = (int)rb.Type;
+			if (ImGui::Combo("Body Type##rb", &current, bodyTypes, IM_ARRAYSIZE(bodyTypes)))
+				rb.Type = (RigidbodyComponent::BodyType)current;
+			ImGui::Checkbox("Fixed Rotation##rb", &rb.FixedRotation);
+		}
+
+		if (entity.HasComponent<BoxColliderComponent>())
+		{
+			auto& bc = entity.GetComponent<BoxColliderComponent>();
+			ImGui::Text("Box Collider");
+			ImGui::DragFloat3("Size##bc", &bc.Size.x, 0.01f);
+			ImGui::DragFloat("Density##bc", &bc.Density, 0.01f);
+			ImGui::DragFloat("Friction##bc", &bc.Friction, 0.01f);
+			ImGui::DragFloat("Restitution##bc", &bc.Restitution, 0.01f);
+		}
+
+		if (entity.HasComponent<SphereColliderComponent>())
+		{
+			auto& sc = entity.GetComponent<SphereColliderComponent>();
+			ImGui::Text("Sphere Collider");
+			ImGui::DragFloat("Radius##sc", &sc.Radius, 0.01f);
+			ImGui::DragFloat("Density##sc", &sc.Density, 0.01f);
+			ImGui::DragFloat("Restitution##sc", &sc.Restitution, 0.01f);
+		}
+
+		if (entity.HasComponent<PBRMaterialComponent>())
+		{
+			auto& pbr = entity.GetComponent<PBRMaterialComponent>();
+			ImGui::Text("PBR Material");
+			ImGui::ColorEdit3("Albedo##pbr", &pbr.Albedo.x);
+			ImGui::SliderFloat("Metallic##pbr", &pbr.Metallic, 0.0f, 1.0f);
+			ImGui::SliderFloat("Roughness##pbr", &pbr.Roughness, 0.0f, 1.0f);
+		}
+
+		if (entity.HasComponent<LightComponent>())
+		{
+			auto& light = entity.GetComponent<LightComponent>();
+			ImGui::Text("Light");
+			const char* lightTypes[] = { "Directional", "Point", "Spot" };
+			int current = (int)light.Type;
+			if (ImGui::Combo("Type##light", &current, lightTypes, IM_ARRAYSIZE(lightTypes)))
+				light.Type = (decltype(light.Type))current;
+			ImGui::ColorEdit3("Color##light", &light.Color.x);
+			ImGui::SliderFloat("Intensity##light", &light.Intensity, 0.0f, 50.0f);
+		}
+
+		if (entity.HasComponent<ScriptComponent>())
+		{
+			ImGui::Text("Script");
+			char scriptBuffer[128];
+			strncpy(scriptBuffer, entity.GetComponent<ScriptComponent>().ClassName.c_str(), sizeof(scriptBuffer) - 1);
+			scriptBuffer[sizeof(scriptBuffer) - 1] = '\0';
+			if (ImGui::InputText("Class Name##script", scriptBuffer, sizeof(scriptBuffer)))
+				entity.GetComponent<ScriptComponent>().ClassName = scriptBuffer;
+		}
+
 		ImGui::End();
+	}
 
-		// Viewport Panel
+	void EditorApp::DrawViewportPanel()
+	{
 		ImGui::Begin("Viewport");
+
+		m_Viewport.Render(m_Editor.GetScene().get(), m_Editor.GetViewProjection());
+
 		if (m_Viewport.GetRenderTexture())
 		{
-			ImGui::Image(
-				ImTextureID((void*)(uintptr_t)m_Viewport.GetRenderTexture().get()),
-				ImVec2(800, 600)
-			);
+			ImVec2 size = ImGui::GetContentRegionAvail();
+			if (size.x > 0.0f && size.y > 0.0f)
+			{
+				if ((uint32_t)size.x != m_Viewport.GetWidth() || (uint32_t)size.y != m_Viewport.GetHeight())
+					m_Viewport.Resize((uint32_t)size.x, (uint32_t)size.y);
+
+				ImGui::Image(
+					ImTextureID((void*)(uintptr_t)m_Viewport.GetRenderTexture().get()),
+					size);
+			}
 		}
 		else
 		{
 			ImGui::Text("Viewport not initialized");
 		}
+
 		ImGui::End();
+	}
 
-		// Properties Panel
-		ImGui::Begin("Properties");
-		ImGui::Text("Editor Properties");
-		ImGui::Separator();
+	void EditorApp::DrawAssetBrowserPanel()
+	{
+		ImGui::Begin("Assets");
 
-		ImGui::Text("Time: %.2fs", ts.GetSeconds());
-		ImGui::Text("FPS: %.1f", 1.0f / ts.GetSeconds());
-
-		ImGui::Separator();
-		ImGui::Text("Scene: %s", m_Scene ? m_Scene->GetEntityByUUID(m_SelectedEntity.GetUUID()).GetName().c_str() : "None");
+		if (ImGui::Button("Refresh"))
+			AssetRegistry::Scan("resources/");
 
 		ImGui::Separator();
-		ImGui::Text("Entities:");
-		if (m_Scene)
+
+		for (const AssetMetadata& asset : AssetRegistry::GetAllAssets())
 		{
-			int count = 0;
-			auto view = m_Scene->GetAllEntitiesWith<TagComponent>();
-			for (auto e : view) (void)e, count++;
-			ImGui::Text("  Total: %d", count);
+			ImGui::PushID(asset.Path.c_str());
+			ImGui::Text("%s  [%s]", asset.Name.c_str(), AssetTypeToString(asset.Type));
+
+			// Double-click a prefab/scene to open it.
+			if (asset.Type == AssetType::Scene && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
+				m_Editor.OpenScene(asset.Path);
+
+			if (asset.Type == AssetType::Scene && ImGui::BeginPopupContextItem("open"))
+			{
+				if (ImGui::MenuItem("Open Scene"))
+					m_Editor.OpenScene(asset.Path);
+				ImGui::EndPopup();
+			}
+
+			ImGui::PopID();
 		}
 
 		ImGui::End();
 	}
 
-	// Application factory
+	void EditorApp::DrawPropertiesPanel()
+	{
+		ImGui::Begin("Properties");
+
+		bool playing = m_Editor.IsPlaying();
+		ImGui::Checkbox("Playing", &playing);
+		if (playing != m_Editor.IsPlaying())
+			m_Editor.SetPlaying(playing);
+		ImGui::SameLine();
+		if (ImGui::Button(m_Editor.IsPlaying() ? "Stop" : "Play"))
+			m_Editor.SetPlaying(!m_Editor.IsPlaying());
+
+		ImGui::SameLine();
+		if (ImGui::Button("Step") && m_Editor.IsPlaying())
+			m_Editor.Step(1);
+
+		ImGui::Separator();
+		ImGui::Text("Entities: %d", (int)m_Editor.GetAllEntities().size());
+		ImGui::Text("Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
+
+		ImGui::End();
+	}
+
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
 		(void)args;

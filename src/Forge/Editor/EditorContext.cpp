@@ -124,6 +124,14 @@ namespace Forge {
 		}
 	}
 
+	void EditorContext::SetPlaying(bool playing)
+	{
+		if (playing)
+			Play();
+		else
+			Stop();
+	}
+
 	void EditorContext::Step(int frames)
 	{
 		m_Scene->Step(frames);

@@ -213,6 +213,23 @@ TEST_CASE("EditorContext playback controls", "[editor][tooling]")
 	Forge::Physics::Shutdown();
 }
 
+TEST_CASE("EditorContext SetPlaying toggles play/stop", "[editor][tooling]")
+{
+	Forge::Log::Init();
+	Forge::Physics::Init();
+
+	Forge::EditorContext context;
+	REQUIRE(!context.IsPlaying());
+
+	context.SetPlaying(true);
+	REQUIRE(context.IsPlaying());
+
+	context.SetPlaying(false);
+	REQUIRE(!context.IsPlaying());
+
+	Forge::Physics::Shutdown();
+}
+
 TEST_CASE("EditorContext prefab instantiation", "[editor][tooling]")
 {
 	Forge::Log::Init();
