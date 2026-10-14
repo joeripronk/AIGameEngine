@@ -85,11 +85,12 @@ All source files must include `fgpch.h` as the first include. This header includ
 ### Assert Macros
 
 ```cpp
-// Core assertions (always active in Debug)
-FG_CORE_ASSERT(condition, "message");
+// Core assertions (Debug builds; message is the stringified condition)
+FG_CORE_ASSERT(condition);
+FG_CORE_ASSERT_MSG(condition, "message {0}", arg);
 
-// Client assertions (active when FG_ENABLE_ASSERTS is defined)
-FG_ASSERT(condition, "message");
+// Client assertions (FG_ENABLE_ASSERTS)
+FG_ASSERT(condition, "message {0}", arg);
 ```
 
 ### Logging
@@ -219,26 +220,56 @@ The editor must be fully controllable by AI agents:
 
 ### Editor API for AI Agents
 
+The editor model lives in `Forge::EditorContext` (window-independent, fully
+unit-tested). Both the ImGui editor and AI agents drive the same API, so a
+headless agent can build a complete game without a GUI.
+
 ```cpp
-// AI can access the editor through the Application singleton
-auto& app = Forge::Application::Get();
-auto* editor = static_cast<EditorApp*>(&app);
+Forge::EditorContext editor;
 
-// Create entities
-auto entity = editor->GetScene()->CreateEntity("NewEntity");
-auto& transform = entity.AddComponent<Forge::TransformComponent>();
-transform.Translation = { 0.0f, 1.0f, 0.0f };
+// Scene management
+editor.NewScene();
+editor.OpenScene("resources/scenes/level.forge");
+editor.SaveScene("resources/scenes/level.forge");
 
-// Modify components
+// Create entities (TransformComponent is added automatically)
+auto entity = editor.CreateEntity("Player");
+entity.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 1.0f, 0.0f };
+
+// Add / remove components
 auto& pbr = entity.AddComponent<Forge::PBRMaterialComponent>();
 pbr.Albedo = { 1.0f, 0.0f, 0.0f };
 
-// Delete entities
-editor->GetScene()->DestroyEntity(entity);
+// Selection + queries
+editor.SelectEntity(entity);
+editor.FindEntityByName("Player");
+editor.GetAllEntities();
 
-// Save scene
-Forge::SceneSerializer::Serialize(editor->GetScene(), "scene.forge");
+// Duplicate / delete
+auto copy = editor.DuplicateEntity(entity);
+editor.DestroyEntity(entity);
+
+// Prefabs
+editor.InstantiatePrefab("Enemy", /*usePosition*/ true, { 3.0f, 0.0f, 3.0f });
+
+// Playback (drive it manually for deterministic simulation)
+editor.Play();
+editor.Pause();
+editor.Step(1);
+editor.Update(Forge::Timestep(1.0f / 60.0f));
+editor.Stop();
 ```
+
+## Build Architecture
+
+- **ForgeCore** — headless engine core (ECS, physics, scripting, serialization,
+  CPU primitives/textures, assets, editor model). Built with
+  `FG_NO_VULKAN_RUNTIME` so unit tests exercise it without a graphics device.
+- **ForgeApp** — platform layer (window + renderer + application shell). Links
+  the Vulkan backend (`vulkan` target built on nvrhi).
+- **vulkan** — nvrhi Vulkan backend + Forge's platform classes.
+- **ForgeTests** — links only `ForgeCore`.
+- **ForgeEditor / ForgeRuntime** — link `ForgeApp` + `forge_vk_dispatch`.
 
 ## Renderer Architecture
 
@@ -264,8 +295,42 @@ Forge::SceneSerializer::Serialize(editor->GetScene(), "scene.forge");
 ### Lua Integration
 
 - Global functions: `GetTime()`, `GetDeltaTime(ts)`, `SpawnPrefab(name)`
-- Entity metatable: `entity:GetName()`, `entity:SetPosition(x,y,z)`, etc.
-- Scene metatable: `Scene.CreateEntity(name)`, `Scene.DestroyEntity(entity)`
+A script is a Lua file in `resources/scripts/` that returns a table with
+optional `OnCreate(entity)`, `OnUpdate(entity, dt)` and `OnDestroy(entity)`.
+An entity's `ScriptComponent::ClassName` selects the file (one instance of the
+chunk is created per entity, so scripts keep their own state).
+
+```lua
+-- resources/scripts/PlayerController.lua
+local M = {}
+M.ticks = 0
+
+function M.OnCreate(entity)
+    entity:SetPosition(0, 0, 0)
+end
+
+function M.OnUpdate(entity, dt)
+    M.ticks = M.ticks + 1
+    local x, y, z = entity:GetPosition()
+    entity:SetPosition(x + dt, y, z)
+end
+
+return M
+```
+
+### Available API
+
+- Globals: `GetTime()`, `Log(msg)`, `SpawnPrefab(name, x, y, z)`, `Scene`
+- Entity: `GetName/SetName`, `Get/SetPosition`, `Get/SetRotation`,
+  `Get/SetScale`, `HasComponent`, `AddComponent`, `RemoveComponent`,
+  `Get/SetFloat`, `Get/SetBool`, `Get/SetString`, `Get/SetVector3`,
+  `Duplicate`, `Destroy`
+- Scene: `CreateEntity(name)`, `DestroyEntity(entity)`,
+  `GetEntityByName(name)`, `GetEntitiesWithComponent(type)`
+  (both `Scene:Method(...)` and `Scene.Method(...)` work)
+
+Component type names: `Camera`, `Script`, `Rigidbody`, `BoxCollider`,
+`SphereCollider`, `Light`, `PBRMaterial`, `Mesh`, `Transform`.
 
 ### Native Scripting
 
@@ -285,4 +350,5 @@ Forge::SceneSerializer::Serialize(editor->GetScene(), "scene.forge");
 
 - Physics step runs in `OnUpdateRuntime` and `OnUpdateSimulation`
 - Transforms are updated from physics bodies after step
-- Collision detection via Box2D (2D) or PhysX (3D)
+- Collision detection (AABB + sphere) with impulse response and friction
+- Raycasting (ray-AABB / ray-sphere) via Physics::Raycast
