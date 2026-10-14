@@ -3,6 +3,10 @@
 #include "Forge/Renderer/Shader.h"
 #include "Forge/Renderer/ShaderLibrary.h"
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+	#include "Platform/Vulkan/VulkanShader.h"
+#endif
+
 #include <fstream>
 #include <sstream>
 
@@ -68,13 +72,18 @@ namespace Forge {
 
 	Ref<Shader> Shader::Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc)
 	{
+		// GLSL source requires a runtime compiler, which the engine does not
+		// ship. Shaders are pre-compiled to SPIR-V (see resources/shaders).
 		(void)name;
 		(void)vertexSrc;
 		(void)fragmentSrc;
-		// TODO: Implement platform-specific shader creation
-		// This will be implemented when we have the Vulkan renderer fully set up
-		FG_CORE_ERROR("Shader::Create not yet implemented for Vulkan backend");
+		FG_CORE_ERROR("Shader::Create(GLSL) is unsupported; use pre-compiled SPIR-V (CreateFromSPIRV)");
 		return nullptr;
+	}
+
+	Ref<Shader> Shader::CreateFromSPIRV(const std::string& name, const std::string& vertexSpvPath, const std::string& fragmentSpvPath)
+	{
+		return CreateRef<VulkanShader>(name, vertexSpvPath, fragmentSpvPath);
 	}
 
 	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)

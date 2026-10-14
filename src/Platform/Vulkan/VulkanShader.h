@@ -4,13 +4,16 @@
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
 
+#include <string>
+#include <vector>
+
 namespace Forge {
 
 	class VulkanShader : public Shader
 	{
 	public:
-		VulkanShader(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
-		VulkanShader(const std::string& name, const std::string& filepath);
+		// Loads pre-compiled SPIR-V modules from disk (see resources/shaders).
+		VulkanShader(const std::string& name, const std::string& vertexSpvPath, const std::string& fragmentSpvPath);
 		~VulkanShader() override;
 
 		void Bind() const override;
@@ -26,15 +29,20 @@ namespace Forge {
 
 		const std::string& GetName() const override { return m_Name; }
 
-		// Get the internal nvrhi shader handles
 		nvrhi::ShaderHandle GetVertexShader() const { return m_VertexShader; }
 		nvrhi::ShaderHandle GetFragmentShader() const { return m_FragmentShader; }
+		bool IsValid() const { return m_VertexShader && m_FragmentShader; }
 
 	private:
 		nvrhi::ShaderHandle m_VertexShader;
 		nvrhi::ShaderHandle m_FragmentShader;
-		nvrhi::ShaderHandle m_Shader;
 		std::string m_Name;
+
+		// Staged uniform values (packed into constant buffers by the renderer).
+		std::vector<std::pair<std::string, std::vector<float>>> m_Floats;
+		std::vector<std::pair<std::string, std::vector<int>>> m_Ints;
+
+		void SetFloatArray(const std::string& name, const std::vector<float>& values);
 	};
 
 }

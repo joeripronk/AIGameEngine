@@ -31,6 +31,9 @@ namespace Forge {
 		static Ref<Shader> Create(const std::string& filepath);
 		static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
 		static Ref<Shader> Create(const char* name, const std::string& content);
+
+		// Creates a shader from pre-compiled SPIR-V files (see resources/shaders).
+		static Ref<Shader> CreateFromSPIRV(const std::string& name, const std::string& vertexSpvPath, const std::string& fragmentSpvPath);
 	};
 
 }

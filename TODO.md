@@ -84,11 +84,12 @@
 ### Rendering Pipeline (vulkan target)
 - [x] Vulkan bootstrap: instance + adapter selection + logical device + graphics queue
 - [x] nvrhi device initialization (static build dispatcher fix)
+- [x] GLSL shaders + SPIR-V compilation (tools/compile_shaders.sh; .spv committed)
+- [x] VulkanShader loads SPIR-V -> real nvrhi shader modules
 - [x] CPU model importer (glTF/OBJ/FBX via assimp)
 - [x] Default cube/plane/sphere primitives (CPU, testable)
 - [x] Texture loading (stb_image, LDR + Radiance HDR)
-- [ ] Shader compilation (GLSL -> SPIR-V; needs glslang at build time)
-- [ ] VulkanShader + GPU VertexArray/Buffer/IndexBuffer upload
+- [ ] GPU VertexArray/VertexBuffer/IndexBuffer upload (Vulkan buffers)
 - [ ] Swapchain + present (VkSwapchainKHR, acquire/present)
 - [ ] PBR pipeline (G-buffer, deferred lighting, shadow map, SSAO, tonemap, final)
 - [ ] IBL prefiltering / irradiance maps

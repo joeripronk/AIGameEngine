@@ -26,18 +26,26 @@ namespace Forge {
 	{
 		RenderCommand::Init();
 
-		// Create shaders
-		auto pbrShader = Shader::Create("PBR", Shaders::PBRVertexShader, Shaders::PBRFragmentShader);
-		s_ShaderLibrary.Add(pbrShader);
+		// Load pre-compiled SPIR-V shaders from resources/shaders.
+		auto pbrShader = Shader::CreateFromSPIRV("PBR", "resources/shaders/pbr.vert.spv", "resources/shaders/pbr.frag.spv");
+		if (pbrShader)
+			s_ShaderLibrary.Add(pbrShader);
 
-		auto ssaoShader = Shader::Create("SSAO", Shaders::SSAOVertexShader, Shaders::SSAOFragmentShader);
-		s_ShaderLibrary.Add(ssaoShader);
+		auto ssaoShader = Shader::CreateFromSPIRV("SSAO", "resources/shaders/fullscreen.vert.spv", "resources/shaders/ssao.frag.spv");
+		if (ssaoShader)
+			s_ShaderLibrary.Add(ssaoShader);
 
-		auto hdrShader = Shader::Create("HDR", Shaders::HDRVertexShader, Shaders::HDRFragmentShader);
-		s_ShaderLibrary.Add(hdrShader);
+		auto hdrShader = Shader::CreateFromSPIRV("HDR", "resources/shaders/fullscreen.vert.spv", "resources/shaders/hdr.frag.spv");
+		if (hdrShader)
+			s_ShaderLibrary.Add(hdrShader);
 
-		auto finalShader = Shader::Create("Final", Shaders::FinalVertexShader, Shaders::FinalFragmentShader);
-		s_ShaderLibrary.Add(finalShader);
+		auto finalShader = Shader::CreateFromSPIRV("Final", "resources/shaders/fullscreen.vert.spv", "resources/shaders/final.frag.spv");
+		if (finalShader)
+			s_ShaderLibrary.Add(finalShader);
+
+		auto shadowShader = Shader::CreateFromSPIRV("Shadow", "resources/shaders/shadow.vert.spv", "resources/shaders/shadow.frag.spv");
+		if (shadowShader)
+			s_ShaderLibrary.Add(shadowShader);
 
 		// Create fullscreen quad
 		auto quadVA = VertexArray::Create();
