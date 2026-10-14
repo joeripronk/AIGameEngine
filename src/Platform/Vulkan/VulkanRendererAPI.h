@@ -10,6 +10,8 @@
 
 namespace Forge {
 
+	class VulkanSwapchain;
+
 	// Owns the low-level Vulkan objects (instance, physical device, logical
 	// device, surface, graphics queue) that nvrhi's DeviceDesc is built from,
 	// then hands them to nvrhi to create the rendering DeviceHandle.
@@ -17,7 +19,7 @@ namespace Forge {
 	{
 	public:
 		void Init() override;
-		void Shutdown();
+		void Shutdown() override;
 		void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) override;
 		void SetClearColor(const glm::vec4& color) override;
 		void Clear() override;
@@ -25,7 +27,7 @@ namespace Forge {
 		void SetLineWidth(float width) override;
 
 		// Pipeline management
-		void SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height);
+		void SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height) override;
 		void BeginFrame();
 		void EndFrame();
 
@@ -51,10 +53,22 @@ namespace Forge {
 		static nvrhi::DeviceHandle GetStaticDevice() { return s_Device; }
 		static nvrhi::CommandListHandle GetStaticCommandList() { return s_CommandList; }
 
-		VkInstance GetInstance() const { return s_Instance; }
-		VkSurfaceKHR GetSurface() const { return s_Surface; }
-		VkPhysicalDevice GetPhysicalDevice() const { return s_PhysicalDevice; }
-		VkDevice GetLogicalDevice() const { return s_LogicalDevice; }
+		static VkInstance GetInstance() { return s_Instance; }
+		static VkSurfaceKHR GetSurface() { return s_Surface; }
+		static VkPhysicalDevice GetPhysicalDevice() { return s_PhysicalDevice; }
+		static VkDevice GetLogicalDevice() { return s_LogicalDevice; }
+		static VkQueue GetGraphicsQueue() { return s_GraphicsQueue; }
+
+		// Presentation swapchain, created in SetupSwapchain().
+		static VulkanSwapchain& GetSwapchain() { return s_Swapchain; }
+
+		// Blocks until the device has finished all submitted work. Used to
+		// synchronize nvrhi's command list submission with swapchain
+		// acquire/present (nvrhi owns its own queue semaphores).
+		static void WaitForGpuIdle();
+
+		// Translates a VkFormat to the matching nvrhi format.
+		static nvrhi::Format ToNvrhiFormat(VkFormat format);
 
 	private:
 		// --- Vulkan bootstrap helpers (static; used during Init) ---
@@ -73,6 +87,7 @@ namespace Forge {
 
 		static nvrhi::DeviceHandle s_Device;
 		static nvrhi::CommandListHandle s_CommandList;
+		static VulkanSwapchain s_Swapchain;
 		static uint32_t s_Width;
 		static uint32_t s_Height;
 	};

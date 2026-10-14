@@ -42,6 +42,10 @@ namespace Forge {
 
 		s_GLFWWindowCount++;
 
+		// Vulkan renders into the window's surface, so GLFW must not create a
+		// client-API rendering context of its own.
+		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+
 		m_Window = glfwCreateWindow((int)m_Data.Width, (int)m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
 		FG_CORE_ASSERT_MSG(m_Window, "Could not create GLFW window!");
 

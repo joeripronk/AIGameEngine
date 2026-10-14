@@ -1,6 +1,7 @@
 #include "fgpch.h"
 #include "Forge/Core/Application.h"
 #include "Forge/Core/Layer.h"
+#include "Forge/Renderer/Renderer.h"
 
 #include <algorithm>
 
@@ -16,6 +17,10 @@ namespace Forge {
 
 		m_Window = Window::Create(WindowProps{ specification.Name, 1600, 900 });
 		m_Window->SetEventCallback(FG_BIND_EVENT_FN(Application::OnEvent));
+
+		// Hand the native window to the renderer so it can create the Vulkan
+		// surface and presentation swapchain.
+		Renderer::SetActiveWindowHandle(m_Window->GetNativeWindow());
 	}
 
 	Application::~Application()
@@ -89,6 +94,9 @@ namespace Forge {
 		}
 
 		m_Minimized = false;
+
+		// Keep the renderer's presentation target in sync with the window.
+		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
 		return false;
 	}
 

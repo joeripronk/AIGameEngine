@@ -36,6 +36,10 @@ namespace Forge {
 		{
 			s_RendererAPI->SetLineWidth(width);
 		}
+
+		// The active backend, used by the renderer for operations that are not
+		// part of the recorded command stream (e.g. swapchain setup).
+		static RendererAPI* GetRendererAPI() { return s_RendererAPI.get(); }
 	private:
 		static Scope<RendererAPI> s_RendererAPI;
 	};

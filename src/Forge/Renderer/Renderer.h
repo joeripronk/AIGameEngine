@@ -26,6 +26,19 @@ namespace Forge {
 		// command list is open).
 		static void FlushPendingUploads(const Ref<class VertexArray>& vertexArray);
 
+		// Presentation. AcquireSwapchainImage() must be called before BeginScene()
+		// and PresentSwapchainImage() after EndScene(). Acquire returns
+		// UINT32_MAX when presentation is unavailable, in which case rendering
+		// proceeds without a swapchain and Present is a no-op.
+		static uint32_t AcquireSwapchainImage();
+		static void PresentSwapchainImage(uint32_t imageIndex);
+		static bool HasSwapchain();
+
+		// The GLFW window the renderer presents to, used to create the surface
+		// and swapchain. Owned by Application.
+		static void SetActiveWindowHandle(void* windowHandle) { s_WindowHandle = windowHandle; }
+		static void* GetActiveWindowHandle() { return s_WindowHandle; }
+
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture);
 
@@ -62,6 +75,13 @@ namespace Forge {
 		// Fullscreen triangle-pair used by the post-processing passes. Retained so
 		// its GPU buffers stay alive and can be uploaded on the first frame.
 		static Ref<class VertexArray> s_FullscreenQuad;
+
+		// Set when a present reports the swapchain is out of date; the next
+		// AcquireSwapchainImage() recreates it.
+		static bool s_SwapchainNeedsRecreate;
+
+		// GLFW window handle used to create the Vulkan surface and swapchain.
+		static void* s_WindowHandle;
 	};
 
 }

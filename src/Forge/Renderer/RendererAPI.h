@@ -26,6 +26,14 @@ namespace Forge {
 
 		virtual void SetLineWidth(float width) = 0;
 
+		// Creates the backend's presentation surface and size-dependent render
+		// targets for the given native window. Called once during renderer
+		// startup; backends that cannot present may leave it unimplemented.
+		virtual void SetupSwapchain(void* /*windowHandle*/, uint32_t /*width*/, uint32_t /*height*/) {}
+
+		// Releases backend resources. Called from the renderer's shutdown path.
+		virtual void Shutdown() {}
+
 		static API GetAPI() { return s_API; }
 		static Scope<RendererAPI> Create();
 	private:

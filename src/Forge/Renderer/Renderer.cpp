@@ -14,6 +14,7 @@
 #include "Platform/Vulkan/VulkanVertexArray.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "Platform/Vulkan/VulkanSwapchain.h"
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
@@ -26,6 +27,8 @@ namespace Forge {
 	uint32_t Renderer::s_Height = 1080;
 	nvrhi::CommandListHandle Renderer::s_CommandList;
 	Ref<VertexArray> Renderer::s_FullscreenQuad;
+	bool Renderer::s_SwapchainNeedsRecreate = false;
+	void* Renderer::s_WindowHandle = nullptr;
 
 	void Renderer::Init()
 	{
@@ -98,6 +101,19 @@ namespace Forge {
 		// Retain the quad so its GPU buffers outlive Init() and can be uploaded.
 		s_FullscreenQuad = quadVA;
 
+		// Create the Vulkan surface, presentation swapchain and the renderer's
+		// size-dependent targets now that the window exists. Application sets the
+		// native handle in its constructor, which runs before Init() in the
+		// derived application.
+		if (void* windowHandle = GetActiveWindowHandle())
+		{
+			RenderCommand::GetRendererAPI()->SetupSwapchain(windowHandle, s_Width, s_Height);
+		}
+		else
+		{
+			FG_CORE_WARN("Renderer: no native window handle; presentation disabled");
+		}
+
 		FG_CORE_INFO("Renderer initialized with {0} shaders", s_ShaderLibrary.GetShaderCount());
 	}
 
@@ -108,6 +124,15 @@ namespace Forge {
 	void Renderer::OnWindowResize(uint32_t width, uint32_t height)
 	{
 		RenderCommand::SetViewport(0, 0, width, height);
+
+		s_Width = width;
+		s_Height = height;
+
+		// The swapchain is created once during Init(). Subsequent resizes mark it
+		// for recreation, which AcquireSwapchainImage() performs lazily (on the
+		// next frame, rather than mid-resize).
+		if (VulkanRendererAPI::GetSwapchain().IsValid())
+			s_SwapchainNeedsRecreate = true;
 	}
 
 	void Renderer::BeginScene()
@@ -145,6 +170,47 @@ namespace Forge {
 		auto vulkanVertexArray = std::dynamic_pointer_cast<VulkanVertexArray>(vertexArray);
 		if (vulkanVertexArray)
 			vulkanVertexArray->UploadTo(s_CommandList.Get());
+	}
+
+	bool Renderer::HasSwapchain()
+	{
+		return VulkanRendererAPI::GetSwapchain().IsValid();
+	}
+
+	uint32_t Renderer::AcquireSwapchainImage()
+	{
+		auto& swapchain = VulkanRendererAPI::GetSwapchain();
+		if (!swapchain.IsValid())
+			return UINT32_MAX;
+
+		uint32_t imageIndex = swapchain.AcquireNextImage();
+
+		// An out-of-date swapchain (e.g. after a resize) is rebuilt so the next
+		// frame has a usable presentation target.
+		if (imageIndex == UINT32_MAX || s_SwapchainNeedsRecreate)
+		{
+			s_SwapchainNeedsRecreate = false;
+			if (swapchain.Recreate(s_Width, s_Height))
+				imageIndex = swapchain.AcquireNextImage();
+		}
+
+		return imageIndex;
+	}
+
+	void Renderer::PresentSwapchainImage(uint32_t imageIndex)
+	{
+		if (imageIndex == UINT32_MAX)
+			return;
+
+		auto& swapchain = VulkanRendererAPI::GetSwapchain();
+		if (!swapchain.IsValid())
+			return;
+
+		if (!swapchain.Present(imageIndex))
+		{
+			// Out of date or suboptimal; the next AcquireSwapchainImage() rebuilds it.
+			s_SwapchainNeedsRecreate = true;
+		}
 	}
 
 	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform)

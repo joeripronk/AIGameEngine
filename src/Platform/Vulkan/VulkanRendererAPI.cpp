@@ -5,6 +5,7 @@
 
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Renderer/RendererAPI.h"
+#include "Platform/Vulkan/VulkanSwapchain.h"
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
@@ -65,6 +66,7 @@ namespace Forge {
 
 	nvrhi::DeviceHandle VulkanRendererAPI::s_Device;
 	nvrhi::CommandListHandle VulkanRendererAPI::s_CommandList;
+	VulkanSwapchain VulkanRendererAPI::s_Swapchain;
 	uint32_t VulkanRendererAPI::s_Width = 0;
 	uint32_t VulkanRendererAPI::s_Height = 0;
 
@@ -311,10 +313,36 @@ namespace Forge {
 
 	void VulkanRendererAPI::Shutdown()
 	{
+		s_Swapchain.Destroy();
 		s_CommandList = nullptr;
 		s_Device = nullptr;
 		DestroyVulkanObjects();
 		FG_CORE_INFO("VulkanRendererAPI shut down");
+	}
+
+	void VulkanRendererAPI::WaitForGpuIdle()
+	{
+		if (s_Device)
+			s_Device->waitForIdle();
+	}
+
+	nvrhi::Format VulkanRendererAPI::ToNvrhiFormat(VkFormat format)
+	{
+		switch (format)
+		{
+		case VK_FORMAT_R8G8B8A8_UNORM:                 return nvrhi::Format::RGBA8_UNORM;
+		case VK_FORMAT_R8G8B8A8_SRGB:                  return nvrhi::Format::SRGBA8_UNORM;
+		case VK_FORMAT_B8G8R8A8_UNORM:                 return nvrhi::Format::BGRA8_UNORM;
+		case VK_FORMAT_B8G8R8A8_SRGB:                  return nvrhi::Format::SBGRA8_UNORM;
+		case VK_FORMAT_R16G16B16A16_SFLOAT:            return nvrhi::Format::RGBA16_FLOAT;
+		case VK_FORMAT_R32G32B32A32_SFLOAT:            return nvrhi::Format::RGBA32_FLOAT;
+		case VK_FORMAT_R16G16B16A16_UNORM:             return nvrhi::Format::RGBA16_UNORM;
+		case VK_FORMAT_R8_UNORM:                       return nvrhi::Format::R8_UNORM;
+		case VK_FORMAT_D32_SFLOAT:                     return nvrhi::Format::D32;
+		case VK_FORMAT_D24_UNORM_S8_UINT:              return nvrhi::Format::D24S8;
+		case VK_FORMAT_D32_SFLOAT_S8_UINT:             return nvrhi::Format::D32S8;
+		default:                                       return nvrhi::Format::UNKNOWN;
+		}
 	}
 
 	void VulkanRendererAPI::SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height)
@@ -335,6 +363,13 @@ namespace Forge {
 				FG_CORE_ERROR("Vulkan: failed to create window surface");
 				return;
 			}
+		}
+
+		// Create the presentation swapchain (nvrhi has no swapchain abstraction).
+		if (!GetSwapchain().Create(glfwWindow, width, height))
+		{
+			FG_CORE_ERROR("Vulkan: swapchain creation failed; presentation disabled");
+			return;
 		}
 
 		// Create G-Buffer

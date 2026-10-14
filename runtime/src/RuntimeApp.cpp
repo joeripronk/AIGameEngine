@@ -104,8 +104,10 @@ namespace Forge {
 				for (Layer* layer : GetLayerStack())
 					layer->OnUpdate(Timestep(frameTime));
 
-				// Open the frame's GPU command list, then drive the scene and
-				// close/submit it.
+				// Acquire a swapchain image, open the frame's GPU command list,
+				// drive the scene, then submit and present.
+				const uint32_t swapchainImage = Renderer::AcquireSwapchainImage();
+
 				Renderer::BeginScene();
 
 				if (m_Scene)
@@ -126,6 +128,8 @@ namespace Forge {
 
 				// Close and submit the frame's GPU work.
 				Renderer::EndScene();
+
+				Renderer::PresentSwapchainImage(swapchainImage);
 			}
 
 			GetWindowScope()->OnUpdate();

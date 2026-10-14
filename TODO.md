@@ -92,7 +92,7 @@
 - [x] GPU vertex/index buffer upload (nvrhi buffers + deferred writeBuffer upload)
 - [x] Vertex input layouts built from shader SPIR-V (createInputLayout)
 - [x] Frame command list lifecycle (open / record / close / execute)
-- [ ] Swapchain + present (VkSwapchainKHR, acquire/present)
+- [x] Swapchain + present (VkSwapchainKHR, acquire/present, out-of-date recreate)
 - [ ] PBR pipeline (G-buffer, deferred lighting, shadow map, SSAO, tonemap, final)
 - [ ] IBL prefiltering / irradiance maps
 - [ ] ImGui Vulkan backend init + viewport present
