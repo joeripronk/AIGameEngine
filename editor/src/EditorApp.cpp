@@ -4,6 +4,7 @@
 #include "Forge/Core/Log.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Assets/AssetRegistry.h"
+#include "Forge/Project/GameExporter.h"
 #include "Forge/Scene/Components.h"
 
 #include "imgui.h"
@@ -150,6 +151,18 @@ namespace Forge {
 
 			if (ImGui::MenuItem("Save Scene"))
 				m_Editor.SaveScene("resources/scenes/editor.forge");
+
+			ImGui::Separator();
+			if (ImGui::MenuItem("Export Game..."))
+			{
+				GameExporter::Options opts;
+				opts.OutputDirectory = "dist/";
+				opts.ScenePath = "resources/scenes/editor.forge";
+				opts.ResourcesDirectory = "resources/";
+				opts.RuntimeExecutable = "bin/ForgeRuntime";
+				opts.GameName = "MyGame";
+				GameExporter::Export(opts);
+			}
 
 			ImGui::Separator();
 			if (ImGui::MenuItem("Exit"))
