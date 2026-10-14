@@ -58,6 +58,10 @@ target_sources(ForgeCore
         Forge/Renderer/ShaderLibrary.cpp
         Forge/Renderer/Texture.h
         Forge/Renderer/Texture.cpp
+        Forge/Renderer/CpuTexture.h
+        Forge/Renderer/CpuTexture.cpp
+        Forge/Renderer/CpuMesh.h
+        Forge/Renderer/CpuMesh.cpp
         Forge/Renderer/Mesh.h
         Forge/Renderer/Mesh.cpp
         Forge/Renderer/Camera.h
@@ -161,6 +165,9 @@ target_include_directories(vulkan
         ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
         ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
+        ${CMAKE_SOURCE_DIR}/vendor/stb
+        ${CMAKE_SOURCE_DIR}/vendor/assimp/include
+        ${CMAKE_BINARY_DIR}/vendor/assimp/include
         /usr/include
 )
 target_compile_definitions(vulkan PRIVATE FG_DEBUG)
