@@ -64,13 +64,15 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (99 test cases, 960 assertions - all passing)
+### Tests (101 test cases, 1001 assertions - all passing)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
 - [x] EngineFeatureTests (serializer, runtime format, physics sync, raycast, prefabs, scripting)
 - [x] RendererFeatureTests (cube/plane/sphere primitives, PNG/HDR texture decoding)
 - [x] ToolingTests (gizmo math, asset registry, game export, editor context)
+- [x] TestSceneTests (loads the comprehensive EngineTest.forge scene and
+      verifies every component + physics + the scripting API end-to-end)
 - [x] RendererTests (null stubs)
 - [x] PhysicsTests (physics engine, collision, integration)
 - [x] ScriptingTests (Lua engine)

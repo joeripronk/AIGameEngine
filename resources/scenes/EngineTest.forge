@@ -1,0 +1,135 @@
+Scene: Untitled
+Entities:
+  - Entity: 2824978737576220466
+    TagComponent:
+      Tag: ScriptedRotator
+    TransformComponent:
+      Translation: [-4, 0.5, 3]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: Rotator
+    PBRMaterialComponent:
+      Albedo: [0.200000003, 0.800000012, 0.300000012]
+      Metallic: 0
+      Roughness: 0.5
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+  - Entity: 7459493937748910465
+    TagComponent:
+      Tag: ScriptedMover
+    TransformComponent:
+      Translation: [-4, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    ScriptComponent:
+      ClassName: Mover
+  - Entity: 7008956973890143197
+    TagComponent:
+      Tag: RollingSphere
+    TransformComponent:
+      Translation: [3, 6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RigidbodyComponent:
+      BodyType: 1
+      FixedRotation: false
+    SphereColliderComponent:
+      Offset: [0, 0, 0]
+      Radius: 0.5
+      Density: 1
+      Friction: 0.5
+      Restitution: 0.600000024
+    PBRMaterialComponent:
+      Albedo: [0.200000003, 0.400000006, 0.899999976]
+      Metallic: 0.899999976
+      Roughness: 0.200000003
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+  - Entity: 9823474266819559877
+    TagComponent:
+      Tag: FallingBox
+    TransformComponent:
+      Translation: [0, 6, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RigidbodyComponent:
+      BodyType: 1
+      FixedRotation: false
+    BoxColliderComponent:
+      Offset: [0, 0, 0]
+      Size: [1, 1, 1]
+      Density: 1
+      Friction: 0.5
+      Restitution: 0.400000006
+    PBRMaterialComponent:
+      Albedo: [0.800000012, 0.200000003, 0.200000003]
+      Metallic: 0.100000001
+      Roughness: 0.400000006
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+    MeshComponent:
+      ModelPath: resources/primitives/cube.obj
+      Scale: [1, 1, 1]
+  - Entity: 13565381324559204199
+    TagComponent:
+      Tag: Ground
+    TransformComponent:
+      Translation: [0, -1, 0]
+      Rotation: [0, 0, 0]
+      Scale: [20, 1, 20]
+    RigidbodyComponent:
+      BodyType: 0
+      FixedRotation: false
+    BoxColliderComponent:
+      Offset: [0, 0, 0]
+      Size: [20, 1, 20]
+      Density: 1
+      Friction: 0.800000012
+      Restitution: 0
+  - Entity: 8447501594111381077
+    TagComponent:
+      Tag: PointLight
+    TransformComponent:
+      Translation: [4, 3, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 0.600000024, 0.200000003]
+      Intensity: 8
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.0900000036
+      Quadratic: 0.0320000015
+      CutOff: 0.976296008
+      OuterCutOff: 0.953716934
+  - Entity: 11389960060273105721
+    TagComponent:
+      Tag: SunLight
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 0
+      Color: [1, 0.949999988, 0.899999976]
+      Intensity: 1
+      Direction: [-0.5, -1, -0.300000012]
+      Constant: 1
+      Linear: 0.0900000036
+      Quadratic: 0.0320000015
+      CutOff: 0.976296008
+      OuterCutOff: 0.953716934
+  - Entity: 8593361913147992918
+    TagComponent:
+      Tag: MainCamera
+    TransformComponent:
+      Translation: [0, 5, 12]
+      Rotation: [20, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Primary: true
