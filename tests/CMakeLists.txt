@@ -16,6 +16,7 @@ target_sources(ForgeTests
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp
+        src/ToolingTests.cpp
         src/RendererTests.cpp
         src/PhysicsTests.cpp
         src/ScriptingTests.cpp

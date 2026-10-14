@@ -79,6 +79,14 @@ target_sources(ForgeCore
         Forge/Scene/SceneSerializer.cpp
         Forge/Scene/Prefab.h
         Forge/Scene/Prefab.cpp
+        Forge/Editor/EditorContext.h
+        Forge/Editor/EditorContext.cpp
+        Forge/Editor/Gizmo.h
+        Forge/Editor/Gizmo.cpp
+        Forge/Assets/AssetRegistry.h
+        Forge/Assets/AssetRegistry.cpp
+        Forge/Project/GameExporter.h
+        Forge/Project/GameExporter.cpp
         Forge/Physics/Physics.h
         Forge/Physics/Physics.cpp
         Forge/Scripting/ScriptEngine.h

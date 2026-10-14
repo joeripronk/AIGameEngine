@@ -57,11 +57,13 @@
 - [x] FG_NO_VULKAN_RUNTIME for testability
 - [x] Catch2 test targets
 
-### Tests (52 test cases, 116 assertions - all passing)
+### Tests (82 test cases, 272 assertions - all passing)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
+- [x] ComprehensiveTests (full-component scenes, copy, duplication)
+- [x] EngineFeatureTests (serializer, runtime format, physics sync, raycast, prefabs, scripting)
 - [x] RendererTests (null stubs)
-- [x] PhysicsTests (14 tests - physics engine, collision, integration)
+- [x] PhysicsTests (physics engine, collision, integration)
 - [x] ScriptingTests (Lua engine)
 
 ---
@@ -79,38 +81,29 @@
 - [ ] Texture loading (stb_image)
 - [ ] Shader library management
 
-### Physics
-- [x] Custom 3D physics engine (AABB collision, rigid body dynamics)
-- [x] Box2D integration (stub - custom physics used instead)
-- [x] PhysX 3D integration (vendor directory empty - custom physics used)
-- [x] Collision detection (AABB, sphere)
-- [x] Collision response (impulse-based with friction)
-- [ ] Physics-driven transform updates (needs Scene integration)
-
-### Editor
-- [ ] Actual viewport rendering (currently ImGui image call has no swapchain)
+### Editor (AI-controllable)
+- [ ] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
 - [ ] Gizmo manipulation
-- [ ] Asset browser
+- [ ] Asset browser (AssetRegistry)
 - [ ] Properties panel for global settings
-
----
-
-## ❌ Blocked / Pending
+- [ ] Actual viewport rendering (currently ImGui image call has no swapchain)
 
 ### Assets & Resources
-- [ ] Resources directory populated with meshes, HDRIs, textures
+- [ ] AssetRegistry / asset browser backend
 - [ ] IBL (Image-Based Lighting) with HDRIs
 - [ ] Soft shadow maps
 - [ ] Default cube primitive
+- [ ] Resources directory populated with meshes, HDRIs, textures
 
 ### Engine Polish
-- [ ] Physics world cleanup (m_PhysicsWorld managed externally)
-- [ ] DuplicateEntity copies all components (currently copies only name)
-- [ ] SerializeRuntime/DeserializeRuntime (runtime-only serialization)
+- [x] Physics-driven transform updates (Scene sync)
+- [x] DuplicateEntity copies all components
+- [x] SerializeRuntime/DeserializeRuntime (binary format)
 - [ ] Mesh loading from file (needs Assimp + vulkan)
 - [ ] Camera viewport resize handling
 
-### Platform & Deployment
+### Deployment
+- [ ] Game export (package runtime + scene + resources)
 - [ ] Windows support (CMake has WIN32 blocks but no actual testing)
 - [ ] macOS support
 - [ ] Installer/deployment scripts
@@ -126,4 +119,4 @@
 | `glm::vec3` YAML convert template not working | ✅ Fixed - explicit node construction |
 | Physics completely stubbed | ✅ Fixed - custom 3D physics engine implemented |
 | Editor viewport has no swapchain | ⚠️ Requires Vulkan implementation |
-| Resources directory empty | ⚠️ No assets for testing |
+| Resources directory empty | ✅ Added Lua scripts + Enemy prefab; meshes/HDRIs pending |
