@@ -5,6 +5,8 @@
 
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Renderer/RendererAPI.h"
+#include "Forge/Renderer/ShaderLibrary.h"
+#include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanSwapchain.h"
 
 #include <nvrhi/vulkan.h>
@@ -44,16 +46,6 @@ namespace Forge {
 
 		NvrhiMessageCallback s_NvrhiMessageCallback;
 
-		// G-Buffer textures
-		nvrhi::TextureHandle s_GBuffer0; // Position
-		nvrhi::TextureHandle s_GBuffer1; // Normal
-		nvrhi::TextureHandle s_GBuffer2; // Material (Albedo, Metallic, Roughness, AO)
-		nvrhi::TextureHandle s_GBuffer3; // Emissive
-
-		// Shadow map
-		nvrhi::TextureHandle s_ShadowMap;
-		nvrhi::TextureHandle s_ShadowDepth;
-
 		// HDR buffer
 		nvrhi::TextureHandle s_HDRBuffer;
 
@@ -67,16 +59,27 @@ namespace Forge {
 		// Final buffer
 		nvrhi::TextureHandle s_FinalBuffer;
 
-		// UBO
+		// UBO for post-processing parameters
 		nvrhi::BufferHandle s_UboBuffer;
 
-		// Pipelines
-		nvrhi::GraphicsPipelineHandle s_GeometryPipeline;
+		// Post-processing binding layouts
+		nvrhi::BindingLayoutHandle s_SSAOBindingLayout;
+		nvrhi::BindingLayoutHandle s_HDRBindingLayout;
+		nvrhi::BindingLayoutHandle s_FinalBindingLayout;
+
+		// Post-processing pipelines
 		nvrhi::GraphicsPipelineHandle s_SSAOPipeline;
 		nvrhi::GraphicsPipelineHandle s_HDRPipeline;
-		nvrhi::GraphicsPipelineHandle s_TonemapPipeline;
-		nvrhi::GraphicsPipelineHandle s_ShadowPipeline;
 		nvrhi::GraphicsPipelineHandle s_FinalPipeline;
+
+		// SSAO uniform buffer
+		nvrhi::BufferHandle s_SSAOUniformBuffer;
+
+		// HDR uniform buffer
+		nvrhi::BufferHandle s_HDRUniformBuffer;
+
+		// Final uniform buffer
+		nvrhi::BufferHandle s_FinalUniformBuffer;
 
 	}
 
@@ -97,6 +100,19 @@ namespace Forge {
 	uint32_t VulkanRendererAPI::s_Height = 0;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_TonemappedFramebuffer;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_SSAOFramebuffer;
+	nvrhi::TextureHandle VulkanRendererAPI::s_HDRBuffer;
+	nvrhi::FramebufferHandle VulkanRendererAPI::s_HDRFramebuffer;
+	nvrhi::TextureHandle VulkanRendererAPI::s_SSAOOutput;
+	nvrhi::TextureHandle VulkanRendererAPI::s_TonemappedBuffer;
+	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_SSAOBindingLayout;
+	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_HDRBindingLayout;
+	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_FinalBindingLayout;
+	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_SSAOPipeline;
+	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_HDRPipeline;
+	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_FinalPipeline;
+	nvrhi::BufferHandle VulkanRendererAPI::s_SSAOUniformBuffer;
+	nvrhi::BufferHandle VulkanRendererAPI::s_HDRUniformBuffer;
+	nvrhi::BufferHandle VulkanRendererAPI::s_FinalUniformBuffer;
 
 	bool VulkanRendererAPI::CreateInstance()
 	{
@@ -428,14 +444,31 @@ namespace Forge {
 			return;
 		}
 
-		// Create G-Buffer
-		CreateGBuffer(width, height);
-
-		// Create Shadow Map
-		CreateShadowMap(2048, 2048);
-
 		// Create HDR Buffer
 		CreateHDRBuffer(width, height);
+
+		// Create HDR framebuffer (offscreen target for PBR rendering).
+		{
+			// Depth texture for HDR buffer.
+			nvrhi::TextureDesc hdrDepthDesc;
+			hdrDepthDesc.width = width;
+			hdrDepthDesc.height = height;
+			hdrDepthDesc.format = nvrhi::Format::D32;
+			hdrDepthDesc.isRenderTarget = true;
+			hdrDepthDesc.isShaderResource = true;
+			hdrDepthDesc.debugName = "HDR_Depth";
+			hdrDepthDesc.keepInitialState = true;
+			hdrDepthDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+			nvrhi::TextureHandle hdrDepth = s_Device->createTexture(hdrDepthDesc);
+
+			// HDR framebuffer with color + depth.
+			nvrhi::FramebufferDesc hdrFbDesc;
+			hdrFbDesc.addColorAttachment(s_HDRBuffer.Get());
+			hdrFbDesc.setDepthAttachment(hdrDepth.Get());
+			s_HDRFramebuffer = s_Device->createFramebuffer(hdrFbDesc);
+			if (s_HDRFramebuffer)
+				FG_CORE_INFO("HDR framebuffer created: {0}x{1}", width, height);
+		}
 
 		// Create SSAO Buffer
 		CreateSSAOBuffer(width, height);
@@ -477,18 +510,41 @@ namespace Forge {
 				FG_CORE_INFO("SSAO framebuffer created: {0}x{1}", width, height);
 		}
 
-		// Create UBO
-		nvrhi::BufferDesc uboDesc;
-		uboDesc.byteSize = 256;
-		uboDesc.debugName = "UBO";
-		s_UboBuffer = s_Device->createBuffer(uboDesc);
+		// Create uniform buffers for post-processing.
+		{
+			nvrhi::BufferDesc ssaoUboDesc;
+			ssaoUboDesc.byteSize = 256;
+			ssaoUboDesc.isConstantBuffer = true;
+			ssaoUboDesc.debugName = "SSAO_Uniform";
+			ssaoUboDesc.keepInitialState = true;
+			ssaoUboDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+			s_SSAOUniformBuffer = s_Device->createBuffer(ssaoUboDesc);
+		}
+
+		{
+			nvrhi::BufferDesc hdrUboDesc;
+			hdrUboDesc.byteSize = 256;
+			hdrUboDesc.isConstantBuffer = true;
+			hdrUboDesc.debugName = "HDR_Uniform";
+			hdrUboDesc.keepInitialState = true;
+			hdrUboDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+			s_HDRUniformBuffer = s_Device->createBuffer(hdrUboDesc);
+		}
+
+		{
+			nvrhi::BufferDesc finalUboDesc;
+			finalUboDesc.byteSize = 256;
+			finalUboDesc.isConstantBuffer = true;
+			finalUboDesc.debugName = "Final_Uniform";
+			finalUboDesc.keepInitialState = true;
+			finalUboDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+			s_FinalUniformBuffer = s_Device->createBuffer(finalUboDesc);
+		}
 
 		// Create pipelines
-		CreatePBRPipeline();
 		CreateSSAOPipeline();
 		CreateHDRPipeline();
 		CreateFinalPipeline();
-		CreateShadowPipeline();
 
 		FG_CORE_INFO("Swapchain resources initialized: {0}x{1}", width, height);
 	}
@@ -517,49 +573,6 @@ namespace Forge {
 	void VulkanRendererAPI::SetLineWidth(float width)
 	{
 		(void)width;
-	}
-
-	void VulkanRendererAPI::CreateGBuffer(uint32_t width, uint32_t height)
-	{
-		nvrhi::TextureDesc gbuf0;
-		gbuf0.width = width;
-		gbuf0.height = height;
-		gbuf0.format = nvrhi::Format::RGBA32_FLOAT;
-		gbuf0.isShaderResource = true;
-		gbuf0.isRenderTarget = true;
-		s_GBuffer0 = s_Device->createTexture(gbuf0);
-
-		nvrhi::TextureDesc gbuf1;
-		gbuf1.width = width;
-		gbuf1.height = height;
-		gbuf1.format = nvrhi::Format::RGBA32_FLOAT;
-		gbuf1.isShaderResource = true;
-		gbuf1.isRenderTarget = true;
-		s_GBuffer1 = s_Device->createTexture(gbuf1);
-
-		nvrhi::TextureDesc gbuf2;
-		gbuf2.width = width;
-		gbuf2.height = height;
-		gbuf2.format = nvrhi::Format::RGBA32_FLOAT;
-		gbuf2.isShaderResource = true;
-		gbuf2.isRenderTarget = true;
-		s_GBuffer2 = s_Device->createTexture(gbuf2);
-
-		nvrhi::TextureDesc gbuf3;
-		gbuf3.width = width;
-		gbuf3.height = height;
-		gbuf3.format = nvrhi::Format::RGBA32_FLOAT;
-		gbuf3.isShaderResource = true;
-		gbuf3.isRenderTarget = true;
-		s_GBuffer3 = s_Device->createTexture(gbuf3);
-
-		FG_CORE_INFO("G-Buffer created: {0}x{1}", width, height);
-	}
-
-	void VulkanRendererAPI::CreateShadowMap(uint32_t width, uint32_t height)
-	{
-		(void)width; (void)height;
-		FG_CORE_INFO("Shadow map created (stub)");
 	}
 
 	void VulkanRendererAPI::CreateHDRBuffer(uint32_t width, uint32_t height)
@@ -596,35 +609,182 @@ namespace Forge {
 		FG_CORE_INFO("SSAO buffer created: {0}x{1}", width, height);
 	}
 
-	void VulkanRendererAPI::CreatePBRPipeline()
-	{
-		// TODO: Create PBR geometry pipeline
-		// This requires shader bytecode, descriptor layout, and pipeline state
-		FG_CORE_INFO("PBR pipeline created (stub)");
-	}
-
 	void VulkanRendererAPI::CreateSSAOPipeline()
 	{
-		// TODO: Create SSAO pipeline
-		FG_CORE_INFO("SSAO pipeline created (stub)");
+		if (!s_Device)
+			return;
+
+		// Load SSAO shader.
+		auto ssaoShader = Renderer::GetShaderLibrary().Get("SSAO");
+		if (!ssaoShader)
+		{
+			FG_CORE_WARN("SSAO shader not loaded");
+			return;
+		}
+
+		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(ssaoShader);
+		if (!vulkanShader || !vulkanShader->GetVertexShader() || !vulkanShader->GetFragmentShader())
+		{
+			FG_CORE_WARN("SSAO shader not properly compiled");
+			return;
+		}
+
+		// Create binding layout for SSAO:
+		// binding 0: combined sampler2D u_DepthSampler
+		// binding 1: SSAO params (uniform buffer)
+		nvrhi::BindingLayoutDesc ssaoLayoutDesc;
+		ssaoLayoutDesc.visibility = nvrhi::ShaderType::All;
+		ssaoLayoutDesc.bindings = {
+			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		};
+		s_SSAOBindingLayout = s_Device->createBindingLayout(ssaoLayoutDesc);
+
+		// Create pipeline for SSAO (fullscreen quad, no depth test, render to SSAO output).
+		nvrhi::GraphicsPipelineDesc pipelineDesc;
+		pipelineDesc.VS = vulkanShader->GetVertexShader();
+		pipelineDesc.PS = vulkanShader->GetFragmentShader();
+		pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+
+		pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+		pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+
+		pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+		pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+
+		pipelineDesc.bindingLayouts.push_back(s_SSAOBindingLayout);
+
+		nvrhi::FramebufferInfo fbInfo;
+		fbInfo.colorFormats.push_back(nvrhi::Format::R8_UNORM); // SSAO output format
+		fbInfo.depthFormat = nvrhi::Format::UNKNOWN; // No depth for fullscreen pass
+		fbInfo.sampleCount = 1;
+
+		s_SSAOPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
+		if (s_SSAOPipeline)
+			FG_CORE_INFO("SSAO pipeline created");
+		else
+			FG_CORE_ERROR("Failed to create SSAO pipeline");
 	}
 
 	void VulkanRendererAPI::CreateHDRPipeline()
 	{
-		// TODO: Create HDR tonemapping pipeline
-		FG_CORE_INFO("HDR pipeline created (stub)");
+		if (!s_Device)
+			return;
+
+		// Load HDR shader.
+		auto hdrShader = Renderer::GetShaderLibrary().Get("HDR");
+		if (!hdrShader)
+		{
+			FG_CORE_WARN("HDR shader not loaded");
+			return;
+		}
+
+		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(hdrShader);
+		if (!vulkanShader || !vulkanShader->GetVertexShader() || !vulkanShader->GetFragmentShader())
+		{
+			FG_CORE_WARN("HDR shader not properly compiled");
+			return;
+		}
+
+		// Create binding layout for HDR:
+		// binding 0: combined sampler2D u_HDRBuffer
+		// binding 1: HDR params (uniform buffer)
+		nvrhi::BindingLayoutDesc hdrLayoutDesc;
+		hdrLayoutDesc.visibility = nvrhi::ShaderType::All;
+		hdrLayoutDesc.bindings = {
+			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		};
+		s_HDRBindingLayout = s_Device->createBindingLayout(hdrLayoutDesc);
+
+		// Create pipeline for HDR tonemapping.
+		nvrhi::GraphicsPipelineDesc pipelineDesc;
+		pipelineDesc.VS = vulkanShader->GetVertexShader();
+		pipelineDesc.PS = vulkanShader->GetFragmentShader();
+		pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+
+		pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+		pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+
+		pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+		pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+
+		pipelineDesc.bindingLayouts.push_back(s_HDRBindingLayout);
+
+		nvrhi::FramebufferInfo fbInfo;
+		fbInfo.colorFormats.push_back(nvrhi::Format::RGBA16_FLOAT); // Tonemapped buffer format
+		fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
+		fbInfo.sampleCount = 1;
+
+		s_HDRPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
+		if (s_HDRPipeline)
+			FG_CORE_INFO("HDR pipeline created");
+		else
+			FG_CORE_ERROR("Failed to create HDR pipeline");
 	}
 
 	void VulkanRendererAPI::CreateFinalPipeline()
 	{
-		// TODO: Create final composite pipeline
-		FG_CORE_INFO("Final pipeline created (stub)");
-	}
+		if (!s_Device)
+			return;
 
-	void VulkanRendererAPI::CreateShadowPipeline()
-	{
-		// TODO: Create shadow map pipeline
-		FG_CORE_INFO("Shadow pipeline created (stub)");
+		// Load Final shader.
+		auto finalShader = Renderer::GetShaderLibrary().Get("Final");
+		if (!finalShader)
+		{
+			FG_CORE_WARN("Final shader not loaded");
+			return;
+		}
+
+		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(finalShader);
+		if (!vulkanShader || !vulkanShader->GetVertexShader() || !vulkanShader->GetFragmentShader())
+		{
+			FG_CORE_WARN("Final shader not properly compiled");
+			return;
+		}
+
+		// Create binding layout for Final:
+		// binding 0: combined sampler2D u_TonemappedBuffer
+		// binding 1: combined sampler2D u_SSAOBuffer
+		// binding 2: Final params (uniform buffer)
+		nvrhi::BindingLayoutDesc finalLayoutDesc;
+		finalLayoutDesc.visibility = nvrhi::ShaderType::All;
+		finalLayoutDesc.bindings = {
+			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 1, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		};
+		s_FinalBindingLayout = s_Device->createBindingLayout(finalLayoutDesc);
+
+		// Create pipeline for Final composite.
+		nvrhi::GraphicsPipelineDesc pipelineDesc;
+		pipelineDesc.VS = vulkanShader->GetVertexShader();
+		pipelineDesc.PS = vulkanShader->GetFragmentShader();
+		pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+
+		pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+		pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+
+		pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+		pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+
+		pipelineDesc.bindingLayouts.push_back(s_FinalBindingLayout);
+
+		// The final pass outputs to the swapchain (RGBA8/SRGB).
+		nvrhi::Format colorFormat = GetSwapchain().GetFormat();
+		if (colorFormat == nvrhi::Format::UNKNOWN)
+			colorFormat = nvrhi::Format::RGBA8_UNORM;
+
+		nvrhi::FramebufferInfo fbInfo;
+		fbInfo.colorFormats.push_back(colorFormat);
+		fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
+		fbInfo.sampleCount = 1;
+
+		s_FinalPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
+		if (s_FinalPipeline)
+			FG_CORE_INFO("Final pipeline created");
+		else
+			FG_CORE_ERROR("Failed to create Final pipeline");
 	}
 
 	void VulkanRendererAPI::UpdateDescriptorSets()
@@ -640,6 +800,331 @@ namespace Forge {
 	void VulkanRendererAPI::EndFrame()
 	{
 		// Simplified - pipeline is stubbed
+	}
+
+	// Helper: create a BindingSetItem for a texture.
+	namespace {
+		nvrhi::BindingSetItem MakeTextureItem(nvrhi::ITexture* texture, uint32_t slot)
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = texture;
+			item.slot = slot;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = texture->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			return item;
+		}
+
+		nvrhi::BindingSetItem MakeSamplerItem(nvrhi::ISampler* sampler, uint32_t slot)
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = sampler;
+			item.slot = slot;
+			item.type = nvrhi::ResourceType::Sampler;
+			return item;
+		}
+
+		nvrhi::BindingSetItem MakeConstantBufferItem(nvrhi::IBuffer* buffer, uint32_t slot)
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = buffer;
+			item.slot = slot;
+			item.type = nvrhi::ResourceType::ConstantBuffer;
+			item.range = nvrhi::BufferRange(0, 0);
+			return item;
+		}
+
+		// A fullscreen quad in NDC space with UVs.
+		struct FullscreenVertex
+		{
+			glm::vec2 pos;
+			glm::vec2 uv;
+		};
+
+		const FullscreenVertex kFullscreenQuad[4] = {
+			{ {-1.0f, -1.0f}, {0.0f, 0.0f} },
+			{ { 1.0f, -1.0f}, {1.0f, 0.0f} },
+			{ { 1.0f,  1.0f}, {1.0f, 1.0f} },
+			{ {-1.0f,  1.0f}, {0.0f, 1.0f} }
+		};
+		const uint32_t kFullscreenIndices[6] = { 0, 1, 2, 2, 3, 0 };
+
+		// Upload the fullscreen quad to GPU buffers.
+		void UploadFullscreenQuad(nvrhi::ICommandList* commandList, nvrhi::IBuffer*& outVBO, nvrhi::IBuffer*& outIBO)
+		{
+			auto device = VulkanRendererAPI::GetStaticDevice();
+
+			// Vertex buffer (4 vertices * 16 bytes = 64 bytes).
+			if (!outVBO)
+			{
+				nvrhi::BufferDesc vboDesc;
+				vboDesc.byteSize = sizeof(kFullscreenQuad);
+				vboDesc.debugName = "FullscreenQuad_VBO";
+				vboDesc.keepInitialState = true;
+				vboDesc.initialState = nvrhi::ResourceStates::VertexBuffer;
+				outVBO = device->createBuffer(vboDesc);
+			}
+
+			// Index buffer (6 indices * 4 bytes = 24 bytes).
+			if (!outIBO)
+			{
+				nvrhi::BufferDesc iboDesc;
+				iboDesc.byteSize = sizeof(kFullscreenIndices);
+				iboDesc.debugName = "FullscreenQuad_IBO";
+				iboDesc.keepInitialState = true;
+				iboDesc.initialState = nvrhi::ResourceStates::IndexBuffer;
+				outIBO = device->createBuffer(iboDesc);
+			}
+
+			// Upload on first use.
+			commandList->writeBuffer(outVBO, kFullscreenQuad, sizeof(kFullscreenQuad), 0);
+			commandList->writeBuffer(outIBO, kFullscreenIndices, sizeof(kFullscreenIndices), 0);
+		}
+
+		nvrhi::IBuffer* s_FullscreenVBO = nullptr;
+		nvrhi::IBuffer* s_FullscreenIBO = nullptr;
+
+		void DrawFullscreenQuad(nvrhi::ICommandList* commandList)
+		{
+			UploadFullscreenQuad(commandList, s_FullscreenVBO, s_FullscreenIBO);
+
+			nvrhi::GraphicsState state;
+			state.vertexBuffers.push_back(nvrhi::VertexBufferBinding(s_FullscreenVBO, 0, 16));
+			nvrhi::IndexBufferBinding ibo;
+			ibo.buffer = s_FullscreenIBO;
+			ibo.format = nvrhi::Format::R32_UINT;
+			ibo.offset = 0;
+			state.indexBuffer = ibo;
+
+			nvrhi::DrawArguments args;
+			args.vertexCount = 6;
+			args.instanceCount = 1;
+			commandList->setGraphicsState(state);
+			commandList->drawIndexed(args);
+		}
+	}
+
+	void VulkanRendererAPI::RenderSSAOPass(nvrhi::ICommandList* commandList, nvrhi::TextureHandle depthTexture, const glm::mat4& invViewProj)
+	{
+		if (!s_SSAOPipeline || !s_SSAOBindingLayout || !commandList)
+			return;
+
+		// Upload SSAO uniform buffer.
+		// Layout: mat4 invViewProj (64 bytes) + vec4 params (16 bytes) + vec2 texelSize (8 bytes) = 88 bytes
+		glm::vec4 ssaoParams(1.0f, 0.5f, 0.002f, 1.5f); // intensity, radius, bias, power
+		glm::vec2 texelSize(1.0f / s_Width, 1.0f / s_Height);
+		if (s_SSAOUniformBuffer)
+		{
+			char data[96] = {};
+			std::memcpy(data, &invViewProj, sizeof(glm::mat4));
+			std::memcpy(data + sizeof(glm::mat4), &ssaoParams, sizeof(glm::vec4));
+			std::memcpy(data + sizeof(glm::mat4) + sizeof(glm::vec4), &texelSize, sizeof(glm::vec2));
+			commandList->writeBuffer(s_SSAOUniformBuffer.Get(), data, sizeof(data), 0);
+		}
+
+		// Create the SSAO binding set with combined sampler for depth texture.
+		nvrhi::BindingSetDesc ssaoSetDesc;
+
+		// Combined sampler2D for depth texture.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = depthTexture.Get();
+			item.slot = 0;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = depthTexture->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			// Linear sampler for depth reconstruction.
+			nvrhi::SamplerDesc samplerDesc;
+			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.setMinFilter(true);
+			samplerDesc.setMagFilter(true);
+			samplerDesc.setMipFilter(true);
+			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+			nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
+			nvrhi::BindingSetItem ssaoSamplerItem{};
+			ssaoSamplerItem.resourceHandle = ssaoSampler.Get();
+			ssaoSamplerItem.slot = 0;
+			ssaoSamplerItem.type = nvrhi::ResourceType::Sampler;
+			ssaoSetDesc.bindings.push_back(item);
+			ssaoSetDesc.bindings.push_back(ssaoSamplerItem);
+		}
+
+		if (s_SSAOUniformBuffer)
+			ssaoSetDesc.bindings.push_back(MakeConstantBufferItem(s_SSAOUniformBuffer.Get(), 1));
+
+		nvrhi::BindingSetHandle ssaoSet = s_Device->createBindingSet(ssaoSetDesc, s_SSAOBindingLayout);
+		if (!ssaoSet)
+		{
+			FG_CORE_WARN("SSAO: failed to create binding set");
+			return;
+		}
+
+		// Record the SSAO draw.
+		nvrhi::GraphicsState state;
+		state.framebuffer = s_SSAOFramebuffer.Get();
+
+		nvrhi::Viewport viewport(0.0f, 0.0f, s_Width, s_Height, 0.0f, 1.0f);
+		state.viewport.addViewportAndScissorRect(viewport);
+		state.pipeline = s_SSAOPipeline.Get();
+		state.bindings.push_back(ssaoSet.Get());
+
+		DrawFullscreenQuad(commandList);
+	}
+
+	void VulkanRendererAPI::RenderHDRPass(nvrhi::ICommandList* commandList)
+	{
+		if (!s_HDRPipeline || !s_HDRBindingLayout || !commandList)
+			return;
+
+		// Upload HDR uniform buffer (exposure).
+		glm::vec4 hdrParams(1.0f, 0.0f, 0.0f, 0.0f); // exposure
+		if (s_HDRUniformBuffer)
+		{
+			commandList->writeBuffer(s_HDRUniformBuffer.Get(), &hdrParams, sizeof(hdrParams), 0);
+		}
+
+		// Create the HDR binding set with combined sampler for HDR buffer.
+		nvrhi::BindingSetDesc hdrSetDesc;
+
+		// Combined sampler2D for HDR buffer.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = s_HDRBuffer.Get();
+			item.slot = 0;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = s_HDRBuffer->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			nvrhi::SamplerDesc samplerDesc;
+			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.setMinFilter(true);
+			samplerDesc.setMagFilter(true);
+			samplerDesc.setMipFilter(true);
+			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+			nvrhi::SamplerHandle hdrSampler = s_Device->createSampler(samplerDesc);
+			nvrhi::BindingSetItem samplerItem{};
+			samplerItem.resourceHandle = hdrSampler.Get();
+			samplerItem.slot = 0;
+			samplerItem.type = nvrhi::ResourceType::Sampler;
+			hdrSetDesc.bindings.push_back(item);
+			hdrSetDesc.bindings.push_back(samplerItem);
+		}
+
+		if (s_HDRUniformBuffer)
+			hdrSetDesc.bindings.push_back(MakeConstantBufferItem(s_HDRUniformBuffer.Get(), 1));
+
+		nvrhi::BindingSetHandle hdrSet = s_Device->createBindingSet(hdrSetDesc, s_HDRBindingLayout);
+		if (!hdrSet)
+		{
+			FG_CORE_WARN("HDR: failed to create binding set");
+			return;
+		}
+
+		// Record the HDR draw.
+		nvrhi::GraphicsState state;
+		state.framebuffer = s_TonemappedFramebuffer.Get();
+
+		nvrhi::Viewport viewport(0.0f, 0.0f, s_Width, s_Height, 0.0f, 1.0f);
+		state.viewport.addViewportAndScissorRect(viewport);
+		state.pipeline = s_HDRPipeline.Get();
+		state.bindings.push_back(hdrSet.Get());
+
+		DrawFullscreenQuad(commandList);
+	}
+
+	void VulkanRendererAPI::RenderFinalPass(nvrhi::ICommandList* commandList, nvrhi::FramebufferHandle swapchainFramebuffer)
+	{
+		if (!s_FinalPipeline || !s_FinalBindingLayout || !commandList)
+			return;
+
+		// Upload Final uniform buffer (SSAO intensity).
+		glm::vec4 finalParams(0.3f, 0.0f, 0.0f, 0.0f); // ssao intensity
+		if (s_FinalUniformBuffer)
+		{
+			commandList->writeBuffer(s_FinalUniformBuffer.Get(), &finalParams, sizeof(finalParams), 0);
+		}
+
+		// Create the Final binding set with combined samplers.
+		nvrhi::BindingSetDesc finalSetDesc;
+
+		// Combined sampler2D for tonemapped buffer.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = s_TonemappedBuffer.Get();
+			item.slot = 0;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = s_TonemappedBuffer->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			nvrhi::SamplerDesc samplerDesc;
+			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.setMinFilter(true);
+			samplerDesc.setMagFilter(true);
+			samplerDesc.setMipFilter(true);
+			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+			nvrhi::SamplerHandle tonemappedSampler = s_Device->createSampler(samplerDesc);
+			nvrhi::BindingSetItem tonemappedSamplerItem{};
+			tonemappedSamplerItem.resourceHandle = tonemappedSampler.Get();
+			tonemappedSamplerItem.slot = 0;
+			tonemappedSamplerItem.type = nvrhi::ResourceType::Sampler;
+			finalSetDesc.bindings.push_back(item);
+			finalSetDesc.bindings.push_back(tonemappedSamplerItem);
+		}
+
+		// Combined sampler2D for SSAO buffer.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = s_SSAOOutput.Get();
+			item.slot = 1;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = s_SSAOOutput->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			nvrhi::SamplerDesc samplerDesc;
+			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+			samplerDesc.setMinFilter(true);
+			samplerDesc.setMagFilter(true);
+			samplerDesc.setMipFilter(true);
+			samplerDesc.setBorderColor(nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
+			nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
+			nvrhi::BindingSetItem ssaoSamplerItem{};
+			ssaoSamplerItem.resourceHandle = ssaoSampler.Get();
+			ssaoSamplerItem.slot = 1;
+			ssaoSamplerItem.type = nvrhi::ResourceType::Sampler;
+			finalSetDesc.bindings.push_back(item);
+			finalSetDesc.bindings.push_back(ssaoSamplerItem);
+		}
+
+		if (s_FinalUniformBuffer)
+			finalSetDesc.bindings.push_back(MakeConstantBufferItem(s_FinalUniformBuffer.Get(), 2));
+
+		nvrhi::BindingSetHandle finalSet = s_Device->createBindingSet(finalSetDesc, s_FinalBindingLayout);
+		if (!finalSet)
+		{
+			FG_CORE_WARN("Final: failed to create binding set");
+			return;
+		}
+
+		// Record the Final draw.
+		nvrhi::GraphicsState state;
+		state.framebuffer = swapchainFramebuffer.Get();
+
+		nvrhi::Viewport viewport(0.0f, 0.0f, s_Width, s_Height, 0.0f, 1.0f);
+		state.viewport.addViewportAndScissorRect(viewport);
+		state.pipeline = s_FinalPipeline.Get();
+		state.bindings.push_back(finalSet.Get());
+
+		DrawFullscreenQuad(commandList);
 	}
 
 }

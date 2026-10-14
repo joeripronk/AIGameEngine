@@ -37,12 +37,17 @@ namespace Forge {
 		void CreateHDRBuffer(uint32_t width, uint32_t height);
 		void CreateSSAOBuffer(uint32_t width, uint32_t height);
 
-		// Pipeline creation
+		// Post-processing pipeline creation
 		void CreatePBRPipeline();
 		void CreateSSAOPipeline();
 		void CreateHDRPipeline();
 		void CreateFinalPipeline();
 		void CreateShadowPipeline();
+
+		// Post-processing execution
+		static void RenderSSAOPass(nvrhi::ICommandList* commandList, nvrhi::TextureHandle depthTexture, const glm::mat4& invViewProj);
+		static void RenderHDRPass(nvrhi::ICommandList* commandList);
+		static void RenderFinalPass(nvrhi::ICommandList* commandList, nvrhi::FramebufferHandle swapchainFramebuffer);
 
 		// Descriptor set management
 		void UpdateDescriptorSets();
@@ -80,6 +85,27 @@ namespace Forge {
 		// Post-processing framebuffers (created in SetupSwapchain).
 		static nvrhi::FramebufferHandle GetTonemappedFramebuffer() { return s_TonemappedFramebuffer; }
 		static nvrhi::FramebufferHandle GetSSAOFramebuffer() { return s_SSAOFramebuffer; }
+		static nvrhi::FramebufferHandle GetHDRFramebuffer() { return s_HDRFramebuffer; }
+
+		// HDR buffer and SSAO output accessors.
+		static nvrhi::TextureHandle GetHDRBuffer() { return s_HDRBuffer; }
+		static nvrhi::TextureHandle GetSSAOOutput() { return s_SSAOOutput; }
+		static nvrhi::TextureHandle GetTonemappedBuffer() { return s_TonemappedBuffer; }
+
+		// Post-processing pipeline accessors.
+		static nvrhi::GraphicsPipelineHandle GetSSAOPipeline() { return s_SSAOPipeline; }
+		static nvrhi::GraphicsPipelineHandle GetHDRPipeline() { return s_HDRPipeline; }
+		static nvrhi::GraphicsPipelineHandle GetFinalPipeline() { return s_FinalPipeline; }
+
+		// Post-processing binding layout accessors.
+		static nvrhi::BindingLayoutHandle GetSSAOBindingLayout() { return s_SSAOBindingLayout; }
+		static nvrhi::BindingLayoutHandle GetHDRBindingLayout() { return s_HDRBindingLayout; }
+		static nvrhi::BindingLayoutHandle GetFinalBindingLayout() { return s_FinalBindingLayout; }
+
+		// Post-processing uniform buffer accessors.
+		static nvrhi::BufferHandle GetSSAOUniformBuffer() { return s_SSAOUniformBuffer; }
+		static nvrhi::BufferHandle GetHDRUniformBuffer() { return s_HDRUniformBuffer; }
+		static nvrhi::BufferHandle GetFinalUniformBuffer() { return s_FinalUniformBuffer; }
 
 	private:
 		// --- Vulkan bootstrap helpers (static; used during Init) ---
@@ -106,6 +132,35 @@ namespace Forge {
 		// Post-processing framebuffers.
 		static nvrhi::FramebufferHandle s_TonemappedFramebuffer;
 		static nvrhi::FramebufferHandle s_SSAOFramebuffer;
+
+		// HDR buffer and framebuffer.
+		static nvrhi::TextureHandle s_HDRBuffer;
+		static nvrhi::FramebufferHandle s_HDRFramebuffer;
+
+		// SSAO buffer.
+		static nvrhi::TextureHandle s_SSAOOutput;
+
+		// Tonemapped buffer.
+		static nvrhi::TextureHandle s_TonemappedBuffer;
+
+		// Post-processing binding layouts (created during pipeline setup).
+		static nvrhi::BindingLayoutHandle s_SSAOBindingLayout;
+		static nvrhi::BindingLayoutHandle s_HDRBindingLayout;
+		static nvrhi::BindingLayoutHandle s_FinalBindingLayout;
+
+		// Post-processing pipelines.
+		static nvrhi::GraphicsPipelineHandle s_SSAOPipeline;
+		static nvrhi::GraphicsPipelineHandle s_HDRPipeline;
+		static nvrhi::GraphicsPipelineHandle s_FinalPipeline;
+
+		// SSAO uniform buffer.
+		static nvrhi::BufferHandle s_SSAOUniformBuffer;
+
+		// HDR uniform buffer.
+		static nvrhi::BufferHandle s_HDRUniformBuffer;
+
+		// Final uniform buffer.
+		static nvrhi::BufferHandle s_FinalUniformBuffer;
 	};
 
 }

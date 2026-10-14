@@ -196,4 +196,14 @@ namespace Forge {
 		LightComponent(const LightComponent&) = default;
 	};
 
+	struct EnvironmentMapComponent
+	{
+		// Path to an HDR environment map (equirectangular panorama).
+		std::string Path;
+
+		EnvironmentMapComponent() = default;
+		EnvironmentMapComponent(const EnvironmentMapComponent&) = default;
+		EnvironmentMapComponent(const std::string& path) : Path(path) {}
+	};
+
 }

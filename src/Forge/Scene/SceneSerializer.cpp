@@ -304,6 +304,15 @@ namespace Forge {
 			out << YAML::EndMap;
 		}
 
+		if (entity.HasComponent<EnvironmentMapComponent>())
+		{
+			auto& envMap = entity.GetComponent<EnvironmentMapComponent>();
+			out << YAML::Key << "EnvironmentMapComponent";
+			out << YAML::BeginMap;
+			out << YAML::Key << "Path" << YAML::Value << envMap.Path;
+			out << YAML::EndMap;
+		}
+
 		out << YAML::EndMap; // Entity
 	}
 
@@ -425,6 +434,12 @@ namespace Forge {
 			mesh.ModelPath = GetString(meshNode, "ModelPath");
 			mesh.Scale = DecodeVec3(meshNode["Scale"], mesh.Scale);
 		}
+
+		if (HasNode(entityNode, "EnvironmentMapComponent"))
+		{
+			deserializedEntity.AddComponent<EnvironmentMapComponent>().Path =
+				GetString(entityNode["EnvironmentMapComponent"], "Path");
+		}
 	}
 
 	bool SceneSerializer::Deserialize(const std::string& filepath)
@@ -543,6 +558,7 @@ namespace Forge {
 		constexpr uint32_t FlagLight = BIT(7);
 		constexpr uint32_t FlagPBR = BIT(8);
 		constexpr uint32_t FlagMesh = BIT(9);
+		constexpr uint32_t FlagEnvMap = BIT(10);
 
 		uint32_t GetComponentFlags(Entity entity)
 		{
@@ -557,6 +573,7 @@ namespace Forge {
 			flags |= entity.HasComponent<LightComponent>() ? FlagLight : 0;
 			flags |= entity.HasComponent<PBRMaterialComponent>() ? FlagPBR : 0;
 			flags |= entity.HasComponent<MeshComponent>() ? FlagMesh : 0;
+			flags |= entity.HasComponent<EnvironmentMapComponent>() ? FlagEnvMap : 0;
 			return flags;
 		}
 
@@ -667,6 +684,11 @@ namespace Forge {
 				auto& mesh = entity.GetComponent<MeshComponent>();
 				WriteString(stream, mesh.ModelPath);
 				WriteVec3(stream, mesh.Scale);
+			}
+
+			if (entity.HasComponent<EnvironmentMapComponent>())
+			{
+				WriteString(stream, entity.GetComponent<EnvironmentMapComponent>().Path);
 			}
 		}
 	}
@@ -790,6 +812,11 @@ namespace Forge {
 				auto& mesh = entity.AddComponent<MeshComponent>();
 				ReadString(stream, mesh.ModelPath);
 				mesh.Scale = ReadVec3(stream);
+			}
+
+			if (flags & FlagEnvMap)
+			{
+				ReadString(stream, entity.AddComponent<EnvironmentMapComponent>().Path);
 			}
 		}
 

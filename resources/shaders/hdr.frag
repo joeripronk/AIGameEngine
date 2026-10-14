@@ -1,11 +1,13 @@
 #version 450
+#extension GL_EXT_scalar_block_layout : require
 
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 oColor;
 
-layout(binding = 0, set = 0) uniform sampler2D u_HDRBuffer;
+// HDR buffer (combined sampler).
+layout(binding = 0) uniform sampler2D u_HDRBuffer;
 
-layout(binding = 1, set = 0) uniform HDRParams
+layout(binding = 1) uniform HDRParams
 {
     float u_Exposure;
 } u_HDR;

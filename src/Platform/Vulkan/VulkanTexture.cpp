@@ -98,6 +98,26 @@ namespace Forge {
 		FG_CORE_INFO("Texture created: {0}x{1}", width, height);
 	}
 
+	VulkanTexture::VulkanTexture(uint32_t width, uint32_t height, void* data, nvrhi::Format format)
+		: m_Width(width), m_Height(height)
+	{
+		(void)data;
+		nvrhi::TextureDesc desc;
+		desc.width = width;
+		desc.height = height;
+		desc.format = format;
+		desc.isShaderResource = true;
+		desc.isRenderTarget = (format == nvrhi::Format::RGBA8_UNORM);
+		desc.debugName = "VulkanTexture";
+
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device)
+			return;
+
+		m_Texture = device->createTexture(desc);
+		FG_CORE_INFO("Texture created: {0}x{1}", width, height);
+	}
+
 	VulkanTexture::~VulkanTexture()
 	{
 	}

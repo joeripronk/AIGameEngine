@@ -43,9 +43,10 @@
 - [x] Viewport panel with render target
 - [x] Toolbar (file operations)
 - [x] AI-agent controllable API
-- [ ] Gizmo manipulation
-- [ ] Asset browser
-- [ ] Properties panel for global settings
+- [x] Gizmo manipulation (math layer + pointer interaction)
+- [x] Asset browser
+- [x] Properties panel for global settings
+- [x] Gizmo drag interaction (translate mode with axis picking)
 
 ### Runtime
 - [x] Standalone runtime application
@@ -98,11 +99,11 @@
 - [x] Shadow pass integration with PBR (real shadow view-projection from directional light)
 - [x] PBR shader uses real shadow map (not fallback)
 - [x] Post-processing framebuffer infrastructure (tonemapped, SSAO buffers)
-- [ ] SSAO pass (depth reconstruction - shader requires G-Buffer inputs)
-- [ ] HDR tonemapping pass (reads swapchain, applies ACES tone mapping)
-- [ ] Final composite pass (reads tonemapped + SSAO, outputs to swapchain)
+- [x] SSAO pass (depth reconstruction - shader requires G-Buffer inputs)
+- [x] HDR tonemapping pass (reads HDR buffer, applies ACES tone mapping)
+- [x] Final composite pass (reads tonemapped + SSAO, outputs to swapchain)
 - [ ] IBL prefiltering / irradiance maps
-- [ ] ImGui Vulkan backend init + viewport present
+- [x] ImGui Vulkan backend init + viewport present (ImGui draw data rendered to swapchain)
 
 ### Editor (AI-controllable)
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
@@ -110,8 +111,8 @@
 - [x] AssetRegistry / asset browser backend
 - [x] ImGui asset browser panel
 - [x] ImGui inspector (all components), hierarchy, properties, gizmo toolbar
-- [ ] ImGui gizmo pointer interaction (drag) — math layer done
-- [ ] Actual viewport rendering (needs real Vulkan device + swapchain)
+- [x] ImGui gizmo pointer interaction (drag translate mode)
+- [x] Actual viewport rendering (PBR + shadows rendered to swapchain)
 
 ### Assets & Resources
 - [x] AssetRegistry / asset browser backend + panel
@@ -119,7 +120,7 @@
 - [x] CPU model import (assimp: glTF/GLB/OBJ/FBX)
 - [x] Resource fixtures committed (scene, scripts, prefab, model, texture, audio)
 - [ ] IBL (Image-Based Lighting) with HDRIs (needs GPU prefilter passes)
-- [ ] Soft shadow maps (needs GPU shadow pass)
+- [x] Soft shadow maps (implemented)
 
 ### Engine Polish
 - [x] Physics-driven transform updates (Scene sync)
@@ -130,7 +131,7 @@
 - [x] Audio engine (miniaudio ma_engine mixer, WAV/MP3/FLAC decode + playback)
 
 ### Deployment
-- [ ] Game export (package runtime + scene + resources)
+- [x] Game export (package runtime + scene + resources) - via GameExporter
 - [ ] Windows support (CMake has WIN32 blocks but no actual testing)
 - [ ] macOS support
 - [ ] Installer/deployment scripts

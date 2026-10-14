@@ -1,17 +1,20 @@
 #version 450
+#extension GL_EXT_scalar_block_layout : require
 
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out float oSSAO;
 
-layout(binding = 0, set = 0) uniform sampler2D u_GBufferPosition;
-layout(binding = 1, set = 0) uniform sampler2D u_GBufferNormal;
+// Depth texture (combined sampler).
+layout(binding = 0) uniform sampler2D u_DepthSampler;
 
-layout(binding = 2, set = 0) uniform SSAOParams
+layout(binding = 1) uniform SSAOParams
 {
+    mat4 u_InvViewProjection;
     float u_Intensity;
     float u_Radius;
     float u_Bias;
     float u_Power;
+    vec2 u_TexelSize;
 } u_SSAO;
 
 const int SAMPLE_COUNT = 32;
@@ -37,10 +40,43 @@ const vec3 kKernel[32] = vec3[32](
     vec3(-0.0241,  0.4695, 0.1200), vec3(-0.4154,  0.1033, 0.2312)
 );
 
+// Reconstruct view-space position from depth (NDC -> View).
+vec3 ReconstructViewPosition(vec2 uv, float depth)
+{
+    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
+    vec4 viewPos = u_SSAO.u_InvViewProjection * clipPos;
+    return viewPos.xyz / viewPos.w;
+}
+
+// Reconstruct view-space normal from depth derivatives.
+vec3 ReconstructViewNormal(vec2 uv, float depth)
+{
+    vec2 texelSize = u_SSAO.u_TexelSize;
+    float depthX = texture(u_DepthSampler, uv + vec2(texelSize.x, 0.0)).r;
+    float depthY = texture(u_DepthSampler, uv + vec2(0.0, texelSize.y)).r;
+
+    vec3 pos = ReconstructViewPosition(uv, depth);
+    vec3 posX = ReconstructViewPosition(uv + vec2(texelSize.x, 0.0), depthX);
+    vec3 posY = ReconstructViewPosition(uv + vec2(0.0, texelSize.y), depthY);
+
+    vec3 dPdx = posX - pos;
+    vec3 dPdy = posY - pos;
+    return normalize(cross(dPdy, dPdx));
+}
+
 void main()
 {
-    vec3 position = texture(u_GBufferPosition, vUV).rgb;
-    vec3 normal = normalize(texture(u_GBufferNormal, vUV).rgb);
+    float depth = texture(u_DepthSampler, vUV).r;
+
+    // Skip background (far plane).
+    if (depth >= 1.0)
+    {
+        oSSAO = 1.0;
+        return;
+    }
+
+    vec3 position = ReconstructViewPosition(vUV, depth);
+    vec3 normal = ReconstructViewNormal(vUV, depth);
 
     // Build a random orthonormal tangent frame around the normal.
     vec3 randomVec = normalize(vec3(
@@ -57,12 +93,22 @@ void main()
     for (int i = 0; i < SAMPLE_COUNT; i++)
     {
         vec3 samplePos = position + (TBN * kKernel[i]) * u_SSAO.u_Radius;
-        // Reconstruct this sample's view-space depth from its z and project to UV.
         vec2 sampleUV = vUV + (TBN * kKernel[i]).xy * u_SSAO.u_Radius;
-        float sampleDepth = texture(u_GBufferPosition, sampleUV).r;
 
-        float rangeCheck = smoothstep(0.0, 1.0, u_SSAO.u_Radius / max(abs(position.z - sampleDepth), 0.0001));
-        occlusion += (sampleDepth >= samplePos.z + u_SSAO.u_Bias ? 0.0 : 1.0) * rangeCheck;
+        // Clamp to texture bounds.
+        if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0)
+            continue;
+
+        float sampleDepth = texture(u_DepthSampler, sampleUV).r;
+
+        // Reconstruct the sample's view-space position.
+        vec3 sampleViewPos = ReconstructViewPosition(sampleUV, sampleDepth);
+
+        // Range check to avoid false occlusion at depth discontinuities.
+        float rangeCheck = smoothstep(0.0, 1.0, u_SSAO.u_Radius / max(abs(position.z - sampleViewPos.z), 0.0001));
+
+        // Occlusion if sample is behind the surface (with bias).
+        occlusion += (sampleViewPos.z >= samplePos.z + u_SSAO.u_Bias ? 0.0 : 1.0) * rangeCheck;
     }
 
     occlusion = 1.0 - (occlusion / float(SAMPLE_COUNT));

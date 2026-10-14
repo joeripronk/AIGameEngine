@@ -23,7 +23,9 @@
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanSwapchain.h"
+#include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/PbrRenderer.h"
+#include "Forge/Renderer/CpuTexture.h"
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
@@ -72,6 +74,15 @@ namespace Forge {
 		auto shadowShader = Shader::CreateFromSPIRV("Shadow", "resources/shaders/shadow.vert.spv", "resources/shaders/shadow.frag.spv");
 		if (shadowShader)
 			s_ShaderLibrary.Add(shadowShader);
+
+		// IBL shaders (irradiance + prefilter for environment map prefiltering).
+		auto irradianceShader = Shader::CreateFromSPIRV("Irradiance", "resources/shaders/fullscreen.vert.spv", "resources/shaders/irradiance.frag.spv");
+		if (irradianceShader)
+			s_ShaderLibrary.Add(irradianceShader);
+
+		auto prefilterShader = Shader::CreateFromSPIRV("Prefilter", "resources/shaders/fullscreen.vert.spv", "resources/shaders/prefilter.frag.spv");
+		if (prefilterShader)
+			s_ShaderLibrary.Add(prefilterShader);
 
 		// Create fullscreen quad
 		auto quadVA = VertexArray::Create();
@@ -147,6 +158,34 @@ namespace Forge {
 				// Create post-processing framebuffers using VulkanRendererAPI's accessors.
 				s_TonemappedFramebuffer = VulkanRendererAPI::GetTonemappedFramebuffer();
 				s_SSAOFramebuffer = VulkanRendererAPI::GetSSAOFramebuffer();
+
+				// Set the HDR framebuffer for offscreen PBR rendering.
+				s_PbrRenderer->SetHDRFramebuffer(
+					VulkanRendererAPI::GetHDRFramebuffer(),
+					VulkanRendererAPI::GetHDRBuffer(),
+					s_PbrRenderer->GetDepthTexture()
+				);
+			}
+
+			// Load IBL environment map if available.
+			auto envMapPath = std::getenv("FG_ENV_MAP");
+			if (envMapPath && std::string(envMapPath).size() > 0)
+			{
+				auto envTex = CpuTexture::Load(envMapPath);
+				if (envTex)
+				{
+					// VulkanTexture needs raw pixel data; CpuTexture stores HDR as floats.
+					nvrhi::Format format = envTex->IsHDR()
+						? nvrhi::Format::RGBA16_FLOAT
+						: nvrhi::Format::RGBA8_UNORM;
+					auto gpuTex = CreateRef<VulkanTexture>(
+						envTex->GetWidth(), envTex->GetHeight(),
+						const_cast<void*>(envTex->GetPixelData()), format);
+					if (gpuTex && gpuTex->GetTextureHandle() && s_PbrRenderer->LoadEnvironmentMap(gpuTex->GetTextureHandle()))
+					{
+						FG_CORE_INFO("IBL: environment map loaded from '{0}'", envMapPath);
+					}
+				}
 			}
 		}
 		else
@@ -182,19 +221,7 @@ namespace Forge {
 			return;
 		}
 
-		auto framebuffer = VulkanRendererAPI::GetSwapchain().GetFramebuffer(swapchainImage);
-		if (!framebuffer)
-		{
-			if (!s_RenderSceneVerified)
-			{
-				s_RenderSceneVerified = true;
-				FG_CORE_WARN("RenderScene: no framebuffer for swapchain image {0}", swapchainImage);
-			}
-			return;
-		}
-
-		// Find the primary camera and the first directional light. Entity is a
-		// value type, so keep copies rather than pointers into the view.
+		// Find the primary camera and the first directional light.
 		Entity cameraEntity;
 		bool hasCamera = false;
 
@@ -229,9 +256,7 @@ namespace Forge {
 		auto& camera = cameraEntity.GetComponent<CameraComponent>();
 		const auto& cameraTransform = cameraEntity.GetComponent<TransformComponent>();
 
-		// Derive the view and projection from the camera transform. Rotation is
-		// stored in radians (see TransformComponent::GetTransform), so it must
-		// not be passed through glm::radians again.
+		// Derive the view and projection from the camera transform.
 		glm::mat4 cameraRotation = glm::toMat4(glm::quat(cameraTransform.Rotation));
 		glm::mat4 cameraTransformMatrix =
 			glm::translate(glm::mat4(1.0f), cameraTransform.Translation) * cameraRotation;
@@ -244,17 +269,12 @@ namespace Forge {
 			camera.FarClip);
 		camera.ViewProjectionMatrix = camera.ProjectionMatrix * camera.ViewMatrix;
 
-		// One-off confirmation that the scene is actually reaching the GPU.
-		const bool firstFrame = !s_RenderSceneVerified;
-		s_RenderSceneVerified = true;
-
 		glm::vec3 lightDirection = { -0.5f, -1.0f, -0.3f };
 		glm::vec3 lightColor = { 1.0f, 1.0f, 1.0f };
 		float lightIntensity = 1.0f;
 
 		if (hasDirectionalLight)
 		{
-			// Re-read the light that the loop above matched.
 			for (auto handle : lights)
 			{
 				const auto& light = lights.get<LightComponent>(handle);
@@ -268,12 +288,10 @@ namespace Forge {
 			}
 		}
 
-		// Record the per-frame uniforms and clear the target.
-		// Compute the real shadow view-projection from the directional light.
+		// Compute real shadow view-projection from the directional light.
 		glm::mat4 shadowViewProjection = glm::mat4(1.0f);
 		if (hasDirectionalLight)
 		{
-			// Get light + transform together to avoid dangling reference.
 			auto lightWithTransform = scene->GetAllEntitiesWith<LightComponent, TransformComponent>();
 			for (auto handle : lightWithTransform)
 			{
@@ -293,21 +311,22 @@ namespace Forge {
 			}
 		}
 
-		// Shadow pass: render all meshes to the shadow map from the light's perspective.
+		// Shadow pass: render all meshes to the shadow map.
 		BeginShadowPass(scene);
 
-		s_PbrRenderer->UpdateFrame(s_CommandList.Get(), framebuffer,
+		// Get the HDR framebuffer (offscreen target).
+		// The PBR renderer stores its HDR framebuffer after initialization.
+		nvrhi::FramebufferHandle pbrFrameBuffer = VulkanRendererAPI::GetHDRFramebuffer();
+
+		// Record the per-frame uniforms and clear the target.
+		s_PbrRenderer->UpdateFrame(s_CommandList.Get(), pbrFrameBuffer,
 			camera.ViewProjectionMatrix,
-			shadowViewProjection,   // real shadow view-projection
+			shadowViewProjection,
 			cameraTransform.Translation,
 			lightDirection, lightColor, lightIntensity,
 			glm::vec3(0.03f, 0.03f, 0.04f));
 
 		// Draw every entity carrying a mesh.
-		//
-		// An entity with a MeshComponent but no uploaded mesh (for example one
-		// that only names a model path) is drawn with the default cube, so
-		// newly created entities are visible immediately.
 		Ref<Mesh> defaultCube;
 		auto getMesh = [&defaultCube](const Ref<Mesh>& mesh) -> Ref<Mesh>
 		{
@@ -333,11 +352,9 @@ namespace Forge {
 			if (!mesh)
 				continue;
 
-			// The mesh's own scale multiplies the entity transform's scale.
 			glm::mat4 model = transform.GetTransform()
 				* glm::scale(glm::mat4(1.0f), meshComponent.Scale);
 
-			// Normals use the inverse transpose so non-uniform scale stays correct.
 			glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(model));
 
 			glm::vec3 albedo = { 1.0f, 1.0f, 1.0f };
@@ -359,7 +376,7 @@ namespace Forge {
 				emissiveIntensity = material.EmissiveIntensity;
 			}
 
-			s_PbrRenderer->DrawObject(s_CommandList.Get(), framebuffer,
+			s_PbrRenderer->DrawObject(s_CommandList.Get(), pbrFrameBuffer,
 				mesh, model, normalMatrix,
 				albedo, metallic, roughness, ambientOcclusion,
 				emissive, emissiveIntensity);
@@ -367,7 +384,10 @@ namespace Forge {
 			drawn++;
 		}
 
-		if (firstFrame)
+		// Store the inverse view-projection for SSAO.
+		s_SceneData->ViewProjectionMatrix = camera.ViewProjectionMatrix;
+
+		if (drawn > 0)
 		{
 			FG_CORE_INFO("RenderScene: presenting {0}x{1}, camera at ({2}, {3}, {4}), {5} mesh entities",
 				s_Width, s_Height,
@@ -448,6 +468,9 @@ namespace Forge {
 			if (swapchain.Recreate(s_Width, s_Height))
 				imageIndex = swapchain.AcquireNextImage();
 		}
+
+		// Store the current swapchain image index for the Final pass.
+		s_CurrentSwapchainImage = imageIndex;
 
 		return imageIndex;
 	}
@@ -578,35 +601,16 @@ namespace Forge {
 	{
 		// SSAO pass: render fullscreen quad with SSAO shader.
 		// Reads from the depth buffer, reconstructs normals, outputs SSAO occlusion.
-		if (!s_CommandList || !s_FullscreenQuad || !s_SSAOFramebuffer)
+		if (!s_CommandList)
 			return;
 
-		auto device = VulkanRendererAPI::GetStaticDevice();
-		if (!device)
+		// Get the depth texture from the PBR renderer.
+		nvrhi::TextureHandle depthTexture = s_PbrRenderer->GetDepthTexture();
+		if (!depthTexture)
 			return;
 
-		auto ssaoShader = s_ShaderLibrary.Get("SSAO");
-		if (!ssaoShader)
-			return;
-
-		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(ssaoShader);
-		if (!vulkanShader)
-			return;
-
-		auto vulkanQuad = std::dynamic_pointer_cast<VulkanVertexArray>(s_FullscreenQuad);
-		if (!vulkanQuad)
-			return;
-
-		// Resolve the fullscreen quad's input layout against the SSAO shader.
-		const std::vector<std::string> kFullscreenAttributes = { "aPosition", "aUV" };
-		if (!vulkanQuad->UpdateLayout(vulkanShader.get(), kFullscreenAttributes))
-			return;
-
-		// Set the depth buffer as the input texture for SSAO.
-		// The depth buffer is the swapchain's depth attachment.
-		// For now, we'll use a placeholder - the real implementation would
-		// pass the depth buffer to the SSAO shader.
-		// TODO: Implement SSAO with depth reconstruction.
+		// Pass the inverse view-projection matrix for depth reconstruction.
+		VulkanRendererAPI::RenderSSAOPass(s_CommandList.Get(), depthTexture, s_SceneData->ViewProjectionMatrix);
 	}
 
 	void Renderer::EndSSAOPass()
@@ -616,75 +620,28 @@ namespace Forge {
 	void Renderer::BeginHDRPass()
 	{
 		// HDR pass: render fullscreen quad with HDR shader to tonemapped buffer.
-		// Reads from the swapchain image (PBR output), applies ACES tonemapping.
-		if (!s_CommandList || !s_FullscreenQuad || !s_TonemappedFramebuffer)
+		// Reads from the HDR buffer, applies ACES tonemapping, outputs to tonemapped buffer.
+		if (!s_CommandList)
 			return;
 
-		auto device = VulkanRendererAPI::GetStaticDevice();
-		if (!device)
-			return;
-
-		auto hdrShader = s_ShaderLibrary.Get("HDR");
-		if (!hdrShader)
-			return;
-
-		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(hdrShader);
-		if (!vulkanShader)
-			return;
-
-		auto vulkanQuad = std::dynamic_pointer_cast<VulkanVertexArray>(s_FullscreenQuad);
-		if (!vulkanQuad)
-			return;
-
-		// Resolve the fullscreen quad's input layout against the HDR shader.
-		const std::vector<std::string> kFullscreenAttributes = { "aPosition", "aUV" };
-		if (!vulkanQuad->UpdateLayout(vulkanShader.get(), kFullscreenAttributes))
-			return;
-
-		// The HDR pass reads from the swapchain image (PBR output).
-		// We need to bind the swapchain image as a texture.
-		// The swapchain images are wrapped as nvrhi textures.
-		// For now, we'll use a placeholder - the real implementation would
-		// bind the current swapchain image as the input texture.
-		// TODO: Implement HDR pass with swapchain image binding.
-	}
-
-	void Renderer::EndHDRPass()
-	{
+		VulkanRendererAPI::RenderHDRPass(s_CommandList.Get());
 	}
 
 	void Renderer::BeginFinalPass()
 	{
 		// Final pass: render fullscreen quad with Final shader to swapchain.
 		// Reads from tonemapped buffer + SSAO buffer, composites to swapchain.
-		if (!s_CommandList || !s_FullscreenQuad)
+		if (!s_CommandList)
 			return;
 
-		auto device = VulkanRendererAPI::GetStaticDevice();
-		if (!device)
+		nvrhi::FramebufferHandle finalFrameBuffer = VulkanRendererAPI::GetSwapchain().GetFramebuffer(s_CurrentSwapchainImage);
+		if (!finalFrameBuffer)
+		{
+			FG_CORE_WARN("Final: no swapchain framebuffer available");
 			return;
+		}
 
-		auto finalShader = s_ShaderLibrary.Get("Final");
-		if (!finalShader)
-			return;
-
-		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(finalShader);
-		if (!vulkanShader)
-			return;
-
-		auto vulkanQuad = std::dynamic_pointer_cast<VulkanVertexArray>(s_FullscreenQuad);
-		if (!vulkanQuad)
-			return;
-
-		// Resolve the fullscreen quad's input layout against the Final shader.
-		const std::vector<std::string> kFullscreenAttributes = { "aPosition", "aUV" };
-		if (!vulkanQuad->UpdateLayout(vulkanShader.get(), kFullscreenAttributes))
-			return;
-
-		// The Final pass reads from the tonemapped buffer and SSAO buffer,
-		// and outputs to the swapchain.
-		// For now, we'll output directly to the swapchain framebuffer.
-		// TODO: Implement Final pass with tonemapped + SSAO binding.
+		VulkanRendererAPI::RenderFinalPass(s_CommandList.Get(), finalFrameBuffer);
 	}
 
 	void Renderer::EndFinalPass()

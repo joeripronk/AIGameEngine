@@ -20,7 +20,7 @@ namespace Forge {
 		{
 			FG_CORE_ASSERT_MSG(!HasComponent<T>(), "Entity already has component!");
 			T& component = m_Scene->m_Registry.emplace<T>(m_EntityHandle, std::forward<Args>(args)...);
-			m_Scene->OnComponentAdded<T>(*this, component);
+			m_Scene->OnComponentAdded(*this, component);
 			return component;
 		}
 

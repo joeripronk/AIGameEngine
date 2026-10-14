@@ -1,10 +1,9 @@
 #version 450
 #extension GL_EXT_scalar_block_layout : require
-#extension GL_EXT_samplerless_texture_functions : require
 
-layout(location = 0) in vec3 vNormal;
-layout(location = 1) in vec2 vUV;
-layout(location = 2) in vec3 vWorldPosition;
+layout(location = 0) in vec3 vWorldPosition;
+layout(location = 1) in vec3 vNormal;
+layout(location = 2) in vec2 vUV;
 
 layout(location = 0) out vec4 oColor;
 
@@ -30,18 +29,23 @@ layout(binding = 1) uniform ObjectData
     vec4 u_Emissive;
 } u_Object;
 
-// Set 0, binding 2: material albedo map.
-//
-// nvrhi binds a texture as a VK_SAMPLED_IMAGE descriptor and the sampler as a
-// separate VK_SAMPLER descriptor, so the shader must declare the two apart
-// (a combined `sampler2D` would need a COMBINED_IMAGE_SAMPLER descriptor that
-// nvrhi never creates).
-layout(binding = 2) uniform texture2D u_AlbedoTexture;
+// Set 0, binding 2: material albedo map (combined sampler).
+layout(binding = 2) uniform sampler2D u_AlbedoTexture;
+
+// Set 0, binding 3: shadow map (combined sampler).
+layout(binding = 3) uniform sampler2D u_ShadowMap;
+
+// Set 0, binding 4: linear sampler for albedo.
 layout(binding = 4) uniform sampler u_LinearSampler;
 
-// Set 0, binding 3: shadow map (single channel depth).
-layout(binding = 3) uniform texture2D u_ShadowMap;
-layout(binding = 5) uniform sampler u_ShadowSampler;
+// Shadow map dimensions (used for PCF).
+layout(binding = 5) uniform ShadowMapParams
+{
+    vec2 u_ShadowMapSize;
+} u_Shadow;
+
+// Set 0, binding 6: environment map (cube map for IBL, combined sampler).
+layout(binding = 6) uniform samplerCube u_EnvMap;
 
 const float PI = 3.14159265359;
 
@@ -78,7 +82,6 @@ float SampleShadow(vec3 worldPosition)
 {
     vec4 lightClip = u_Camera.u_ShadowViewProjection * vec4(worldPosition, 1.0);
 
-    // Reject vertices behind the light's near plane.
     if (lightClip.w <= 0.0)
         return 1.0;
 
@@ -90,22 +93,33 @@ float SampleShadow(vec3 worldPosition)
 
     float bias = u_Camera.u_SSAOParams.x;
 
-    vec2 texel = 1.0 / vec2(textureSize(u_ShadowMap, 0));
+    vec2 texel = 1.0 / u_Shadow.u_ShadowMapSize;
     float shadow = 0.0;
     for (int x = -1; x <= 1; x++)
     {
         for (int y = -1; y <= 1; y++)
         {
-            float depth = texture(u_ShadowMap, u_ShadowSampler, proj.xy + vec2(float(x), float(y)) * texel).r;
+            float depth = texture(u_ShadowMap, proj.xy + vec2(float(x), float(y)) * texel).r;
             shadow += (proj.z - bias > depth) ? 0.0 : 1.0;
         }
     }
     return shadow / 9.0;
 }
 
+// IBL: Sample the environment map for specular reflections.
+vec3 SampleEnvSpecular(vec3 R, float roughness)
+{
+    // Use the roughness to select the mip level for the environment map.
+    float mipLevel = roughness * (6.0 - 1.0) + 1.0;
+    mipLevel = clamp(mipLevel, 1.0, 6.0);
+
+    vec3 envColor = texture(u_EnvMap, R, mipLevel).rgb;
+    return envColor;
+}
+
 void main()
 {
-    vec3 albedo = u_Object.u_Albedo.rgb * texture(u_AlbedoTexture, u_LinearSampler, vUV).rgb;
+    vec3 albedo = u_Object.u_Albedo.rgb * texture(u_AlbedoTexture, vUV).rgb;
     float metallic = u_Object.u_MetallicRoughnessAO.x;
     float roughness = clamp(u_Object.u_MetallicRoughnessAO.y, 0.04, 1.0);
     float ao = u_Object.u_MetallicRoughnessAO.z;
@@ -133,10 +147,15 @@ void main()
 
     float shadow = SampleShadow(vWorldPosition);
 
+    // IBL specular contribution.
+    vec3 R = reflect(-V, N);
+    vec3 envSpecular = SampleEnvSpecular(R, roughness);
+    vec3 envSpecularContrib = envSpecular * F;
+
     vec3 radiance = (diffuse + specular) * u_Camera.u_LightColor.rgb * u_Camera.u_LightColor.a;
     vec3 ambient = u_Camera.u_AmbientLight.rgb * albedo * ao;
 
-    vec3 color = ambient + radiance * NdotL * shadow + emissive;
+    vec3 color = ambient + radiance * NdotL * shadow + envSpecularContrib + emissive;
 
     oColor = vec4(color, 1.0);
 }

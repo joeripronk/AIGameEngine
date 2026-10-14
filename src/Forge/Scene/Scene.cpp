@@ -561,4 +561,9 @@ namespace Forge {
 		(void)entity; (void)component;
 	}
 
+	void Scene::OnComponentAdded(Entity entity, EnvironmentMapComponent& component)
+	{
+		(void)entity; (void)component;
+	}
+
 }

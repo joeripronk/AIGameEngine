@@ -90,14 +90,37 @@ namespace Forge {
 		// Recreates the depth buffer for a new framebuffer size.
 		bool Resize(uint32_t width, uint32_t height);
 
+		// Sets the HDR framebuffer for offscreen rendering.
+		void SetHDRFramebuffer(nvrhi::FramebufferHandle framebuffer, nvrhi::TextureHandle hdrTexture, nvrhi::TextureHandle depthTexture);
+
+		// --- IBL (Image-Based Lighting) ---
+
+		// Loads an HDR environment map (equirectangular or cubemap) and creates
+		// the prefiltered mip levels (prefilter + irradiance).
+		bool LoadEnvironmentMap(nvrhi::TextureHandle envMap);
+
+		// Creates the irradiance map (diffuse IBL) from the environment map.
+		bool CreateIrradianceMap();
+
+		// Creates the prefilter map (specular IBL) with mip levels for each roughness.
+		bool CreatePrefilterMap(uint32_t mipCount);
+
 		// Accessors.
 		nvrhi::FramebufferHandle GetShadowFramebuffer() const { return m_ShadowFramebuffer; }
 		nvrhi::TextureHandle GetShadowMap() const { return m_ShadowMap; }
+		nvrhi::FramebufferHandle GetHDRFramebuffer() const { return m_HDRFramebuffer; }
+		nvrhi::TextureHandle GetHDRTexture() const { return m_HDRTexture; }
+		nvrhi::TextureHandle GetDepthTexture() const { return m_DepthTexture; }
 
 		bool IsValid() const { return m_VertexShader && m_FragmentShader && m_FrameLayout; }
 
 	private:
 		// Per-frame uniform block, matching CameraData in pbr.vert / pbr.frag.
+		struct ShadowMapParams
+		{
+			glm::vec2 ShadowMapSize;
+		};
+
 		struct CameraUniforms
 		{
 			glm::mat4 ViewProjection;
@@ -174,6 +197,13 @@ namespace Forge {
 		nvrhi::TextureHandle m_WhiteTexture;
 		nvrhi::TextureHandle m_ShadowTexture;
 
+		// Environment map (1x1 white fallback until a real env map is loaded).
+		nvrhi::TextureHandle m_EnvMapFallback;
+
+		// ShadowMapParams uniform buffer.
+		nvrhi::BufferHandle m_ShadowParamsBuffer;
+		glm::vec2 m_ShadowMapSize = glm::vec2(2048.0f, 2048.0f);
+
 		nvrhi::TextureHandle m_DepthTexture;
 		uint32_t m_DepthWidth = 0;
 		uint32_t m_DepthHeight = 0;
@@ -206,6 +236,24 @@ namespace Forge {
 		nvrhi::Format m_ColorFormat = nvrhi::Format::UNKNOWN;
 		float m_FrameWidth = 0.0f;
 		float m_FrameHeight = 0.0f;
+
+		// HDR offscreen framebuffer and textures.
+		nvrhi::FramebufferHandle m_HDRFramebuffer;
+		nvrhi::TextureHandle m_HDRTexture;
+
+		// --- IBL (Image-Based Lighting) ---
+
+		// Environment map texture (HDR equirectangular or cubemap).
+		nvrhi::TextureHandle m_EnvMap;
+
+		// Irradiance map (diffuse IBL, prefiltered).
+		nvrhi::TextureHandle m_IrradianceMap;
+
+		// Prefilter map mip levels (specular IBL, prefiltered per roughness).
+		nvrhi::TextureHandle m_PrefilterMap;
+
+		// Number of mip levels in the prefilter map.
+		uint32_t m_PrefilterMipCount = 0;
 	};
 
 }

@@ -98,18 +98,18 @@ namespace Forge {
 	{
 		auto device = VulkanRendererAPI::GetStaticDevice();
 
-		// Set 0: camera block, object block, albedo texture, shadow map, sampler.
-		// nvrhi creates one descriptor per binding slot, so the GLSL `sampler`
-		// that pbr.frag declares needs its own slot (4) next to the texture (2).
+		// Set 0: camera block, object block, albedo (combined), shadow (combined),
+		// linear sampler (unused in PBR but kept for compatibility), shadow params, env map (combined).
 		nvrhi::BindingLayoutDesc frameLayoutDesc;
 		frameLayoutDesc.visibility = nvrhi::ShaderType::All;
 		frameLayoutDesc.bindings = {
-			{ 0, nvrhi::ResourceType::ConstantBuffer, 1 },
-			{ 1, nvrhi::ResourceType::ConstantBuffer, 1 },
-			{ 2, nvrhi::ResourceType::Texture_SRV, 1 },
-			{ 3, nvrhi::ResourceType::Texture_SRV, 1 },
-			{ 4, nvrhi::ResourceType::Sampler, 1 },
-			{ 5, nvrhi::ResourceType::Sampler, 1 },
+			{ 0, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 2, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 3, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 4, nvrhi::ResourceType::Sampler, 0, 1 },
+			{ 5, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 6, nvrhi::ResourceType::Texture_SRV, 0, 1 },
 		};
 		m_FrameLayout = device->createBindingLayout(frameLayoutDesc);
 		if (!m_FrameLayout)
@@ -181,6 +181,26 @@ namespace Forge {
 		uploadList->close();
 		device->executeCommandList(uploadList.Get());
 		device->waitForIdle();
+
+		// 1x1 white fallback for the environment map.
+		nvrhi::TextureDesc envFallbackDesc;
+		envFallbackDesc.width = 1;
+		envFallbackDesc.height = 1;
+		envFallbackDesc.format = nvrhi::Format::RGBA16_FLOAT;
+		envFallbackDesc.isShaderResource = true;
+		envFallbackDesc.debugName = "PbrRenderer.EnvFallback";
+		envFallbackDesc.keepInitialState = true;
+		envFallbackDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+		m_EnvMapFallback = device->createTexture(envFallbackDesc);
+
+		// ShadowMapParams uniform buffer.
+		nvrhi::BufferDesc shadowParamsDesc;
+		shadowParamsDesc.byteSize = 32;
+		shadowParamsDesc.isConstantBuffer = true;
+		shadowParamsDesc.debugName = "PbrRenderer.ShadowParams";
+		shadowParamsDesc.keepInitialState = true;
+		shadowParamsDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+		m_ShadowParamsBuffer = device->createBuffer(shadowParamsDesc);
 
 		return true;
 	}
@@ -311,6 +331,13 @@ namespace Forge {
 
 		commandList->writeBuffer(m_CameraBuffer, &uniforms, sizeof(uniforms), 0);
 
+		// Upload ShadowMapParams (shadow map size for PCF).
+		{
+			ShadowMapParams shadowParams;
+			shadowParams.ShadowMapSize = m_ShadowMapSize;
+			commandList->writeBuffer(m_ShadowParamsBuffer, &shadowParams, sizeof(shadowParams), 0);
+		}
+
 		// Clear colour and depth so an empty scene still looks intentional.
 		auto& attachments = framebuffer->getDesc().colorAttachments;
 		if (attachments.size() > 0)
@@ -382,18 +409,56 @@ namespace Forge {
 
 		// The binding set holds the per-frame resources plus this object's block.
 		// The object block is rewritten before each of this object's draws.
-		// Use the real shadow map (not the fallback) for PBR shadow sampling.
+		// Combined samplers (sampler2D, samplerCube) include both texture and sampler.
 		nvrhi::BindingSetDesc setDesc;
 		setDesc.bindings.push_back(MakeConstantBufferItem(m_CameraBuffer.Get(), 0));
 		setDesc.bindings.push_back(MakeConstantBufferItem(draw.objectBuffer.Get(), 1));
-		setDesc.bindings.push_back(MakeTextureItem(m_WhiteTexture.Get(), 2));
 
-		// Use the real shadow map if available, otherwise the fallback.
-		nvrhi::ITexture* shadowTex = m_ShadowMap ? m_ShadowMap.Get() : m_ShadowTexture.Get();
-		setDesc.bindings.push_back(MakeTextureItem(shadowTex, 3));
+		// Binding 2: combined sampler2D u_AlbedoTexture.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = m_WhiteTexture.Get();
+			item.slot = 2;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = m_WhiteTexture->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 2));
+		}
 
+		// Binding 3: combined sampler2D u_ShadowMap.
+		{
+			nvrhi::BindingSetItem item{};
+			nvrhi::ITexture* shadowTex = m_ShadowMap ? m_ShadowMap.Get() : m_ShadowTexture.Get();
+			item.resourceHandle = shadowTex;
+			item.slot = 3;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = shadowTex->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(MakeSamplerItem(m_ShadowSampler.Get(), 3));
+		}
+
+		// Binding 4: separate sampler (unused in PBR, kept for compatibility).
 		setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 4));
-		setDesc.bindings.push_back(MakeSamplerItem(m_ShadowSampler.Get(), 5));
+
+		// Binding 5: ShadowMapParams uniform buffer.
+		setDesc.bindings.push_back(MakeConstantBufferItem(m_ShadowParamsBuffer.Get(), 5));
+
+		// Binding 6: combined samplerCube u_EnvMap.
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = m_EnvMapFallback.Get();
+			item.slot = 6;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::TextureCube;
+			item.format = m_EnvMapFallback->getDesc().format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 6));
+		}
 
 		draw.bindingSet = device->createBindingSet(setDesc, m_FrameLayout);
 		if (!draw.bindingSet)
@@ -533,8 +598,8 @@ namespace Forge {
 		nvrhi::BindingLayoutDesc shadowLayoutDesc;
 		shadowLayoutDesc.visibility = nvrhi::ShaderType::All;
 		shadowLayoutDesc.bindings = {
-			{ 1, nvrhi::ResourceType::ConstantBuffer, 1 },
-			{ 4, nvrhi::ResourceType::ConstantBuffer, 1 },
+			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 4, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 		};
 		m_ShadowLayout = device->createBindingLayout(shadowLayoutDesc);
 		if (!m_ShadowLayout)
@@ -806,6 +871,35 @@ namespace Forge {
 
 		m_ShadowMapWidth = width;
 		m_ShadowMapHeight = height;
+		m_ShadowMapSize = glm::vec2(static_cast<float>(width), static_cast<float>(height));
+		return true;
+	}
+
+	void PbrRenderer::SetHDRFramebuffer(nvrhi::FramebufferHandle framebuffer, nvrhi::TextureHandle hdrTexture, nvrhi::TextureHandle depthTexture)
+	{
+		m_HDRFramebuffer = framebuffer;
+		m_HDRTexture = hdrTexture;
+		m_DepthTexture = depthTexture;
+	}
+
+	bool PbrRenderer::LoadEnvironmentMap(nvrhi::TextureHandle envMap)
+	{
+		m_EnvMap = envMap;
+		FG_CORE_INFO("PbrRenderer: environment map loaded");
+		return true;
+	}
+
+	bool PbrRenderer::CreateIrradianceMap()
+	{
+		// TODO: Implement irradiance map prefiltering.
+		FG_CORE_INFO("PbrRenderer: irradiance map prefiltering not yet implemented");
+		return true;
+	}
+
+	bool PbrRenderer::CreatePrefilterMap(uint32_t mipCount)
+	{
+		// TODO: Implement prefilter map generation.
+		FG_CORE_INFO("PbrRenderer: prefilter map generation not yet implemented");
 		return true;
 	}
 
