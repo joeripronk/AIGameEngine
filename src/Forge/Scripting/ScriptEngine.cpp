@@ -42,6 +42,16 @@ namespace Forge {
 			return *static_cast<Scene**>(storage);
 		}
 
+		// Resolves the scene argument for Scene methods. Supports both colon
+		// calls (`Scene:CreateEntity(x)`) and dot calls (`Scene.CreateEntity(x)`).
+		Scene* GetSceneArg(lua_State* L)
+		{
+			Scene* scene = TestScene(L, 1);
+			if (!scene)
+				scene = ScriptEngine::GetActiveScene();
+			return scene;
+		}
+
 		int PushEntity(lua_State* L, const Entity& entity)
 		{
 			void* storage = lua_newuserdatauv(L, sizeof(Entity), 0);
@@ -575,35 +585,35 @@ namespace Forge {
 
 		int LuaScene_CreateEntity(lua_State* L)
 		{
-			Scene* scene = TestScene(L, 1);
+			Scene* scene = GetSceneArg(L);
 			if (!scene)
-			{
-				lua_getglobal(L, "Scene");
-				int globalType = lua_type(L, -1);
-				lua_pop(L, 1);
-				FG_CORE_ERROR("DEBUG CreateEntity: TestScene null, arg1 type={0}, global Scene type={1}, top={2}", lua_type(L, 1), globalType, lua_gettop(L));
 				return PushNilEntity(L);
-			}
 
-			return PushEntity(L, scene->CreateEntity(SafeString(L, 2, "Entity")));
+			// Colon call: Scene:CreateEntity(name). Dot call: Scene.CreateEntity(name).
+			std::string name = TestScene(L, 1) ? SafeString(L, 2, "Entity") : SafeString(L, 1, "Entity");
+			return PushEntity(L, scene->CreateEntity(name));
 		}
 
 		int LuaScene_DestroyEntity(lua_State* L)
 		{
-			Scene* scene = TestScene(L, 1);
-			Entity* entity = TestEntity(L, 2);
-			if (scene && entity && *entity)
+			Scene* scene = GetSceneArg(L);
+			if (!scene)
+				return 0;
+
+			Entity* entity = TestEntity(L, TestScene(L, 1) ? 2 : 1);
+			if (entity && *entity)
 				scene->DestroyEntity(*entity);
 			return 0;
 		}
 
 		int LuaScene_GetEntityByName(lua_State* L)
 		{
-			Scene* scene = TestScene(L, 1);
+			Scene* scene = GetSceneArg(L);
 			if (!scene)
 				return PushNilEntity(L);
 
-			Entity entity = scene->FindEntityByName(SafeString(L, 2));
+			const char* name = TestScene(L, 1) ? SafeString(L, 2, "") : SafeString(L, 1, "");
+			Entity entity = scene->FindEntityByName(name);
 			if (!entity)
 				return PushNilEntity(L);
 
@@ -612,14 +622,14 @@ namespace Forge {
 
 		int LuaScene_GetEntitiesWithComponent(lua_State* L)
 		{
-			Scene* scene = TestScene(L, 1);
+			Scene* scene = GetSceneArg(L);
 			if (!scene)
 			{
 				lua_newtable(L);
 				return 1;
 			}
 
-			std::string comp = SafeString(L, 2);
+			std::string comp = TestScene(L, 1) ? SafeString(L, 2, "") : SafeString(L, 1, "");
 			lua_newtable(L);
 			int index = 0;
 
