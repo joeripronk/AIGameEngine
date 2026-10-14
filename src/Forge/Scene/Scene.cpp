@@ -428,8 +428,9 @@ namespace Forge {
 		auto& camera = cameraEntity.GetComponent<CameraComponent>();
 		auto& transform = cameraEntity.GetComponent<TransformComponent>();
 
-		// Update camera view matrix from transform
-		glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
+		// Update camera view matrix from transform. Rotation is stored in
+		// radians (see TransformComponent::GetTransform).
+		glm::mat4 rotation = glm::toMat4(glm::quat(transform.Rotation));
 		glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.Translation);
 
 		camera.ViewMatrix = glm::inverse(translation * rotation);

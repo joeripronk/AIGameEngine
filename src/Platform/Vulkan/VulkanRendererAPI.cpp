@@ -19,6 +19,31 @@ namespace Forge {
 
 	namespace {
 
+		// Routes nvrhi diagnostics into the engine's log. Without this, nvrhi
+		// dereferences a null callback when it needs to report a problem.
+		class NvrhiMessageCallback : public nvrhi::IMessageCallback
+		{
+		public:
+			virtual void message(nvrhi::MessageSeverity severity, const char* messageText) override
+			{
+				switch (severity)
+				{
+				case nvrhi::MessageSeverity::Warning:
+					FG_CORE_WARN("nvrhi: {0}", messageText);
+					break;
+				case nvrhi::MessageSeverity::Error:
+				case nvrhi::MessageSeverity::Fatal:
+					FG_CORE_ERROR("nvrhi: {0}", messageText);
+					break;
+				default:
+					FG_CORE_INFO("nvrhi: {0}", messageText);
+					break;
+				}
+			}
+		};
+
+		NvrhiMessageCallback s_NvrhiMessageCallback;
+
 		// G-Buffer textures
 		nvrhi::TextureHandle s_GBuffer0; // Position
 		nvrhi::TextureHandle s_GBuffer1; // Normal
@@ -61,6 +86,7 @@ namespace Forge {
 	VkDevice VulkanRendererAPI::s_LogicalDevice = VK_NULL_HANDLE;
 	VkSurfaceKHR VulkanRendererAPI::s_Surface = VK_NULL_HANDLE;
 	VkQueue VulkanRendererAPI::s_GraphicsQueue = VK_NULL_HANDLE;
+	VkCommandPool VulkanRendererAPI::s_CommandPool = VK_NULL_HANDLE;
 	uint32_t VulkanRendererAPI::s_GraphicsQueueIndex = 0;
 	bool VulkanRendererAPI::s_ValidationEnabled = false;
 
@@ -69,6 +95,8 @@ namespace Forge {
 	VulkanSwapchain VulkanRendererAPI::s_Swapchain;
 	uint32_t VulkanRendererAPI::s_Width = 0;
 	uint32_t VulkanRendererAPI::s_Height = 0;
+	nvrhi::FramebufferHandle VulkanRendererAPI::s_TonemappedFramebuffer;
+	nvrhi::FramebufferHandle VulkanRendererAPI::s_SSAOFramebuffer;
 
 	bool VulkanRendererAPI::CreateInstance()
 	{
@@ -243,6 +271,18 @@ namespace Forge {
 		}
 
 		vkGetDeviceQueue(s_LogicalDevice, s_GraphicsQueueIndex, 0, &s_GraphicsQueue);
+
+		// A command pool for one-shot command buffers recorded outside nvrhi
+		// (currently the swapchain image readback).
+		VkCommandPoolCreateInfo poolInfo{};
+		poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+		poolInfo.queueFamilyIndex = s_GraphicsQueueIndex;
+		if (vkCreateCommandPool(s_LogicalDevice, &poolInfo, nullptr, &s_CommandPool) != VK_SUCCESS)
+		{
+			FG_CORE_ERROR("Vulkan: vkCreateCommandPool failed");
+			s_CommandPool = VK_NULL_HANDLE;
+		}
 		return true;
 	}
 
@@ -252,6 +292,12 @@ namespace Forge {
 		{
 			vkDestroySurfaceKHR(s_Instance, s_Surface, nullptr);
 			s_Surface = VK_NULL_HANDLE;
+		}
+
+		if (s_CommandPool != VK_NULL_HANDLE)
+		{
+			vkDestroyCommandPool(s_LogicalDevice, s_CommandPool, nullptr);
+			s_CommandPool = VK_NULL_HANDLE;
 		}
 
 		if (s_LogicalDevice != VK_NULL_HANDLE)
@@ -295,6 +341,7 @@ namespace Forge {
 		deviceDesc.device = s_LogicalDevice;
 		deviceDesc.graphicsQueue = s_GraphicsQueue;
 		deviceDesc.graphicsQueueIndex = (int)s_GraphicsQueueIndex;
+		deviceDesc.errorCB = &s_NvrhiMessageCallback;
 
 		s_Device = nvrhi::vulkan::createDevice(deviceDesc);
 		if (!s_Device)
@@ -401,6 +448,25 @@ namespace Forge {
 		finalDesc.isShaderResource = true;
 		finalDesc.isRenderTarget = true;
 		s_FinalBuffer = s_Device->createTexture(finalDesc);
+
+		// Create post-processing framebuffers.
+		// Tonemapped framebuffer (color attachment = tonemapped buffer).
+		{
+			nvrhi::FramebufferDesc tonemappedFbDesc;
+			tonemappedFbDesc.addColorAttachment(s_TonemappedBuffer.Get());
+			s_TonemappedFramebuffer = s_Device->createFramebuffer(tonemappedFbDesc);
+			if (s_TonemappedFramebuffer)
+				FG_CORE_INFO("Tonemapped framebuffer created: {0}x{1}", width, height);
+		}
+
+		// SSAO output framebuffer (color attachment = SSAO output buffer).
+		{
+			nvrhi::FramebufferDesc ssaoFbDesc;
+			ssaoFbDesc.addColorAttachment(s_SSAOOutput.Get());
+			s_SSAOFramebuffer = s_Device->createFramebuffer(ssaoFbDesc);
+			if (s_SSAOFramebuffer)
+				FG_CORE_INFO("SSAO framebuffer created: {0}x{1}", width, height);
+		}
 
 		// Create UBO
 		nvrhi::BufferDesc uboDesc;

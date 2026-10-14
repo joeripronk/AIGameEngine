@@ -42,19 +42,31 @@ namespace Forge {
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture);
 
-		static void BeginShadowPass();
-		static void EndShadowPass();
+		// Draws every entity in `scene` that has a MeshComponent and a primary
+		// camera, using the PBR shader, into the given swapchain framebuffer.
+		// Must be called between BeginScene() and EndScene().
+		static void RenderScene(class Scene* scene, uint32_t swapchainImage);
 
-		static void BeginHDRPass();
-		static void EndHDRPass();
+		// Renders every entity with a MeshComponent to the shadow map.
+		// Must be called between BeginShadowPass() and EndShadowPass().
+		static void RenderShadowScene(class Scene* scene);
 
+		// Post-processing passes: SSAO, HDR tonemapping, final composite.
+		// These must be called between BeginScene() and EndScene(), after RenderScene().
 		static void BeginSSAOPass();
 		static void EndSSAOPass();
-
+		static void BeginHDRPass();
+		static void EndHDRPass();
 		static void BeginFinalPass();
 		static void EndFinalPass();
-
 		static void SubmitFinal();
+
+		// Reads the given swapchain image back to the CPU and writes it as a
+		// binary PPM. Used to verify rendering without a windowing system.
+		static bool CaptureSwapchainImage(uint32_t imageIndex, const std::string& path);
+
+		static void BeginShadowPass(class Scene* scene);
+		static void EndShadowPass();
 
 		static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
 		static ShaderLibrary& GetShaderLibrary() { return s_ShaderLibrary; }
@@ -82,6 +94,24 @@ namespace Forge {
 
 		// GLFW window handle used to create the Vulkan surface and swapchain.
 		static void* s_WindowHandle;
+
+		// Draws the scene with the PBR shader into the swapchain.
+		static Ref<class PbrRenderer> s_PbrRenderer;
+
+		// Set once RenderScene has successfully resolved a camera.
+		static bool s_RenderSceneVerified;
+
+		// Shadow map framebuffer (depth-only).
+		static nvrhi::FramebufferHandle s_ShadowFramebuffer;
+
+		// Post-processing: framebuffer for the tonemapped buffer.
+		static nvrhi::FramebufferHandle s_TonemappedFramebuffer;
+
+		// Post-processing: framebuffer for the SSAO buffer.
+		static nvrhi::FramebufferHandle s_SSAOFramebuffer;
+
+		// The current swapchain image index (set by AcquireSwapchainImage).
+		static uint32_t s_CurrentSwapchainImage;
 	};
 
 }

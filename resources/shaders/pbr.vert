@@ -7,47 +7,41 @@ layout(location = 2) in vec2 aUV;
 layout(location = 3) in vec3 aTangent;
 layout(location = 4) in vec3 aBitangent;
 
-layout(location = 0) out vec3 vPosition;
-layout(location = 1) out vec3 vNormal;
-layout(location = 2) out vec2 vUV;
-layout(location = 3) out vec3 vTangent;
-layout(location = 4) out vec3 vBitangent;
-layout(location = 5) out vec3 vWorldPosition;
+layout(location = 0) out vec3 vNormal;
+layout(location = 1) out vec2 vUV;
+layout(location = 2) out vec3 vWorldPosition;
 
+// Set 0, binding 0: per-frame data.
 layout(binding = 0) uniform CameraData
 {
     mat4 u_ViewProjection;
     mat4 u_ShadowViewProjection;
-    vec4 u_LightDirection;   // xyz dir, w unused
-    vec4 u_LightColor;       // rgb color, a intensity
-    vec4 u_CameraPosition;   // xyz pos, w unused
-    vec4 u_AmbientLight;     // rgb ambient, a unused
-    vec4 u_SSAOParams;       // intensity, radius, bias, power
+    vec4 u_LightDirection;   // xyz = direction light travels, w unused
+    vec4 u_LightColor;       // rgb = colour, a = intensity
+    vec4 u_CameraPosition;   // xyz = world position
+    vec4 u_AmbientLight;     // rgb = ambient colour
+    vec4 u_SSAOParams;       // x = shadow bias, y = ao strength, zw unused
 } u_Camera;
 
-layout(binding = 1, set = 0) uniform ObjectData
+// Set 0, binding 1: per-object data.
+layout(binding = 1) uniform ObjectData
 {
     mat4 u_Transform;
-    vec4 u_Albedo;
-    vec4 u_MetallicRoughness;  // x metallic, y roughness, z AO, w unused
-    vec4 u_Emissive;          // rgb emissive, a intensity
     mat4 u_NormalMatrix;
+    vec4 u_Albedo;               // rgb = base colour
+    vec4 u_MetallicRoughnessAO;  // x = metallic, y = roughness, z = ao
+    vec4 u_Emissive;             // rgb = emissive, a = intensity
 } u_Object;
-
-layout(binding = 0, set = 1) uniform sampler2D u_AlbedoTexture;
-layout(binding = 1, set = 1) uniform sampler2D u_MetallicRoughnessTexture;
-layout(binding = 2, set = 1) uniform sampler2D u_AOTexture;
-layout(binding = 3, set = 1) uniform sampler2D u_EmissiveTexture;
-layout(binding = 4, set = 1) uniform sampler2D u_NormalTexture;
 
 void main()
 {
-    vPosition = aPosition;
-    vNormal = mat3(u_Object.u_NormalMatrix) * aNormal;
+    mat3 normalMatrix = mat3(u_Object.u_NormalMatrix);
+
+    vNormal = normalMatrix * aNormal;
     vUV = aUV;
-    vTangent = mat3(u_Object.u_NormalMatrix) * aTangent;
-    vBitangent = mat3(u_Object.u_NormalMatrix) * aBitangent;
-    vec4 worldPos = u_Object.u_Transform * vec4(aPosition, 1.0);
-    vWorldPosition = worldPos.xyz;
-    gl_Position = u_Camera.u_ViewProjection * worldPos;
+
+    vec4 worldPosition = u_Object.u_Transform * vec4(aPosition, 1.0);
+    vWorldPosition = worldPosition.xyz;
+
+    gl_Position = u_Camera.u_ViewProjection * worldPosition;
 }

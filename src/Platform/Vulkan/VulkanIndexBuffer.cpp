@@ -26,6 +26,8 @@ namespace Forge {
 		desc.byteSize = (uint64_t)count * sizeof(uint32_t);
 		desc.isIndexBuffer = true;
 		desc.debugName = "VulkanIndexBuffer";
+		desc.keepInitialState = true;
+		desc.initialState = nvrhi::ResourceStates::IndexBuffer;
 
 		m_Buffer = device->createBuffer(desc);
 

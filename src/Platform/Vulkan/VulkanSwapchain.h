@@ -51,6 +51,19 @@ namespace Forge {
 
 		bool IsValid() const { return m_Swapchain != VK_NULL_HANDLE; }
 
+		// Reads a swapchain image back to the CPU and writes it as a binary PPM.
+		//
+		// The swapchain images are created with TRANSFER_SRC usage for exactly
+		// this purpose, which makes the rendered result verifiable without a
+		// windowing system (used by the renderer's automated tests).
+		// Returns false if the readback or the file write fails.
+		bool CaptureImage(uint32_t imageIndex, const std::string& path) const;
+
+		// Supplies the depth attachment shared by all swapchain framebuffers.
+		// Must be set before the framebuffers are built (see SetDepthTexture,
+		// which rebuilds them if they already exist).
+		void SetDepthTexture(nvrhi::TextureHandle depthTexture);
+
 	private:
 		VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
 		VkFormat m_VkFormat = VK_FORMAT_UNDEFINED;
@@ -65,6 +78,12 @@ namespace Forge {
 		std::vector<nvrhi::FramebufferHandle> m_Framebuffers;
 
 		bool BuildImagesAndFramebuffers();
+
+		// Depth attachment shared by every swapchain framebuffer.
+		nvrhi::TextureHandle m_DepthTexture;
+
+		// The swapchain's VkImages, kept for GPU readback (see CaptureImage).
+		std::vector<VkImage> m_VkImages;
 	};
 
 }

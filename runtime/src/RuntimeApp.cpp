@@ -9,6 +9,7 @@
 #include "Forge/Scripting/ScriptEngine.h"
 
 #include <string>
+#include <cstdlib>
 
 namespace Forge {
 
@@ -124,10 +125,20 @@ namespace Forge {
 						frameAccumulator -= fixedStep;
 						frameCount++;
 					}
+
+					// Draw the scene's meshes into the acquired swapchain image.
+					Renderer::RenderScene(m_Scene.get(), swapchainImage);
 				}
 
 				// Close and submit the frame's GPU work.
 				Renderer::EndScene();
+
+				// Optionally read the rendered frame back to disk for
+				// verification (FG_CAPTURE_PATH=/tmp/frame.ppm).
+				if (const char* capturePath = std::getenv("FG_CAPTURE_PATH"))
+				{
+					Renderer::CaptureSwapchainImage(swapchainImage, capturePath);
+				}
 
 				Renderer::PresentSwapchainImage(swapchainImage);
 			}

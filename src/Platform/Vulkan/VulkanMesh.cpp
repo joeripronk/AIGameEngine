@@ -5,6 +5,7 @@
 #include "Platform/Vulkan/VulkanIndexBuffer.h"
 
 #include "Forge/Renderer/Renderer.h"
+#include "Forge/Renderer/CpuMesh.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
@@ -40,6 +41,26 @@ namespace Forge {
 	void VulkanMesh::Unbind() const
 	{
 		m_VertexArray->Unbind();
+	}
+
+	Ref<Mesh> Mesh::CreateFromCpu(CpuMesh* cpuMesh, const Material& material)
+	{
+		if (!cpuMesh)
+		{
+			FG_CORE_ERROR("Mesh::CreateFromCpu: null CPU mesh");
+			return nullptr;
+		}
+
+		const auto& vertices = cpuMesh->GetVertices();
+		const auto& indices = cpuMesh->GetIndices();
+
+		if (vertices.empty() || indices.empty())
+		{
+			FG_CORE_ERROR("Mesh::CreateFromCpu: CPU mesh has no geometry");
+			return nullptr;
+		}
+
+		return CreateRef<VulkanMesh>(vertices, indices, material);
 	}
 
 	Ref<Mesh> Mesh::Create(const std::string& filepath)

@@ -1,15 +1,14 @@
 #version 450
 #extension GL_EXT_scalar_block_layout : require
+#extension GL_EXT_samplerless_texture_functions : require
 
-layout(location = 0) in vec3 vPosition;
-layout(location = 1) in vec3 vNormal;
-layout(location = 2) in vec2 vUV;
-layout(location = 3) in vec3 vTangent;
-layout(location = 4) in vec3 vBitangent;
-layout(location = 5) in vec3 vWorldPosition;
+layout(location = 0) in vec3 vNormal;
+layout(location = 1) in vec2 vUV;
+layout(location = 2) in vec3 vWorldPosition;
 
 layout(location = 0) out vec4 oColor;
 
+// Set 0, binding 0: per-frame data.
 layout(binding = 0) uniform CameraData
 {
     mat4 u_ViewProjection;
@@ -21,33 +20,39 @@ layout(binding = 0) uniform CameraData
     vec4 u_SSAOParams;
 } u_Camera;
 
-layout(binding = 1, set = 0) uniform ObjectData
+// Set 0, binding 1: per-object data.
+layout(binding = 1) uniform ObjectData
 {
     mat4 u_Transform;
-    vec4 u_Albedo;
-    vec4 u_MetallicRoughness;
-    vec4 u_Emissive;
     mat4 u_NormalMatrix;
+    vec4 u_Albedo;
+    vec4 u_MetallicRoughnessAO;
+    vec4 u_Emissive;
 } u_Object;
 
-layout(binding = 0, set = 1) uniform sampler2D u_AlbedoTexture;
-layout(binding = 1, set = 1) uniform sampler2D u_MetallicRoughnessTexture;
-layout(binding = 2, set = 1) uniform sampler2D u_AOTexture;
-layout(binding = 3, set = 1) uniform sampler2D u_EmissiveTexture;
-layout(binding = 4, set = 1) uniform sampler2D u_NormalTexture;
+// Set 0, binding 2: material albedo map.
+//
+// nvrhi binds a texture as a VK_SAMPLED_IMAGE descriptor and the sampler as a
+// separate VK_SAMPLER descriptor, so the shader must declare the two apart
+// (a combined `sampler2D` would need a COMBINED_IMAGE_SAMPLER descriptor that
+// nvrhi never creates).
+layout(binding = 2) uniform texture2D u_AlbedoTexture;
+layout(binding = 4) uniform sampler u_LinearSampler;
 
-layout(binding = 0, set = 2) uniform sampler2D u_ShadowMap;
+// Set 0, binding 3: shadow map (single channel depth).
+layout(binding = 3) uniform texture2D u_ShadowMap;
+layout(binding = 5) uniform sampler u_ShadowSampler;
 
 const float PI = 3.14159265359;
 
-vec3 DistributionGGX(vec3 N, vec3 H, float roughness)
+float DistributionGGX(vec3 N, vec3 H, float roughness)
 {
     float a = roughness * roughness;
     float a2 = a * a;
     float NdotH = max(dot(N, H), 0.0);
     float NdotH2 = NdotH * NdotH;
     float denom = NdotH2 * (a2 - 1.0) + 1.0;
-    return (a2 / (PI * denom * denom)) * vec3(1.0);
+    return a2 / (PI * denom * denom);
 }
 
 float GeometrySchlickGGX(float NdotV, float roughness)
@@ -59,9 +64,8 @@ float GeometrySchlickGGX(float NdotV, float roughness)
 
 float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 {
-    float NdotV = max(dot(N, V), 0.0);
-    float NdotL = max(dot(N, L), 0.0);
-    return GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);
+    return GeometrySchlickGGX(max(dot(N, V), 0.0), roughness)
+         * GeometrySchlickGGX(max(dot(N, L), 0.0), roughness);
 }
 
 vec3 FresnelSchlick(float cosTheta, vec3 F0)
@@ -69,24 +73,31 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-float SampleShadow(vec3 worldPos, vec3 N, vec3 L)
+// 3x3 percentage-closer filtering for a soft shadow edge.
+float SampleShadow(vec3 worldPosition)
 {
-    vec4 lightClip = u_Camera.u_ShadowViewProjection * vec4(worldPos, 1.0);
+    vec4 lightClip = u_Camera.u_ShadowViewProjection * vec4(worldPosition, 1.0);
+
+    // Reject vertices behind the light's near plane.
+    if (lightClip.w <= 0.0)
+        return 1.0;
+
     vec3 proj = lightClip.xyz / lightClip.w;
     proj = proj * 0.5 + 0.5;
 
     if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
         return 1.0;
 
-    // 3x3 PCF for a soft shadow edge.
-    float shadow = 0.0;
+    float bias = u_Camera.u_SSAOParams.x;
+
     vec2 texel = 1.0 / vec2(textureSize(u_ShadowMap, 0));
+    float shadow = 0.0;
     for (int x = -1; x <= 1; x++)
     {
         for (int y = -1; y <= 1; y++)
         {
-            float d = texture(u_ShadowMap, proj.xy + vec2(float(x), float(y)) * texel).r;
-            shadow += (proj.z - u_Camera.u_SSAOParams.z > d) ? 0.0 : 1.0;
+            float depth = texture(u_ShadowMap, u_ShadowSampler, proj.xy + vec2(float(x), float(y)) * texel).r;
+            shadow += (proj.z - bias > depth) ? 0.0 : 1.0;
         }
     }
     return shadow / 9.0;
@@ -94,17 +105,11 @@ float SampleShadow(vec3 worldPos, vec3 N, vec3 L)
 
 void main()
 {
-    vec3 albedo = u_Object.u_Albedo.rgb;
-    float metallic = u_Object.u_MetallicRoughness.x;
-    float roughness = u_Object.u_MetallicRoughness.y;
-    float ao = u_Object.u_MetallicRoughness.z;
-
-    albedo *= texture(u_AlbedoTexture, vUV).rgb;
-    vec3 mr = texture(u_MetallicRoughnessTexture, vUV).rgb;
-    metallic *= mr.r;
-    roughness *= mr.g;
-    ao *= texture(u_AOTexture, vUV).r;
-    vec3 emissive = u_Object.u_Emissive.rgb * texture(u_EmissiveTexture, vUV).rgb;
+    vec3 albedo = u_Object.u_Albedo.rgb * texture(u_AlbedoTexture, u_LinearSampler, vUV).rgb;
+    float metallic = u_Object.u_MetallicRoughnessAO.x;
+    float roughness = clamp(u_Object.u_MetallicRoughnessAO.y, 0.04, 1.0);
+    float ao = u_Object.u_MetallicRoughnessAO.z;
+    vec3 emissive = u_Object.u_Emissive.rgb * u_Object.u_Emissive.a;
 
     vec3 N = normalize(vNormal);
     vec3 V = normalize(u_Camera.u_CameraPosition.xyz - vWorldPosition);
@@ -117,21 +122,21 @@ void main()
     vec3 F0 = mix(vec3(0.04), albedo, metallic);
     vec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);
 
-    vec3 NDF = DistributionGGX(N, H, roughness);
+    float NDF = DistributionGGX(N, H, roughness);
     float G = GeometrySmith(N, V, L, roughness);
 
-    vec3 specular = (NDF * G * F) / max(vec3(4.0 * NdotV * NdotL), vec3(0.0001));
+    vec3 specular = (NDF * G * F) / max(4.0 * NdotV * NdotL, 0.0001);
 
     vec3 kS = F;
     vec3 kD = (1.0 - kS) * (1.0 - metallic);
     vec3 diffuse = kD * albedo / PI;
 
-    float shadow = SampleShadow(vWorldPosition, N, L);
+    float shadow = SampleShadow(vWorldPosition);
 
     vec3 radiance = (diffuse + specular) * u_Camera.u_LightColor.rgb * u_Camera.u_LightColor.a;
     vec3 ambient = u_Camera.u_AmbientLight.rgb * albedo * ao;
-    vec3 color = ambient + radiance * NdotL * shadow;
-    color += emissive * u_Object.u_Emissive.a;
+
+    vec3 color = ambient + radiance * NdotL * shadow + emissive;
 
     oColor = vec4(color, 1.0);
 }

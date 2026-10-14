@@ -44,6 +44,9 @@ namespace Forge {
 		virtual const Ref<class VertexArray>& GetVertexArray() const = 0;
 
 		static Ref<Mesh> Create(const std::string& filepath);
+
+		// Uploads a CPU mesh to the GPU. Used for the built-in primitives.
+		static Ref<Mesh> CreateFromCpu(class CpuMesh* cpuMesh, const Material& material);
 	};
 
 }

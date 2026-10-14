@@ -178,6 +178,7 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/VulkanVertexBuffer.cpp
     Platform/Vulkan/VulkanIndexBuffer.cpp
     Platform/Vulkan/VulkanSwapchain.cpp
+    Platform/Vulkan/PbrRenderer.cpp
     Platform/Vulkan/VulkanWindow.cpp
 )
 target_include_directories(vulkan

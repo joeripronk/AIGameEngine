@@ -1,0 +1,32 @@
+Scene: RenderProbe
+Entities:
+  - Entity: 1001
+    TagComponent:
+      Tag: ProbeCube
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      ModelPath: ""
+      Scale: [1, 1, 1]
+    PBRMaterialComponent:
+      Albedo: [0.9, 0.2, 0.2]
+      Metallic: 0.1
+      Roughness: 0.4
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+  - Entity: 1002
+    TagComponent:
+      Tag: MainCamera
+    TransformComponent:
+      Translation: [0, 0, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Primary: true
+      FieldOfView: 45
+      NearClip: 0.100000001
+      FarClip: 1000
+      AspectRatio: 1.7777778

@@ -59,6 +59,10 @@ namespace Forge {
 		static VkDevice GetLogicalDevice() { return s_LogicalDevice; }
 		static VkQueue GetGraphicsQueue() { return s_GraphicsQueue; }
 
+		// Command pool for the graphics queue. Used by the swapchain readback,
+		// which records its own one-shot command buffer outside nvrhi.
+		static VkCommandPool GetCommandPool() { return s_CommandPool; }
+
 		// Presentation swapchain, created in SetupSwapchain().
 		static VulkanSwapchain& GetSwapchain() { return s_Swapchain; }
 
@@ -69,6 +73,10 @@ namespace Forge {
 
 		// Translates a VkFormat to the matching nvrhi format.
 		static nvrhi::Format ToNvrhiFormat(VkFormat format);
+
+		// Post-processing framebuffers (created in SetupSwapchain).
+		static nvrhi::FramebufferHandle GetTonemappedFramebuffer() { return s_TonemappedFramebuffer; }
+		static nvrhi::FramebufferHandle GetSSAOFramebuffer() { return s_SSAOFramebuffer; }
 
 	private:
 		// --- Vulkan bootstrap helpers (static; used during Init) ---
@@ -82,6 +90,7 @@ namespace Forge {
 		static VkDevice s_LogicalDevice;
 		static VkSurfaceKHR s_Surface;
 		static VkQueue s_GraphicsQueue;
+		static VkCommandPool s_CommandPool;
 		static uint32_t s_GraphicsQueueIndex;
 		static bool s_ValidationEnabled;
 
@@ -90,6 +99,10 @@ namespace Forge {
 		static VulkanSwapchain s_Swapchain;
 		static uint32_t s_Width;
 		static uint32_t s_Height;
+
+		// Post-processing framebuffers.
+		static nvrhi::FramebufferHandle s_TonemappedFramebuffer;
+		static nvrhi::FramebufferHandle s_SSAOFramebuffer;
 	};
 
 }

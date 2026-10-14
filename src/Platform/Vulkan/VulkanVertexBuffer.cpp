@@ -26,6 +26,8 @@ namespace Forge {
 		desc.byteSize = size;
 		desc.isVertexBuffer = true;
 		desc.debugName = "VulkanVertexBuffer";
+		desc.keepInitialState = true;
+		desc.initialState = nvrhi::ResourceStates::VertexBuffer;
 
 		m_Buffer = device->createBuffer(desc);
 
@@ -66,6 +68,12 @@ namespace Forge {
 	{
 		if (!m_PendingUpload || !commandList || !m_Buffer || m_StagingData.empty())
 			return;
+
+		FG_CORE_INFO("VulkanVertexBuffer: uploading {0} bytes (first vertex: {1},{2},{3})",
+			m_StagingData.size(),
+			*reinterpret_cast<const float*>(m_StagingData.data()),
+			*reinterpret_cast<const float*>(m_StagingData.data() + 4),
+			*reinterpret_cast<const float*>(m_StagingData.data() + 8));
 
 		commandList->writeBuffer(m_Buffer, m_StagingData.data(), m_StagingData.size(), 0);
 		m_PendingUpload = false;
