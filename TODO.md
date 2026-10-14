@@ -93,7 +93,14 @@
 - [x] Vertex input layouts built from shader SPIR-V (createInputLayout)
 - [x] Frame command list lifecycle (open / record / close / execute)
 - [x] Swapchain + present (VkSwapchainKHR, acquire/present, out-of-date recreate)
-- [ ] PBR pipeline (G-buffer, deferred lighting, shadow map, SSAO, tonemap, final)
+- [x] PBR pipeline (PbrRenderer class with nvrhi pipelines, binding layouts, uniform buffers)
+- [x] Shadow map (2048x2048 depth texture, shadow pass from light perspective)
+- [x] Shadow pass integration with PBR (real shadow view-projection from directional light)
+- [x] PBR shader uses real shadow map (not fallback)
+- [x] Post-processing framebuffer infrastructure (tonemapped, SSAO buffers)
+- [ ] SSAO pass (depth reconstruction - shader requires G-Buffer inputs)
+- [ ] HDR tonemapping pass (reads swapchain, applies ACES tone mapping)
+- [ ] Final composite pass (reads tonemapped + SSAO, outputs to swapchain)
 - [ ] IBL prefiltering / irradiance maps
 - [ ] ImGui Vulkan backend init + viewport present
 

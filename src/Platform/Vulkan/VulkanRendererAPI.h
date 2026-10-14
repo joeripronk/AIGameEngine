@@ -66,6 +66,9 @@ namespace Forge {
 		// Presentation swapchain, created in SetupSwapchain().
 		static VulkanSwapchain& GetSwapchain() { return s_Swapchain; }
 
+		// Get the current VkCommandBuffer for ImGui rendering.
+		static VkCommandBuffer GetCurrentCommandBuffer();
+
 		// Blocks until the device has finished all submitted work. Used to
 		// synchronize nvrhi's command list submission with swapchain
 		// acquire/present (nvrhi owns its own queue semaphores).

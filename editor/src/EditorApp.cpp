@@ -10,7 +10,22 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
+#include "Platform/Vulkan/VulkanRendererAPI.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+
 namespace Forge {
+
+	namespace {
+		// Ray origin and direction in world space for gizmo interaction.
+		glm::vec3 g_GizmoRayOrigin;
+		glm::vec3 g_GizmoRayDirection;
+		int g_GizmoButton = -1;
+		int g_GizmoAxis = -1;  // 0=X, 1=Y, 2=Z
+		glm::vec3 g_GizmoStartPos;
+		glm::vec3 g_GizmoStartValue;
+	}
 
 	EditorApp::EditorApp()
 		: Application(ApplicationSpecification{ "Forge Editor", "", { 0, nullptr } })
@@ -109,6 +124,7 @@ namespace Forge {
 
 			DrawMenuBar();
 			DrawGizmoToolbar();
+			DrawGizmoInteraction();
 			DrawHierarchyPanel();
 			DrawInspectorPanel();
 			DrawViewportPanel();
@@ -116,7 +132,9 @@ namespace Forge {
 			DrawPropertiesPanel();
 
 			ImGui::Render();
-			// TODO: present the ImGui draw data to the Vulkan swapchain.
+			VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
+			if (cmdBuf != VK_NULL_HANDLE)
+				ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
 		}
 	}
 
@@ -386,6 +404,163 @@ namespace Forge {
 		ImGui::Text("Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
 
 		ImGui::End();
+	}
+
+	void EditorApp::OnGizmoMouseDown(int button, int x, int y)
+	{
+		if (!m_Editor.HasSelection())
+			return;
+
+		Entity entity = m_Editor.GetSelectedEntity();
+		if (!entity.HasComponent<TransformComponent>())
+			return;
+
+		// Get the entity's world position.
+		auto& tc = entity.GetComponent<TransformComponent>();
+		glm::vec3 worldPos = tc.Translation;
+
+		// Get the editor camera's view-projection and viewport.
+		auto& camera = m_Editor.GetCamera();
+		glm::mat4 vp = camera.GetViewProjectionMatrix();
+
+		// Convert screen coordinates to NDC.
+		ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+		float ndcX = (2.0f * x / viewportSize.x) - 1.0f;
+		float ndcY = 1.0f - (2.0f * y / viewportSize.y);
+
+		// Unproject to get ray in world space.
+		glm::mat4 invVP = glm::inverse(vp);
+		glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+		glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+		nearPoint /= nearPoint.w;
+		farPoint /= farPoint.w;
+
+		g_GizmoRayOrigin = glm::vec3(nearPoint);
+		g_GizmoRayDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
+		g_GizmoButton = button;
+		g_GizmoAxis = -1;
+		g_GizmoStartPos = worldPos;
+		g_GizmoStartValue = worldPos;
+
+		// Check which axis the mouse is over (simple axis picking).
+		// For now, we'll pick the axis closest to the ray direction.
+		glm::vec3 axes[] = { glm::vec3(1, 0, 0), glm::vec3(0, 1, 0), glm::vec3(0, 0, 1) };
+		float maxDot = 0.0f;
+		for (int i = 0; i < 3; ++i)
+		{
+			float dot = glm::abs(glm::dot(g_GizmoRayDirection, axes[i]));
+			if (dot > maxDot)
+			{
+				maxDot = dot;
+				g_GizmoAxis = i;
+			}
+		}
+
+		if (g_GizmoAxis >= 0)
+		{
+			FG_CORE_INFO("Gizmo: started dragging axis {0} at ({1}, {2}, {3})",
+				g_GizmoAxis, worldPos.x, worldPos.y, worldPos.z);
+		}
+	}
+
+	void EditorApp::OnGizmoMouseMove(int x, int y)
+	{
+		if (g_GizmoButton < 0 || g_GizmoAxis < 0)
+			return;
+
+		Entity entity = m_Editor.GetSelectedEntity();
+		if (!entity.HasComponent<TransformComponent>())
+			return;
+
+		// Get the editor camera's view-projection and viewport.
+		auto& camera = m_Editor.GetCamera();
+		glm::mat4 vp = camera.GetViewProjectionMatrix();
+
+		// Convert screen coordinates to NDC.
+		ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+		float ndcX = (2.0f * x / viewportSize.x) - 1.0f;
+		float ndcY = 1.0f - (2.0f * y / viewportSize.y);
+
+		// Unproject to get ray in world space.
+		glm::mat4 invVP = glm::inverse(vp);
+		glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+		glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+		nearPoint /= nearPoint.w;
+		farPoint /= farPoint.w;
+
+		glm::vec3 rayDir = glm::normalize(glm::vec3(farPoint - nearPoint));
+
+		// Get the axis direction (local or world space).
+		glm::vec3 axisDir = glm::vec3(0);
+		switch (g_GizmoAxis)
+		{
+		case 0: axisDir = glm::vec3(1, 0, 0); break;
+		case 1: axisDir = glm::vec3(0, 1, 0); break;
+		case 2: axisDir = glm::vec3(0, 0, 1); break;
+		}
+
+		// Project the ray onto the axis to get the movement amount.
+		float dot = glm::dot(rayDir, axisDir);
+		if (glm::abs(dot) < 0.001f)
+			return;  // Ray is perpendicular to axis
+
+		// Calculate the movement along the axis.
+		glm::vec3 toRay = g_GizmoRayOrigin - g_GizmoStartPos;
+		float t = glm::dot(toRay, axisDir) / dot;
+		glm::vec3 newPos = g_GizmoStartPos + axisDir * t;
+
+		// Apply snap if enabled.
+		float snap = m_Editor.GetTranslationSnap();
+		if (snap > 0.0f)
+		{
+			newPos = Gizmo::Snap(newPos, snap);
+		}
+
+		// Update the entity's transform.
+		entity.GetComponent<TransformComponent>().Translation = newPos;
+	}
+
+	void EditorApp::OnGizmoMouseUp(int /*button*/, int /*x*/, int /*y*/)
+	{
+		g_GizmoButton = -1;
+		g_GizmoAxis = -1;
+	}
+
+	void EditorApp::DrawGizmoInteraction()
+	{
+		if (!m_Editor.HasSelection())
+			return;
+
+		// Check if mouse is in the viewport area (simple heuristic).
+		ImGui::SetCursorPos(ImVec2(0, 0));
+		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+		ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+
+		ImGui::PushID("gizmo_interaction");
+		ImGui::InvisibleButton("gizmo_area", viewportSize);
+
+		if (ImGui::IsItemHovered())
+		{
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && g_GizmoButton < 0)
+			{
+				OnGizmoMouseDown(0, (int)ImGui::GetMousePos().x - cursorPos.x,
+					(int)ImGui::GetMousePos().y - cursorPos.y);
+			}
+
+			if (g_GizmoButton >= 0)
+			{
+				OnGizmoMouseMove((int)ImGui::GetMousePos().x - cursorPos.x,
+					(int)ImGui::GetMousePos().y - cursorPos.y);
+			}
+
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && g_GizmoButton >= 0)
+			{
+				OnGizmoMouseUp(0, (int)ImGui::GetMousePos().x - cursorPos.x,
+					(int)ImGui::GetMousePos().y - cursorPos.y);
+			}
+		}
+
+		ImGui::PopID();
 	}
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)

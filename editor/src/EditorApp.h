@@ -30,6 +30,12 @@ namespace Forge {
 		// Mirrors the currently playing scene's camera into the editor camera.
 		void SyncEditorCamera();
 
+		// Gizmo pointer interaction.
+		void OnGizmoMouseDown(int button, int x, int y);
+		void OnGizmoMouseMove(int x, int y);
+		void OnGizmoMouseUp(int button, int x, int y);
+		void DrawGizmoInteraction();
+
 		EditorContext m_Editor;
 		ViewportRenderer m_Viewport;
 	};

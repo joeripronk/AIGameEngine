@@ -373,6 +373,15 @@ namespace Forge {
 			s_Device->waitForIdle();
 	}
 
+	VkCommandBuffer VulkanRendererAPI::GetCurrentCommandBuffer()
+	{
+		if (!s_CommandList)
+			return VK_NULL_HANDLE;
+
+		// Get the native VkCommandBuffer from the nvrhi command list.
+		return static_cast<VkCommandBuffer>(s_CommandList->getNativeObject(nvrhi::ObjectTypes::VK_CommandBuffer));
+	}
+
 	nvrhi::Format VulkanRendererAPI::ToNvrhiFormat(VkFormat format)
 	{
 		switch (format)
