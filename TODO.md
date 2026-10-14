@@ -132,10 +132,10 @@
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter
-- [ ] Windows support (CMake has WIN32 blocks but no actual testing)
-- [ ] macOS support
+- [x] Windows support (CMake fixes, CI on windows-2022 with Vulkan SDK)
+- [x] macOS support (CMake fixes, CI on macos-14)
 - [ ] Installer/deployment scripts
-- [ ] CI/CD pipeline
+- [x] CI/CD pipeline (Linux, Windows, macOS - Debug builds + tests)
 
 ---
 
