@@ -3,6 +3,7 @@
 #include "Forge/Core/Base.h"
 #include "Forge/Core/Timestep.h"
 #include "Forge/Core/UUID.h"
+#include "Forge/Scene/Components.h"
 
 #include <entt/entt.hpp>
 

@@ -1,6 +1,6 @@
 Scene: Untitled
 Entities:
-  - Entity: 12416734243197083097
+  - Entity: 4616126378049316996
     TagComponent:
       Tag: Physics
     TransformComponent:
@@ -10,7 +10,7 @@ Entities:
     RigidbodyComponent:
       BodyType: 1
       FixedRotation: true
-  - Entity: 18338029323180858007
+  - Entity: 8231067191679994640
     TagComponent:
       Tag: Camera
     TransformComponent:
@@ -19,7 +19,7 @@ Entities:
       Scale: [1, 1, 1]
     CameraComponent:
       Primary: true
-  - Entity: 7556165328773060602
+  - Entity: 10118140279522754861
     TagComponent:
       Tag: Player
     TransformComponent:

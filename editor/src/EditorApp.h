@@ -4,6 +4,7 @@
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Renderer/EditorCamera.h"
+#include "Forge/Renderer/ViewportRenderer.h"
 
 namespace Forge {
 
@@ -30,6 +31,7 @@ namespace Forge {
 		Ref<Scene> m_Scene;
 		Entity m_SelectedEntity;
 		EditorCamera m_Camera;
+		ViewportRenderer m_Viewport;
 		bool m_IsPlaying = false;
 		bool m_IsPaused = false;
 	};

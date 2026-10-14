@@ -65,6 +65,8 @@ target_sources(ForgeCore
         Forge/Renderer/EditorCamera.h
         Forge/Renderer/EditorCamera.cpp
         Forge/Renderer/Shaders.h
+        Forge/Renderer/ViewportRenderer.h
+        Forge/Renderer/ViewportRenderer.cpp
         Forge/Renderer/VertexArray.h
         Forge/Renderer/VertexBuffer.h
         Forge/Renderer/IndexBuffer.h

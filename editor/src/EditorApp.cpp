@@ -37,6 +37,9 @@ namespace Forge {
 		// Setup initial camera
 		m_Camera.SetPosition({ 0.0f, 5.0f, 10.0f });
 		m_Camera.SetRotation({ 0.0f, 0.0f, 0.0f });
+
+		// Setup viewport renderer
+		m_Viewport.Init(800, 600);
 	}
 
 	EditorApp::~EditorApp()
@@ -154,14 +157,10 @@ namespace Forge {
 				}
 
 				// Render
-				Renderer::BeginScene();
-
 				if (m_Scene)
 				{
-					m_Scene->RenderScene();
+					m_Viewport.Render(m_Scene, m_Camera.GetViewProjectionMatrix());
 				}
-
-				Renderer::EndScene();
 			}
 
 			GetWindowScope()->OnUpdate();
@@ -464,10 +463,17 @@ namespace Forge {
 
 		// Viewport Panel
 		ImGui::Begin("Viewport");
-		ImGui::Image(
-			ImTextureRef{},
-			ImVec2(800, 600)
-		);
+		if (m_Viewport.GetRenderTexture())
+		{
+			ImGui::Image(
+				ImTextureID((void*)(uintptr_t)m_Viewport.GetRenderTexture().get()),
+				ImVec2(800, 600)
+			);
+		}
+		else
+		{
+			ImGui::Text("Viewport not initialized");
+		}
 		ImGui::End();
 
 		// Properties Panel
