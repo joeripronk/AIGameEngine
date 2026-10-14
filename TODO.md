@@ -64,7 +64,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (105 test cases, 1020 assertions - all passing)
+### Tests (107 test cases, 1034 assertions - all passing)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
@@ -116,7 +116,7 @@
 - [x] SerializeRuntime/DeserializeRuntime (binary format)
 - [x] Camera viewport resize handling (CameraComponent::UpdateProjection)
 - [x] Mesh loading from file (CPU assimp path; GPU path pending)
-- [ ] Audio (miniaudio) playback integration
+- [x] Audio engine (miniaudio ma_engine mixer, WAV/MP3/FLAC decode + playback)
 
 ### Deployment
 - [ ] Game export (package runtime + scene + resources)

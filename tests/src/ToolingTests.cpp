@@ -7,6 +7,7 @@ using Catch::Approx;
 #include "Forge/Editor/Gizmo.h"
 #include "Forge/Assets/AssetRegistry.h"
 #include "Forge/Project/GameExporter.h"
+#include "Forge/Audio/AudioEngine.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Physics/Physics.h"
 #include "Forge/Scripting/ScriptEngine.h"
@@ -253,6 +254,39 @@ TEST_CASE("Camera projection updates on viewport resize", "[scene][camera][tooli
 	// A zero-sized viewport is ignored.
 	scene.OnViewportResize(0, 0);
 	REQUIRE(camera.AspectRatio == Approx(1.0f));
+}
+
+TEST_CASE("AudioEngine decodes a WAV file", "[audio][tooling]")
+{
+    REQUIRE_NOTHROW(Forge::AudioEngine::Init());
+    REQUIRE(Forge::AudioEngine::IsInitialized());
+
+    auto buffer = Forge::AudioEngine::LoadAudioBuffer(std::string(FORGE_SOURCE_DIR) + "/resources/audio/test_tone.wav");
+    REQUIRE(buffer);
+
+    // A 0.1s 440Hz stereo tone resampled to 48kHz by the decoder.
+    REQUIRE(buffer->GetChannels() == 2);
+    REQUIRE(buffer->GetSampleRate() == 48000);
+    REQUIRE(buffer->GetFrameCount() > 0);
+    REQUIRE(buffer->GetDuration() == Approx(0.1f).epsilon(0.05f));
+    REQUIRE(buffer->GetSamples() != nullptr);
+
+    // Playback must be safe even with no real output device (headless).
+    REQUIRE_NOTHROW(Forge::AudioEngine::PlayAudioBuffer(buffer));
+    REQUIRE_NOTHROW(Forge::AudioEngine::StopAudioBuffer(buffer));
+
+    Forge::AudioEngine::SetMasterVolume(0.5f);
+    REQUIRE(Forge::AudioEngine::GetMasterVolume() == Approx(0.5f));
+
+    Forge::AudioEngine::Shutdown();
+    REQUIRE_FALSE(Forge::AudioEngine::IsInitialized());
+}
+
+TEST_CASE("AudioEngine handles missing files", "[audio][tooling]")
+{
+    REQUIRE_NOTHROW(Forge::AudioEngine::Init());
+    REQUIRE(Forge::AudioEngine::LoadAudioBuffer("missing.wav") == nullptr);
+    Forge::AudioEngine::Shutdown();
 }
 
 TEST_CASE("EditorContext prefab instantiation", "[editor][tooling]")
