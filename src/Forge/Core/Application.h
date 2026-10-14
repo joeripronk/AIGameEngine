@@ -36,6 +36,8 @@ namespace Forge {
 		Application(const ApplicationSpecification& specification);
 		virtual ~Application();
 
+		virtual void Run();
+
 		void OnEvent(Event& e);
 
 		void PushLayer(Layer* layer);
@@ -61,7 +63,6 @@ namespace Forge {
 		std::mutex& GetMainThreadQueueMutex() { return m_MainThreadQueueMutex; }
 
 	protected:
-		virtual void Run();
 		bool OnWindowClose(WindowCloseEvent& e);
 		bool OnWindowResize(WindowResizeEvent& e);
 

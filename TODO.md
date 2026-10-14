@@ -129,5 +129,10 @@
 | UUID YAML formatting (scientific notation) | ✅ Fixed - now uses string encoding |
 | `glm::vec3` YAML convert template not working | ✅ Fixed - explicit node construction |
 | Physics completely stubbed | ✅ Fixed - custom 3D physics engine implemented |
-| Editor viewport has no swapchain | ⚠️ Requires Vulkan implementation |
-| Resources directory empty | ✅ Added Lua scripts + Enemy prefab; meshes/HDRIs pending |
+| Editor/runtime could not link | ✅ Fixed - ForgeCore/ForgeApp split, dedup factories, ImGui 1.91.9 |
+| Runtime launched the Lua REPL instead of the engine | ✅ Fixed - lua.c removed, cross-platform entry point |
+| Init stack overflow (VulkanRendererAPI<->RenderCommand) | ✅ Fixed - removed circular init |
+| SetVSync called glfwSwapInterval (OpenGL-only) | ✅ Fixed - no-op for Vulkan surfaces |
+| Vulkan-Hpp header version mismatch (system vs fetched) | ✅ Fixed - all Vulkan targets use nvrhi's fetched headers |
+| Editor viewport has no swapchain | ⚠️ Renderer backend still largely stubs; needs full pipeline + real GPU |
+| Full headless frame (device + swapchain + passes) | ⚠️ Blocked on renderer implementation, not verifiable headless |

@@ -68,8 +68,9 @@ namespace Forge {
 
 	void VulkanRendererAPI::Init()
 	{
-		RenderCommand::Init();
-
+		// NOTE: Do NOT call RenderCommand::Init() here. RenderCommand owns the
+		// RendererAPI instance and already calls Init() on it during setup;
+		// re-entering it here would recurse infinitely.
 		nvrhi::vulkan::DeviceDesc desc;
 		s_Device = nvrhi::vulkan::createDevice(desc);
 

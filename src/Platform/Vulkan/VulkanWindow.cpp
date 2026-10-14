@@ -153,7 +153,9 @@ namespace Forge {
 
 	void VulkanWindow::SetVSync(bool enabled)
 	{
-		glfwSwapInterval(enabled ? 1 : 0);
+		// NOTE: glfwSwapInterval only applies to OpenGL/GLES contexts. For a
+		// Vulkan surface, vsync is configured through the presentation mode
+		// chosen at swapchain creation, so we only record the preference here.
 		m_Data.VSync = enabled;
 	}
 

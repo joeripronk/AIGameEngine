@@ -11,6 +11,7 @@ target_include_directories(ForgeRuntime
 
 target_sources(ForgeRuntime
     PRIVATE
+        src/Client.cpp
         src/EntryPoint.h
         src/RuntimeApp.h
         src/RuntimeApp.cpp
@@ -19,6 +20,7 @@ target_sources(ForgeRuntime
 target_link_libraries(ForgeRuntime
     PRIVATE
         ForgeApp
+        nvrhi
         forge_vk_dispatch
 )
 

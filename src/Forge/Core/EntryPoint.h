@@ -2,9 +2,8 @@
 #include "Forge/Core/Base.h"
 #include "Forge/Core/Application.h"
 
-#ifdef FG_PLATFORM_WINDOWS
-
-extern Forge::Application* Forge::CreateApplication(ApplicationCommandLineArgs args);
+// The client application (editor or runtime) provides this factory.
+extern Forge::Application* Forge::CreateApplication(Forge::ApplicationCommandLineArgs args);
 
 int main(int argc, char** argv)
 {
@@ -13,6 +12,6 @@ int main(int argc, char** argv)
 	auto app = Forge::CreateApplication({ argc, argv });
 	app->Run();
 	delete app;
-}
 
-#endif
+	return 0;
+}

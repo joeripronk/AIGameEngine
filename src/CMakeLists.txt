@@ -112,7 +112,6 @@ add_library(lua STATIC
     ${CMAKE_SOURCE_DIR}/vendor/lua/ltable.c
     ${CMAKE_SOURCE_DIR}/vendor/lua/ltablib.c
     ${CMAKE_SOURCE_DIR}/vendor/lua/ltm.c
-    ${CMAKE_SOURCE_DIR}/vendor/lua/lua.c
     ${CMAKE_SOURCE_DIR}/vendor/lua/lundump.c
     ${CMAKE_SOURCE_DIR}/vendor/lua/lutf8lib.c
     ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.c
@@ -120,6 +119,39 @@ add_library(lua STATIC
 )
 target_compile_options(lua PRIVATE -std=gnu90 -Wno-unused-parameter)
 target_include_directories(lua PUBLIC ${CMAKE_SOURCE_DIR}/vendor/lua)
+
+# ---------------------------------------------------------------------------
+# Third-party dependencies (declared before targets so their include dirs and
+# aliases are available to every target below).
+# ---------------------------------------------------------------------------
+find_package(Threads REQUIRED)
+
+set(GLFW_BUILD_WAYLAND OFF)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/fmt ${CMAKE_BINARY_DIR}/vendor/fmt)
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio ${CMAKE_BINARY_DIR}/vendor/miniaudio)
+
+# assimp (engine only - skip its bundled test suite and tools)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp EXCLUDE_FROM_ALL)
+
+# nvrhi fetches a matching Vulkan-Headers (v1.4.352). Capture its include dir
+# so the Vulkan targets compile against the SAME headers nvrhi uses (avoiding
+# a VULKAN_HPP version mismatch with the system SDK headers).
+set(FORGE_VK_HEADERS_INCLUDE "")
+if(TARGET Vulkan-Headers)
+    get_target_property(FORGE_VK_HEADERS_INCLUDE Vulkan-Headers INTERFACE_INCLUDE_DIRECTORIES)
+endif()
 
 target_compile_definitions(ForgeCore PRIVATE LUA_USE_C89 FG_NO_VULKAN_RUNTIME)
 
@@ -137,6 +169,7 @@ target_sources(vulkan PRIVATE
 )
 target_include_directories(vulkan
     PRIVATE
+        ${FORGE_VK_HEADERS_INCLUDE}
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/vendor/glm
         ${CMAKE_SOURCE_DIR}/vendor/entt/single_include
@@ -152,38 +185,6 @@ target_include_directories(vulkan
 )
 target_compile_definitions(vulkan PRIVATE FG_DEBUG)
 target_compile_options(vulkan PRIVATE -std=gnu++20)
-
-# Dependencies
-find_package(Threads REQUIRED)
-
-# GLFW
-set(GLFW_BUILD_WAYLAND OFF)
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
-
-# nvrhi (header-only for core)
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
-
-# glm (header-only)
-# entt (header-only)
-
-# spdlog
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
-
-# fmt
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/fmt ${CMAKE_BINARY_DIR}/vendor/fmt)
-
-# miniaudio
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio ${CMAKE_BINARY_DIR}/vendor/miniaudio)
-
-# stb (header-only)
-
-# assimp (engine only - skip its bundled test suite and tools)
-set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
-set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
-set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp EXCLUDE_FROM_ALL)
 
 # stb (compile definitions for implementation)
 target_compile_definitions(ForgeCore PRIVATE STBI_STATIC STB_IMAGE_IMPLEMENTATION)
@@ -245,6 +246,7 @@ target_sources(ForgeApp
 )
 target_include_directories(ForgeApp
     PUBLIC
+        ${FORGE_VK_HEADERS_INCLUDE}
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/vendor/glm
@@ -260,12 +262,12 @@ target_link_libraries(ForgeApp
         ForgeCore
         vulkan
         nvrhi_vk
-        nvrhi
         glfw
         spdlog::spdlog
         fmt::fmt
         yaml-cpp
         Threads::Threads
+        nvrhi
 )
 set_target_properties(ForgeApp PROPERTIES
     CXX_STANDARD 20
@@ -285,6 +287,7 @@ add_library(forge_vk_dispatch STATIC
     Platform/Vulkan/VulkanDispatch.cpp
 )
 target_link_libraries(forge_vk_dispatch PUBLIC nvrhi_vk)
+target_include_directories(forge_vk_dispatch PRIVATE ${FORGE_VK_HEADERS_INCLUDE})
 
 # Set properties
 set_target_properties(ForgeCore PROPERTIES

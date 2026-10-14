@@ -31,6 +31,7 @@ target_include_directories(ForgeEditor
 
 target_sources(ForgeEditor
     PRIVATE
+        src/Client.cpp
         src/EntryPoint.h
         src/EditorApp.h
         src/EditorApp.cpp
@@ -39,6 +40,7 @@ target_sources(ForgeEditor
 target_link_libraries(ForgeEditor
     PRIVATE
         ForgeApp
+        nvrhi
         imgui
         forge_vk_dispatch
         ${CMAKE_DL_LIBS}

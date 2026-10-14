@@ -10,6 +10,15 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # of declaration order.
 set(CMAKE_LINK_INTERFACE_MULTIPLICITY 3)
 
+# nvrhi_vk references symbols in the nvrhi core library and vice versa; a
+# link group lets the linker resolve that mutual dependency in any order.
+# The group is opened before the objects and closed after the libraries
+# (via CMAKE_CXX_STANDARD_LIBRARIES, which is emitted last).
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--start-group")
+    string(APPEND CMAKE_CXX_STANDARD_LIBRARIES " -Wl,--end-group")
+endif()
+
 # Output directories
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
