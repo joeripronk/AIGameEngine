@@ -82,17 +82,17 @@
 ## 🔨 In Progress
 
 ### Rendering Pipeline (vulkan target)
-- [ ] PBR shader (mesh rendering with PBR materials)
-- [ ] SSAO pass (screen-space ambient occlusion)
-- [ ] HDR pass (HDR accumulation and tonemapping)
-- [ ] Final pass (composite with SSAO overlay)
-- [ ] Shadow map pass
-- [x] Assimp model importer (CPU path: CpuMesh::LoadFromFile, glTF/OBJ/FBX)
+- [x] Vulkan bootstrap: instance + adapter selection + logical device + graphics queue
+- [x] nvrhi device initialization (static build dispatcher fix)
+- [x] CPU model importer (glTF/OBJ/FBX via assimp)
 - [x] Default cube/plane/sphere primitives (CPU, testable)
 - [x] Texture loading (stb_image, LDR + Radiance HDR)
-- [ ] VertexArray/VertexBuffer/IndexBuffer GPU buffers (null stubs in tests)
 - [ ] Shader compilation (GLSL -> SPIR-V; needs glslang at build time)
-- [ ] IBL prefiltering / irradiance maps (needs GPU passes)
+- [ ] VulkanShader + GPU VertexArray/Buffer/IndexBuffer upload
+- [ ] Swapchain + present (VkSwapchainKHR, acquire/present)
+- [ ] PBR pipeline (G-buffer, deferred lighting, shadow map, SSAO, tonemap, final)
+- [ ] IBL prefiltering / irradiance maps
+- [ ] ImGui Vulkan backend init + viewport present
 
 ### Editor (AI-controllable)
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
@@ -141,4 +141,5 @@
 | SetVSync called glfwSwapInterval (OpenGL-only) | ✅ Fixed - no-op for Vulkan surfaces |
 | Vulkan-Hpp header version mismatch (system vs fetched) | ✅ Fixed - all Vulkan targets use nvrhi's fetched headers |
 | Editor viewport has no swapchain | ⚠️ Renderer backend still largely stubs; needs full pipeline + real GPU |
-| Full headless frame (device + swapchain + passes) | ⚠️ Blocked on renderer implementation, not verifiable headless |
+| Full headless frame (device + swapchain + passes) | 🔄 Device now boots (instance+adapter+queue+nvrhi); passes pending shader compilation |
+| Runtime launched the Lua REPL instead of the engine | ✅ Fixed - lua.c removed, cross-platform entry point |

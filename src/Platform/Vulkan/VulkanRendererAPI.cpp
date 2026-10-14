@@ -4,18 +4,19 @@
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
 #include "Forge/Renderer/Renderer.h"
+#include "Forge/Renderer/RendererAPI.h"
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
 
-#include "Forge/Renderer/VertexArray.h"
-#include "Forge/Renderer/VertexBuffer.h"
-#include "Forge/Renderer/IndexBuffer.h"
+#include <algorithm>
+#include <cstring>
+
+#include <GLFW/glfw3.h>
 
 namespace Forge {
 
 	namespace {
-		void* s_Window = nullptr;
 
 		// G-Buffer textures
 		nvrhi::TextureHandle s_GBuffer0; // Position
@@ -43,14 +44,6 @@ namespace Forge {
 		// UBO
 		nvrhi::BufferHandle s_UboBuffer;
 
-		// Descriptor sets
-		nvrhi::DescriptorTableHandle s_GeometryDS;
-		nvrhi::DescriptorTableHandle s_SSAODS;
-		nvrhi::DescriptorTableHandle s_HDRDS;
-		nvrhi::DescriptorTableHandle s_TonemapDS;
-		nvrhi::DescriptorTableHandle s_ShadowDS;
-		nvrhi::DescriptorTableHandle s_FinalDS;
-
 		// Pipelines
 		nvrhi::GraphicsPipelineHandle s_GeometryPipeline;
 		nvrhi::GraphicsPipelineHandle s_SSAOPipeline;
@@ -58,30 +51,291 @@ namespace Forge {
 		nvrhi::GraphicsPipelineHandle s_TonemapPipeline;
 		nvrhi::GraphicsPipelineHandle s_ShadowPipeline;
 		nvrhi::GraphicsPipelineHandle s_FinalPipeline;
+
 	}
 
 	// Static member definitions
+	VkInstance VulkanRendererAPI::s_Instance = VK_NULL_HANDLE;
+	VkPhysicalDevice VulkanRendererAPI::s_PhysicalDevice = VK_NULL_HANDLE;
+	VkDevice VulkanRendererAPI::s_LogicalDevice = VK_NULL_HANDLE;
+	VkSurfaceKHR VulkanRendererAPI::s_Surface = VK_NULL_HANDLE;
+	VkQueue VulkanRendererAPI::s_GraphicsQueue = VK_NULL_HANDLE;
+	uint32_t VulkanRendererAPI::s_GraphicsQueueIndex = 0;
+	bool VulkanRendererAPI::s_ValidationEnabled = false;
+
 	nvrhi::DeviceHandle VulkanRendererAPI::s_Device;
 	nvrhi::CommandListHandle VulkanRendererAPI::s_CommandList;
 	uint32_t VulkanRendererAPI::s_Width = 0;
 	uint32_t VulkanRendererAPI::s_Height = 0;
 
+	bool VulkanRendererAPI::CreateInstance()
+	{
+		uint32_t extensionCount = 0;
+		const char** extensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+
+		std::vector<const char*> instanceExtensions;
+		if (extensions)
+		{
+			for (uint32_t i = 0; i < extensionCount; ++i)
+				instanceExtensions.push_back(extensions[i]);
+		}
+
+		// Optional validation layer (enabled when available, e.g. dev/test).
+		const char* validationLayer = "VK_LAYER_KHRONOS_validation";
+		uint32_t layerCount = 0;
+		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
+		std::vector<VkLayerProperties> layers(layerCount);
+		vkEnumerateInstanceLayerProperties(&layerCount, layers.data());
+
+		bool hasValidation = false;
+		for (const auto& layer : layers)
+		{
+			if (strcmp(layer.layerName, validationLayer) == 0)
+			{
+				hasValidation = true;
+				break;
+			}
+		}
+
+		VkApplicationInfo appInfo{};
+		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+		appInfo.pApplicationName = "Forge Engine";
+		appInfo.applicationVersion = VK_MAKE_VERSION(0, 1, 0);
+		appInfo.pEngineName = "Forge";
+		appInfo.engineVersion = VK_MAKE_VERSION(0, 1, 0);
+		appInfo.apiVersion = VK_API_VERSION_1_3;
+
+		VkInstanceCreateInfo createInfo{};
+		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		createInfo.pApplicationInfo = &appInfo;
+		createInfo.enabledExtensionCount = (uint32_t)instanceExtensions.size();
+		createInfo.ppEnabledExtensionNames = instanceExtensions.empty() ? nullptr : instanceExtensions.data();
+		createInfo.enabledLayerCount = hasValidation ? 1u : 0u;
+		createInfo.ppEnabledLayerNames = hasValidation ? &validationLayer : nullptr;
+
+		VkResult result = vkCreateInstance(&createInfo, nullptr, &s_Instance);
+		if (result != VK_SUCCESS)
+		{
+			FG_CORE_ERROR("Vulkan: vkCreateInstance failed ({0})", (int)result);
+			return false;
+		}
+
+		s_ValidationEnabled = hasValidation;
+		return true;
+	}
+
+	bool VulkanRendererAPI::PickPhysicalDevice()
+	{
+		uint32_t deviceCount = 0;
+		vkEnumeratePhysicalDevices(s_Instance, &deviceCount, nullptr);
+		if (deviceCount == 0)
+		{
+			FG_CORE_ERROR("Vulkan: no physical devices found");
+			return false;
+		}
+
+		std::vector<VkPhysicalDevice> devices(deviceCount);
+		vkEnumeratePhysicalDevices(s_Instance, &deviceCount, devices.data());
+
+		// Prefer a discrete GPU, then integrated, then anything (e.g. software).
+		int bestScore = -1;
+		s_PhysicalDevice = VK_NULL_HANDLE;
+
+		for (VkPhysicalDevice candidate : devices)
+		{
+			VkPhysicalDeviceProperties props{};
+			vkGetPhysicalDeviceProperties(candidate, &props);
+
+			// Find a queue family that supports graphics.
+			uint32_t queueFamilyCount = 0;
+			vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queueFamilyCount, nullptr);
+			std::vector<VkQueueFamilyProperties> families(queueFamilyCount);
+			vkGetPhysicalDeviceQueueFamilyProperties(candidate, &queueFamilyCount, families.data());
+
+			uint32_t graphicsFamily = UINT32_MAX;
+			for (uint32_t i = 0; i < queueFamilyCount; ++i)
+			{
+				if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
+				{
+					graphicsFamily = i;
+					break;
+				}
+			}
+
+			if (graphicsFamily == UINT32_MAX)
+				continue;
+
+			int score = 0;
+			if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+				score = 3;
+			else if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU)
+				score = 2;
+			else if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU)
+				score = 1;
+
+			if (score > bestScore)
+			{
+				bestScore = score;
+				s_PhysicalDevice = candidate;
+				s_GraphicsQueueIndex = graphicsFamily;
+			}
+		}
+
+		if (s_PhysicalDevice == VK_NULL_HANDLE)
+		{
+			FG_CORE_ERROR("Vulkan: no device with a graphics queue");
+			return false;
+		}
+
+		VkPhysicalDeviceProperties props{};
+		vkGetPhysicalDeviceProperties(s_PhysicalDevice, &props);
+		FG_CORE_INFO("Vulkan: selected physical device '{0}'", props.deviceName);
+		return true;
+	}
+
+	bool VulkanRendererAPI::CreateLogicalDevice()
+	{
+		// Enable the swapchain extension (required for presentation).
+		uint32_t extensionCount = 0;
+		vkEnumerateDeviceExtensionProperties(s_PhysicalDevice, nullptr, &extensionCount, nullptr);
+		std::vector<VkExtensionProperties> available(extensionCount);
+		vkEnumerateDeviceExtensionProperties(s_PhysicalDevice, nullptr, &extensionCount, available.data());
+
+		bool hasSwapchain = false;
+		for (const auto& ext : available)
+		{
+			if (strcmp(ext.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
+			{
+				hasSwapchain = true;
+				break;
+			}
+		}
+
+		if (!hasSwapchain)
+		{
+			FG_CORE_ERROR("Vulkan: device does not support swapchain");
+			return false;
+		}
+
+		const char* deviceExtensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+
+		float queuePriority = 1.0f;
+		VkDeviceQueueCreateInfo queueInfo{};
+		queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+		queueInfo.queueFamilyIndex = s_GraphicsQueueIndex;
+		queueInfo.queueCount = 1;
+		queueInfo.pQueuePriorities = &queuePriority;
+
+		VkDeviceCreateInfo deviceInfo{};
+		deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		deviceInfo.queueCreateInfoCount = 1;
+		deviceInfo.pQueueCreateInfos = &queueInfo;
+		deviceInfo.enabledExtensionCount = 1;
+		deviceInfo.ppEnabledExtensionNames = deviceExtensions;
+
+		VkResult result = vkCreateDevice(s_PhysicalDevice, &deviceInfo, nullptr, &s_LogicalDevice);
+		if (result != VK_SUCCESS)
+		{
+			FG_CORE_ERROR("Vulkan: vkCreateDevice failed ({0})", (int)result);
+			return false;
+		}
+
+		vkGetDeviceQueue(s_LogicalDevice, s_GraphicsQueueIndex, 0, &s_GraphicsQueue);
+		return true;
+	}
+
+	void VulkanRendererAPI::DestroyVulkanObjects()
+	{
+		if (s_Surface != VK_NULL_HANDLE)
+		{
+			vkDestroySurfaceKHR(s_Instance, s_Surface, nullptr);
+			s_Surface = VK_NULL_HANDLE;
+		}
+
+		if (s_LogicalDevice != VK_NULL_HANDLE)
+		{
+			vkDestroyDevice(s_LogicalDevice, nullptr);
+			s_LogicalDevice = VK_NULL_HANDLE;
+		}
+
+		if (s_Instance != VK_NULL_HANDLE)
+		{
+			vkDestroyInstance(s_Instance, nullptr);
+			s_Instance = VK_NULL_HANDLE;
+		}
+
+		s_PhysicalDevice = VK_NULL_HANDLE;
+		s_GraphicsQueue = VK_NULL_HANDLE;
+	}
+
 	void VulkanRendererAPI::Init()
 	{
-		// NOTE: Do NOT call RenderCommand::Init() here. RenderCommand owns the
-		// RendererAPI instance and already calls Init() on it during setup;
-		// re-entering it here would recurse infinitely.
-		nvrhi::vulkan::DeviceDesc desc;
-		s_Device = nvrhi::vulkan::createDevice(desc);
+		if (s_Device)
+			return;
+
+		if (!CreateInstance())
+			return;
+		if (!PickPhysicalDevice())
+		{
+			DestroyVulkanObjects();
+			return;
+		}
+		if (!CreateLogicalDevice())
+		{
+			DestroyVulkanObjects();
+			return;
+		}
+
+		// Hand the low-level objects to nvrhi to build its rendering device.
+		nvrhi::vulkan::DeviceDesc deviceDesc;
+		deviceDesc.instance = s_Instance;
+		deviceDesc.physicalDevice = s_PhysicalDevice;
+		deviceDesc.device = s_LogicalDevice;
+		deviceDesc.graphicsQueue = s_GraphicsQueue;
+		deviceDesc.graphicsQueueIndex = (int)s_GraphicsQueueIndex;
+
+		s_Device = nvrhi::vulkan::createDevice(deviceDesc);
+		if (!s_Device)
+		{
+			FG_CORE_ERROR("Vulkan: nvrhi::vulkan::createDevice returned null");
+			DestroyVulkanObjects();
+			return;
+		}
+
+		// Create a command list the renderer records into.
+		nvrhi::CommandListParameters commandListDesc;
+		s_CommandList = s_Device->createCommandList(commandListDesc);
 
 		FG_CORE_INFO("VulkanRendererAPI initialized");
+	}
+
+	void VulkanRendererAPI::Shutdown()
+	{
+		s_CommandList = nullptr;
+		s_Device = nullptr;
+		DestroyVulkanObjects();
+		FG_CORE_INFO("VulkanRendererAPI shut down");
 	}
 
 	void VulkanRendererAPI::SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height)
 	{
 		s_Width = width;
 		s_Height = height;
-		s_Window = windowHandle;
+
+		if (!s_Instance || !windowHandle)
+			return;
+
+		GLFWwindow* glfwWindow = (GLFWwindow*)windowHandle;
+
+		// Create a Vulkan surface for the GLFW window.
+		if (s_Surface == VK_NULL_HANDLE)
+		{
+			if (glfwCreateWindowSurface(s_Instance, glfwWindow, nullptr, &s_Surface) != VK_SUCCESS)
+			{
+				FG_CORE_ERROR("Vulkan: failed to create window surface");
+				return;
+			}
+		}
 
 		// Create G-Buffer
 		CreateGBuffer(width, height);
@@ -95,7 +349,7 @@ namespace Forge {
 		// Create SSAO Buffer
 		CreateSSAOBuffer(width, height);
 
-		// Create Tonemapped Buffer
+		// Create Tonemapped buffer
 		nvrhi::TextureDesc tonemapDesc;
 		tonemapDesc.width = width;
 		tonemapDesc.height = height;
@@ -104,7 +358,7 @@ namespace Forge {
 		tonemapDesc.isRenderTarget = true;
 		s_TonemappedBuffer = s_Device->createTexture(tonemapDesc);
 
-		// Create Final Buffer
+		// Create Final buffer
 		nvrhi::TextureDesc finalDesc;
 		finalDesc.width = width;
 		finalDesc.height = height;
@@ -126,7 +380,7 @@ namespace Forge {
 		CreateFinalPipeline();
 		CreateShadowPipeline();
 
-		FG_CORE_INFO("Swapchain initialized: {0}x{1}", width, height);
+		FG_CORE_INFO("Swapchain resources initialized: {0}x{1}", width, height);
 	}
 
 	void VulkanRendererAPI::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
@@ -279,5 +533,4 @@ namespace Forge {
 	}
 
 }
-
 #endif // FG_NO_VULKAN_RUNTIME

@@ -79,12 +79,20 @@ namespace Forge {
 
 	void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
 	{
+		if (!shader)
+		{
+			FG_CORE_WARN("ShaderLibrary: refusing to add null shader '{0}'", name);
+			return;
+		}
+
 		FG_CORE_ASSERT_MSG(!Exists(name), "Shader already exists!");
 		m_Shaders[name] = shader;
 	}
 
 	void ShaderLibrary::Add(const Ref<Shader>& shader)
 	{
+		if (!shader)
+			return;
 		Add(shader->GetName(), shader);
 	}
 

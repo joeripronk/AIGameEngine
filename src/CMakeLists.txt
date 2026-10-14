@@ -153,6 +153,18 @@ if(TARGET Vulkan-Headers)
     get_target_property(FORGE_VK_HEADERS_INCLUDE Vulkan-Headers INTERFACE_INCLUDE_DIRECTORIES)
 endif()
 
+# nvrhi's Vulkan backend forces VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 but only
+# initializes the Vulkan-Hpp dispatcher when NVRHI_SHARED_LIBRARY_BUILD is
+# defined (normally shared builds). Because we link nvrhi statically, define it
+# here so createDevice() initializes the dynamic dispatcher; otherwise every
+# vk::Device call goes through an uninitialized (null) loader and aborts.
+if(TARGET nvrhi AND NOT NVRHI_BUILD_SHARED)
+    target_compile_definitions(nvrhi PRIVATE NVRHI_SHARED_LIBRARY_BUILD=1)
+endif()
+if(TARGET nvrhi_vk AND NOT NVRHI_BUILD_SHARED)
+    target_compile_definitions(nvrhi_vk PRIVATE NVRHI_SHARED_LIBRARY_BUILD=1)
+endif()
+
 target_compile_definitions(ForgeCore PRIVATE LUA_USE_C89 FG_NO_VULKAN_RUNTIME)
 
 # Vulkan platform implementation (separate from core for testability)
@@ -183,7 +195,7 @@ target_include_directories(vulkan
         ${CMAKE_BINARY_DIR}/vendor/assimp/include
         /usr/include
 )
-target_compile_definitions(vulkan PRIVATE FG_DEBUG)
+target_compile_definitions(vulkan PRIVATE FG_DEBUG GLFW_INCLUDE_VULKAN)
 target_compile_options(vulkan PRIVATE -std=gnu++20)
 
 # stb (compile definitions for implementation)
@@ -204,12 +216,14 @@ target_link_libraries(ForgeCore
 
 # Vulkan backend depends on GLFW (window/input), the nvrhi Vulkan device and
 # ForgeCore (for CpuTexture decoding used by VulkanTexture).
+find_package(Vulkan REQUIRED)
 target_link_libraries(vulkan
     PRIVATE
         glfw
         nvrhi_vk
         nvrhi
         ForgeCore
+        Vulkan::Vulkan
 )
 
 # ---------------------------------------------------------------------------

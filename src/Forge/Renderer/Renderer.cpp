@@ -84,6 +84,9 @@ namespace Forge {
 
 	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform)
 	{
+		if (!shader || !vertexArray)
+			return;
+
 		shader->Bind();
 		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
 		shader->SetMat4("u_Transform", transform);
@@ -94,6 +97,9 @@ namespace Forge {
 
 	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture)
 	{
+		if (!shader || !vertexArray)
+			return;
+
 		(void)albedoTexture;
 		shader->Bind();
 		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
