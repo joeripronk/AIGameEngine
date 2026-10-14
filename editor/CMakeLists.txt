@@ -26,7 +26,6 @@ target_include_directories(ForgeEditor
         ${CMAKE_SOURCE_DIR}/Platform/Vulkan
         ${CMAKE_SOURCE_DIR}/vendor/imgui
         ${CMAKE_SOURCE_DIR}/vendor/imgui/backends
-        /usr/include
 )
 
 target_sources(ForgeEditor
