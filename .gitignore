@@ -58,3 +58,7 @@ vendor/physx/build/
 resources/models/
 resources/textures/
 resources/hdris/
+
+# Test artifacts
+*.forge
+!resources/scenes/*.forge

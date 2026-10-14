@@ -40,9 +40,12 @@
 ### Editor (ImGui)
 - [x] Scene hierarchy panel
 - [x] Inspector panel
-- [x] Viewport panel
+- [x] Viewport panel with render target
 - [x] Toolbar (file operations)
 - [x] AI-agent controllable API
+- [ ] Gizmo manipulation
+- [ ] Asset browser
+- [ ] Properties panel for global settings
 
 ### Runtime
 - [x] Standalone runtime application

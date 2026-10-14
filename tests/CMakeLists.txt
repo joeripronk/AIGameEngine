@@ -14,6 +14,8 @@ target_sources(ForgeTests
     PRIVATE
         src/CoreTests.cpp
         src/SceneTests.cpp
+        src/ComprehensiveTests.cpp
+        src/EngineFeatureTests.cpp
         src/RendererTests.cpp
         src/PhysicsTests.cpp
         src/ScriptingTests.cpp
@@ -30,6 +32,7 @@ target_compile_definitions(ForgeTests
     PRIVATE
         FG_NO_VULKAN_RUNTIME
         CATCH_CONFIG_NO_PARALLEL_EXECUTION
+        FORGE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 # Set properties

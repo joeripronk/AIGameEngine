@@ -77,6 +77,8 @@ target_sources(ForgeCore
         Forge/Scene/Scene.cpp
         Forge/Scene/SceneSerializer.h
         Forge/Scene/SceneSerializer.cpp
+        Forge/Scene/Prefab.h
+        Forge/Scene/Prefab.cpp
         Forge/Physics/Physics.h
         Forge/Physics/Physics.cpp
         Forge/Scripting/ScriptEngine.h
@@ -141,7 +143,19 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/VulkanIndexBuffer.cpp
     Platform/Vulkan/VulkanWindow.cpp
 )
-target_include_directories(vulkan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(vulkan
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/vendor/glm
+        ${CMAKE_SOURCE_DIR}/vendor/entt/single_include
+        ${CMAKE_SOURCE_DIR}/vendor/spdlog/include
+        ${CMAKE_SOURCE_DIR}/vendor/fmt/include
+        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
+        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
+        ${CMAKE_SOURCE_DIR}/vendor/glfw/include
+        /usr/include
+)
+target_compile_definitions(vulkan PRIVATE FG_DEBUG)
 target_compile_options(vulkan PRIVATE -std=gnu++20)
 
 # Dependencies
@@ -168,9 +182,13 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio ${CMAKE_BINARY_DIR}/vendor
 
 # stb (header-only)
 
-# assimp
-set(ASSIMP_WARNINGS_AS_ERRORS OFF)
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp)
+# assimp (engine only - skip its bundled test suite and tools)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp EXCLUDE_FROM_ALL)
 
 # stb (compile definitions for implementation)
 target_compile_definitions(ForgeCore PRIVATE STBI_STATIC STB_IMAGE_IMPLEMENTATION)
@@ -186,6 +204,13 @@ target_link_libraries(ForgeCore
         yaml-cpp
         assimp
         Threads::Threads
+)
+
+# Vulkan backend depends on GLFW (window/input) and the nvrhi Vulkan device.
+target_link_libraries(vulkan
+    PRIVATE
+        glfw
+        nvrhi_vk
 )
 
 # Set properties

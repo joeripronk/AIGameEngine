@@ -54,6 +54,14 @@ namespace Forge {
 
 	void Scene::DestroyEntity(Entity& entity)
 	{
+		// If the entity owns a physics body, release it first.
+		auto bodyIt = m_PhysicsBodies.find((entt::entity)entity);
+		if (bodyIt != m_PhysicsBodies.end())
+		{
+			Physics::RemoveBody(bodyIt->second);
+			m_PhysicsBodies.erase(bodyIt);
+		}
+
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 		// Invalidate the entity handle so it evaluates to false
@@ -66,17 +74,8 @@ namespace Forge {
 
 		OnPhysicsStart();
 
-		// Scripting
-		{
-			ScriptEngine::OnRuntimeStart(this);
-			// Instantiate all script entities
-			auto view = m_Registry.view<ScriptComponent>();
-			for (auto e : view)
-			{
-				Entity entity = { e, this };
-				ScriptEngine::OnCreateEntity(entity);
-			}
-		}
+		// Scripting: ScriptEngine loads each entity's script and calls OnCreate.
+		ScriptEngine::OnRuntimeStart(this);
 	}
 
 	void Scene::OnRuntimeStop()
@@ -132,14 +131,8 @@ namespace Forge {
 				// Step physics simulation
 				Physics::Update(ts);
 
-				// Retrieve transform from physics
-				auto view = m_Registry.view<RigidbodyComponent>();
-				for (auto e : view)
-				{
-					Entity entity = { e, this };
-					// TODO: Update transform from physics body
-					(void)entity;
-				}
+				// Write simulation results back into the scene transforms
+				SyncPhysicsTransforms();
 			}
 		}
 
@@ -157,15 +150,7 @@ namespace Forge {
 			// Physics
 			{
 				Physics::Update(ts);
-
-				// Retrieve transform from physics
-				auto view = m_Registry.view<RigidbodyComponent>();
-				for (auto e : view)
-				{
-					Entity entity = { e, this };
-					// TODO: Update transform from physics body
-					(void)entity;
-				}
+				SyncPhysicsTransforms();
 			}
 		}
 
@@ -220,9 +205,41 @@ namespace Forge {
 
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
-		std::string name = entity.GetName();
-		Entity newEntity = CreateEntity(name);
-		// TODO: Copy all components
+		FG_CORE_ASSERT_MSG(entity, "Cannot duplicate an invalid entity!");
+
+		// Create a fresh entity (new UUID) and deep-copy every component.
+		Entity newEntity = CreateEntity(entity.GetName());
+
+		if (entity.HasComponent<TagComponent>())
+			newEntity.GetComponent<TagComponent>() = entity.GetComponent<TagComponent>();
+
+		if (entity.HasComponent<TransformComponent>())
+			newEntity.GetComponent<TransformComponent>() = entity.GetComponent<TransformComponent>();
+
+		if (entity.HasComponent<CameraComponent>())
+			newEntity.AddOrReplaceComponent<CameraComponent>(entity.GetComponent<CameraComponent>());
+
+		if (entity.HasComponent<ScriptComponent>())
+			newEntity.AddOrReplaceComponent<ScriptComponent>(entity.GetComponent<ScriptComponent>());
+
+		if (entity.HasComponent<RigidbodyComponent>())
+			newEntity.AddOrReplaceComponent<RigidbodyComponent>(entity.GetComponent<RigidbodyComponent>());
+
+		if (entity.HasComponent<BoxColliderComponent>())
+			newEntity.AddOrReplaceComponent<BoxColliderComponent>(entity.GetComponent<BoxColliderComponent>());
+
+		if (entity.HasComponent<SphereColliderComponent>())
+			newEntity.AddOrReplaceComponent<SphereColliderComponent>(entity.GetComponent<SphereColliderComponent>());
+
+		if (entity.HasComponent<LightComponent>())
+			newEntity.AddOrReplaceComponent<LightComponent>(entity.GetComponent<LightComponent>());
+
+		if (entity.HasComponent<PBRMaterialComponent>())
+			newEntity.AddOrReplaceComponent<PBRMaterialComponent>(entity.GetComponent<PBRMaterialComponent>());
+
+		if (entity.HasComponent<MeshComponent>())
+			newEntity.AddOrReplaceComponent<MeshComponent>(entity.GetComponent<MeshComponent>());
+
 		return newEntity;
 	}
 
@@ -238,20 +255,22 @@ namespace Forge {
 			if (!originalEntity)
 				continue;
 
-			// Create entity with preserved UUID
+			// Create entity with preserved UUID. This already adds the
+			// IDComponent, TransformComponent and TagComponent, so those are
+			// assigned in-place below rather than added again.
 			auto id = originalEntity.GetComponent<IDComponent>().ID;
 			Entity newEntity = copy->CreateEntityWithUUID(id, originalEntity.GetName());
 
-			// Copy TagComponent
+			// Copy TagComponent (already present, assign in place)
 			if (originalEntity.HasComponent<TagComponent>())
 			{
-				newEntity.AddComponent<TagComponent>(originalEntity.GetComponent<TagComponent>());
+				newEntity.GetComponent<TagComponent>() = originalEntity.GetComponent<TagComponent>();
 			}
 
-			// Copy TransformComponent
+			// Copy TransformComponent (already present, assign in place)
 			if (originalEntity.HasComponent<TransformComponent>())
 			{
-				newEntity.AddComponent<TransformComponent>(originalEntity.GetComponent<TransformComponent>());
+				newEntity.GetComponent<TransformComponent>() = originalEntity.GetComponent<TransformComponent>();
 			}
 
 			// Copy CameraComponent
@@ -332,39 +351,35 @@ namespace Forge {
 		Physics::Init();
 		Physics::OnSceneStart();
 
-		// Create physics bodies from entities with RigidbodyComponent
+		m_PhysicsBodies.clear();
+
+		// Box colliders
 		auto view = m_Registry.view<RigidbodyComponent, TransformComponent, BoxColliderComponent>();
 		for (auto e : view)
 		{
 			auto& rb = std::get<0>(view.get(e));
 			auto& transform = std::get<1>(view.get(e));
 
-			PhysicsBody* body = nullptr;
+			PhysicsBody* body = new PhysicsBody((uint64_t)e, rb, std::get<2>(view.get(e)), Physics::GetGravityY());
+			body->Position = transform.Translation;
 
-			if (rb.Type == RigidbodyComponent::BodyType::Static)
-			{
-				body = new PhysicsBody(0, rb, std::get<2>(view.get(e)), Physics::GetGravityY());
-				body->Position = transform.Translation;
-			}
-			else
-			{
-				body = new PhysicsBody(0, rb, std::get<2>(view.get(e)), Physics::GetGravityY());
-				body->Position = transform.Translation;
-			}
-
+			rb.RuntimeBody = body;
+			m_PhysicsBodies[e] = body;
 			Physics::AddBody(body);
 		}
 
-		// Also handle sphere colliders
+		// Sphere colliders
 		auto sphereView = m_Registry.view<RigidbodyComponent, TransformComponent, SphereColliderComponent>();
 		for (auto e : sphereView)
 		{
 			auto& rb = std::get<0>(sphereView.get(e));
 			auto& transform = std::get<1>(sphereView.get(e));
 
-			PhysicsBody* body = new PhysicsBody(0, rb, std::get<2>(sphereView.get(e)), Physics::GetGravityY());
+			PhysicsBody* body = new PhysicsBody((uint64_t)e, rb, std::get<2>(sphereView.get(e)), Physics::GetGravityY());
 			body->Position = transform.Translation;
 
+			rb.RuntimeBody = body;
+			m_PhysicsBodies[e] = body;
 			Physics::AddBody(body);
 		}
 
@@ -373,8 +388,27 @@ namespace Forge {
 
 	void Scene::OnPhysicsStop()
 	{
+		// Clear runtime body pointers on the components before the bodies die.
+		auto view = m_Registry.view<RigidbodyComponent>();
+		for (auto e : view)
+			view.get<RigidbodyComponent>(e).RuntimeBody = nullptr;
+
+		m_PhysicsBodies.clear();
+
 		Physics::OnSceneStop();
 		Physics::Shutdown();
+	}
+
+	void Scene::SyncPhysicsTransforms()
+	{
+		for (auto& [entityHandle, body] : m_PhysicsBodies)
+		{
+			if (!body || !m_Registry.valid(entityHandle))
+				continue;
+
+			auto& transform = m_Registry.get<TransformComponent>(entityHandle);
+			transform.Translation = body->Position;
+		}
 	}
 
 #if !defined(FG_NO_VULKAN_RUNTIME)

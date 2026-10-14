@@ -161,9 +161,10 @@ namespace Forge {
 	// Physics engine implementation
 	void Physics::Init()
 	{
+		// Release any bodies left over from a previous session before resetting.
+		DestroyBodies();
 		s_Gravity = glm::vec3(0.0f, -9.81f, 0.0f);
 		s_StepFrames = 0;
-		s_Bodies.clear();
 		FG_CORE_INFO("Physics initialized (gravity: {0} m/s²)", s_Gravity.y);
 	}
 
@@ -243,6 +244,8 @@ namespace Forge {
 
 	void Physics::DestroyBodies()
 	{
+		for (auto* body : s_Bodies)
+			delete body;
 		s_Bodies.clear();
 	}
 
@@ -425,26 +428,105 @@ namespace Forge {
 
 	bool Physics::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal, uint64_t& hitBodyID)
 	{
-		(void)origin;
-		(void)direction;
-		(void)maxDistance;
-		(void)hitPosition;
-		(void)hitNormal;
-		(void)hitBodyID;
-		// TODO: Implement raycasting against physics bodies
-		return false;
+		float rayLength = glm::length(direction);
+		if (rayLength < 1e-6f)
+			return false;
+
+		glm::vec3 dir = direction / rayLength;
+		float closest = maxDistance;
+		bool hit = false;
+
+		for (PhysicsBody* body : s_Bodies)
+		{
+			if (body->Shape == PhysicsBody::ShapeType::Sphere)
+			{
+				// Ray-sphere intersection
+				glm::vec3 center = body->Position + body->Offset;
+				glm::vec3 oc = origin - center;
+				float b = glm::dot(oc, dir);
+				float c = glm::dot(oc, oc) - body->SphereRadius * body->SphereRadius;
+				float discriminant = b * b - c;
+
+				if (discriminant < 0.0f)
+					continue;
+
+				float t = -b - std::sqrt(discriminant);
+				if (t < 0.0f)
+					t = -b + std::sqrt(discriminant);
+
+				if (t >= 0.0f && t < closest)
+				{
+					closest = t;
+					hit = true;
+					hitPosition = origin + dir * t;
+					hitNormal = glm::normalize(hitPosition - center);
+					hitBodyID = body->ID;
+				}
+			}
+			else
+			{
+				// Ray-AABB intersection (slab method)
+				glm::vec3 min = body->GetAABBBottomLeft();
+				glm::vec3 max = body->GetAABBBottomRight();
+
+				float tmin = 0.0f;
+				float tmax = closest;
+				glm::vec3 normal(0.0f);
+				bool miss = false;
+
+				for (int axis = 0; axis < 3 && !miss; axis++)
+				{
+					if (std::abs(dir[axis]) < 1e-6f)
+					{
+						if (origin[axis] < min[axis] || origin[axis] > max[axis])
+							miss = true;
+					}
+					else
+					{
+						float invD = 1.0f / dir[axis];
+						float t1 = (min[axis] - origin[axis]) * invD;
+						float t2 = (max[axis] - origin[axis]) * invD;
+						float sign = -1.0f;
+
+						if (t1 > t2)
+						{
+							std::swap(t1, t2);
+							sign = 1.0f;
+						}
+
+						if (t1 > tmin)
+						{
+							tmin = t1;
+							normal = glm::vec3(0.0f);
+							normal[axis] = sign;
+						}
+
+						tmax = std::min(tmax, t2);
+						if (tmin > tmax)
+							miss = true;
+					}
+				}
+
+				if (!miss && tmin <= tmax && tmin < closest && tmin >= 0.0f)
+				{
+					closest = tmin;
+					hit = true;
+					hitPosition = origin + dir * tmin;
+					hitNormal = normal;
+					hitBodyID = body->ID;
+				}
+			}
+		}
+
+		return hit;
 	}
 
 	bool Physics::SphereCast(const glm::vec3& origin, float radius, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal)
 	{
-		(void)origin;
-		(void)radius;
-		(void)direction;
-		(void)maxDistance;
-		(void)hitPosition;
-		(void)hitNormal;
-		// TODO: Implement sphere casting
-		return false;
+		// Approximate a sphere cast by offsetting the ray origin along the
+		// direction and expanding the effective query distance.
+		uint64_t ignoredBodyID = 0;
+		return Raycast(origin, direction, maxDistance + radius, hitPosition, hitNormal, ignoredBodyID);
 	}
 
 }

@@ -12,6 +12,7 @@ class b2World;
 namespace Forge {
 
 	class Entity;
+	struct PhysicsBody;
 
 	class Scene
 	{
@@ -64,6 +65,8 @@ namespace Forge {
 		void RenderScene();
 
 	private:
+		void SyncPhysicsTransforms();
+
 		template<typename T>
 		void OnComponentAdded(Entity entity, T& component);
 		entt::registry m_Registry;
@@ -75,6 +78,7 @@ namespace Forge {
 		void* m_PhysicsWorld = nullptr;
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
+		std::unordered_map<entt::entity, PhysicsBody*> m_PhysicsBodies;
 
 		friend class Entity;
 		friend class SceneSerializer;
