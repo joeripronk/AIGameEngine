@@ -98,17 +98,18 @@
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
 - [x] Gizmo manipulation (math layer)
 - [x] AssetRegistry / asset browser backend
-- [ ] ImGui asset browser panel (backend done)
-- [ ] ImGui gizmo interaction (math layer done)
-- [x] Properties panel for global settings
+- [x] ImGui asset browser panel
+- [x] ImGui inspector (all components), hierarchy, properties, gizmo toolbar
+- [ ] ImGui gizmo pointer interaction (drag) — math layer done
 - [ ] Actual viewport rendering (needs real Vulkan device + swapchain)
 
 ### Assets & Resources
-- [ ] AssetRegistry / asset browser backend
-- [ ] IBL (Image-Based Lighting) with HDRIs
-- [ ] Soft shadow maps
-- [ ] Default cube primitive
-- [ ] Resources directory populated with meshes, HDRIs, textures
+- [x] AssetRegistry / asset browser backend + panel
+- [x] CPU texture loading (stb_image LDR + Radiance HDR)
+- [x] CPU model import (assimp: glTF/GLB/OBJ/FBX)
+- [x] Resource fixtures committed (scene, scripts, prefab, model, texture, audio)
+- [ ] IBL (Image-Based Lighting) with HDRIs (needs GPU prefilter passes)
+- [ ] Soft shadow maps (needs GPU shadow pass)
 
 ### Engine Polish
 - [x] Physics-driven transform updates (Scene sync)
