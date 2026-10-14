@@ -27,10 +27,6 @@ jobs:
           cmake \
           ninja-build
 
-    # All third-party dependencies are vendored (glfw, nvrhi, glm, entt,
-    # spdlog, fmt, lua, miniaudio, stb, assimp, catch2, imgui), so only a
-    # compiler and CMake are required.
-
     - name: Configure
       run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
 
@@ -41,13 +37,17 @@ jobs:
       run: ctest --test-dir build --output-on-failure
 
   windows:
-    name: Windows
+    name: Windows (MSVC)
     runs-on: windows-2022
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         submodules: recursive
+
+    - name: Install Vulkan SDK
+      run: |
+        choco install vulkan-sdk -y --no-progress
 
     - name: Configure
       run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
@@ -57,3 +57,21 @@ jobs:
 
     - name: Run tests
       run: ctest --test-dir build -C ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure
+
+  macos:
+    name: macOS (Apple Clang)
+    runs-on: macos-14
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Configure
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+
+    - name: Build
+      run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+    - name: Run tests
+      run: ctest --test-dir build --output-on-failure

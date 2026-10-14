@@ -16,7 +16,6 @@ target_include_directories(ForgeCore
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
         ${CMAKE_BINARY_DIR}/vendor/assimp/include
         ${CMAKE_SOURCE_DIR}/vendor/physx/include
-        /usr/include
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -195,10 +194,13 @@ target_include_directories(vulkan
         ${CMAKE_SOURCE_DIR}/vendor/stb
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
         ${CMAKE_BINARY_DIR}/vendor/assimp/include
-        /usr/include
 )
 target_compile_definitions(vulkan PRIVATE FG_DEBUG GLFW_INCLUDE_VULKAN)
-target_compile_options(vulkan PRIVATE -std=gnu++20)
+if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(vulkan PRIVATE /std:c++20)
+else()
+    target_compile_options(vulkan PRIVATE -std=c++20)
+endif()
 
 # stb (compile definitions for implementation)
 target_compile_definitions(ForgeCore PRIVATE STBI_STATIC STB_IMAGE_IMPLEMENTATION)
@@ -292,6 +294,8 @@ set_target_properties(ForgeApp PROPERTIES
 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ForgeApp PRIVATE -Wno-pedantic -Werror)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(ForgeApp PRIVATE /WX)
 endif()
 
 # nvrhi's Vulkan backend expects the Vulkan-Hpp dynamic dispatch storage
