@@ -193,7 +193,15 @@ namespace Forge::Shaders {
 
 		// Shadow
 		float shadow = 1.0;
-		// TODO: Implement shadow calculation
+		{
+			vec4 shadowProj = u_ShadowViewProjection * vec4(vWorldPosition, 1.0);
+			vec3 shadowCoords = shadowProj.xyz / shadowProj.w;
+			if (shadowCoords.z > 0.0 && shadowCoords.z < 1.0)
+			{
+				float shadowDepth = texture(u_ShadowMap, shadowCoords.xy).r;
+				shadow = (shadowCoords.z >= shadowDepth + 0.005) ? 1.0 : 0.0;
+			}
+		}
 
 		// Final
 		vec3 ambient = (kD * albedo * ao + indirectSpecular) * u_AmbientLight;
