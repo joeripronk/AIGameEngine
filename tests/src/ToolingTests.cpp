@@ -69,14 +69,17 @@ TEST_CASE("Gizmo snapping", "[gizmo][tooling]")
 
 TEST_CASE("AssetRegistry scans and classifies assets", "[assets][tooling]")
 {
-	const std::string root = "test_assets";
+	// A dedicated directory: this test asserts an exact asset count, so it must
+	// not scan a folder other tests also write into.
+	const std::string root = "test_asset_scan";
+	Forge::AssetRegistry::Clear();
+
 	WriteFile(root + "/level.forge", "Scene: x");
 	WriteFile(root + "/player.lua", "return {}");
 	WriteFile(root + "/model.gltf", "{}");
 	WriteFile(root + "/albedo.png", "png");
 	WriteFile(root + "/notes.txt", "hello");
 
-	Forge::AssetRegistry::Clear();
 	Forge::AssetRegistry::Scan(root);
 
 	const auto& all = Forge::AssetRegistry::GetAllAssets();
@@ -307,4 +310,392 @@ TEST_CASE("EditorContext prefab instantiation", "[editor][tooling]")
 	auto positioned = context.InstantiatePrefab("EditorProto", true, { 1.0f, 2.0f, 3.0f });
 	REQUIRE(positioned);
 	REQUIRE(positioned.GetComponent<Forge::TransformComponent>().Translation == glm::vec3(1.0f, 2.0f, 3.0f));
+}
+
+// ---------------------------------------------------------------------------
+// EditorContext: the AI-agent entry point.
+//
+// These cover the surface an agent drives directly: selection, duplication,
+// queries, playback state transitions and gizmo configuration. They also pin
+// down two state-desync bugs that previously made the context disagree with the
+// scene it wraps.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("EditorContext destroys only the requested entity", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    context.CreateEntity("Keep");
+    auto drop = context.CreateEntity("Drop");
+
+    context.DestroyEntity(drop);
+
+    REQUIRE(context.FindEntityByName("Keep"));
+    REQUIRE(!context.FindEntityByName("Drop"));
+}
+
+TEST_CASE("Destroying the selected entity clears the selection", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Target");
+
+    context.SelectEntity(entity);
+    REQUIRE(context.HasSelection());
+
+    context.DestroyEntity(entity);
+    REQUIRE(!context.HasSelection());
+}
+
+TEST_CASE("Destroying an invalid entity does not clear the selection", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto selected = context.CreateEntity("Selected");
+    context.SelectEntity(selected);
+    REQUIRE(context.HasSelection());
+
+    // A default-constructed Entity is invalid. Destroying it must be a no-op;
+    // treating "invalid" as "clear everything" would desync the editor's
+    // selection from the scene for no reason.
+    Forge::Entity nothing;
+    context.DestroyEntity(nothing);
+
+    REQUIRE(context.HasSelection());
+    REQUIRE(context.GetSelectedEntity() == selected);
+}
+
+TEST_CASE("EditorContext ClearSelection empties the selection", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Thing");
+
+    context.SelectEntity(entity);
+    context.ClearSelection();
+
+    REQUIRE(!context.HasSelection());
+    REQUIRE(!context.GetSelectedEntity());
+}
+
+TEST_CASE("EditorContext duplicates an entity with its components", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto original = context.CreateEntity("Original");
+
+    auto& tc = original.GetComponent<Forge::TransformComponent>();
+    tc.Translation = { 1.0f, 2.0f, 3.0f };
+    tc.Scale = { 2.0f, 2.0f, 2.0f };
+
+    auto& pbr = original.AddComponent<Forge::PBRMaterialComponent>();
+    pbr.Albedo = { 0.25f, 0.5f, 0.75f };
+    original.AddComponent<Forge::BoxColliderComponent>();
+
+    auto copy = context.DuplicateEntity(original);
+    REQUIRE(copy);
+    REQUIRE(copy.GetUUID() != original.GetUUID());
+
+    REQUIRE(copy.GetComponent<Forge::TransformComponent>().Translation == glm::vec3(1.0f, 2.0f, 3.0f));
+    REQUIRE(copy.GetComponent<Forge::TransformComponent>().Scale == glm::vec3(2.0f, 2.0f, 2.0f));
+    REQUIRE(copy.HasComponent<Forge::BoxColliderComponent>());
+    REQUIRE(copy.GetComponent<Forge::PBRMaterialComponent>().Albedo == glm::vec3(0.25f, 0.5f, 0.75f));
+
+    // The copy must appear in queries alongside the original.
+    REQUIRE(context.GetAllEntities().size() == 2);
+}
+
+TEST_CASE("EditorContext queries find entities by name and UUID", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto alpha = context.CreateEntity("Alpha");
+    auto beta = context.CreateEntity("Beta");
+
+    REQUIRE(context.FindEntityByName("Alpha") == alpha);
+    REQUIRE(context.FindEntityByName("Beta") == beta);
+    REQUIRE(!context.FindEntityByName("Missing"));
+
+    REQUIRE(context.GetEntityByUUID(alpha.GetUUID()) == alpha);
+    REQUIRE(!context.GetEntityByUUID(Forge::UUID()));
+
+    const auto all = context.GetAllEntities();
+    REQUIRE(all.size() == 2);
+}
+
+TEST_CASE("EditorContext GetAllEntities is empty for a new scene", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    REQUIRE(context.GetAllEntities().empty());
+}
+
+TEST_CASE("EditorContext NewScene discards the previous scene", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Old");
+    context.SelectEntity(entity);
+    REQUIRE(context.GetAllEntities().size() == 1);
+
+    context.NewScene();
+
+    REQUIRE(context.GetAllEntities().empty());
+    REQUIRE(!context.HasSelection());
+}
+
+TEST_CASE("EditorContext reports missing scene files without losing state", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Keep");
+    context.SelectEntity(entity);
+
+    // A failed open must leave the current scene and selection untouched.
+    REQUIRE(context.OpenScene("test_assets/does_not_exist.forge") == false);
+    REQUIRE(context.GetAllEntities().size() == 1);
+    REQUIRE(context.GetSelectedEntity() == entity);
+}
+
+TEST_CASE("Play resumes from a paused state", "[editor][tooling]")
+{
+    Forge::Log::Init();
+    Forge::Physics::Init();
+
+    Forge::EditorContext context;
+    context.Play();
+    REQUIRE(context.IsPlaying());
+
+    context.Pause();
+    REQUIRE(context.IsPaused());
+
+    // Play() while paused must resume, not be swallowed by an early return.
+    context.Play();
+    REQUIRE(context.IsPlaying());
+    REQUIRE(!context.IsPaused());
+
+    context.Stop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Pause before Play does not leave the scene paused", "[editor][tooling]")
+{
+    Forge::Log::Init();
+    Forge::Physics::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Faller");
+    entity.AddComponent<Forge::RigidbodyComponent>().Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    entity.AddComponent<Forge::BoxColliderComponent>();
+    entity.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 10.0f, 0.0f };
+
+    // Pause() outside playback is ignored, so it cannot poison later playback.
+    context.Pause();
+
+    context.Play();
+    REQUIRE(!context.IsPaused());
+
+    auto& tc = entity.GetComponent<Forge::TransformComponent>();
+    for (int i = 0; i < 5; i++)
+        context.Update(Forge::Timestep(0.016f));
+
+    // If the Scene's own pause flag had been left set, this would not move.
+    REQUIRE(tc.Translation.y < 10.0f);
+
+    context.Stop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Pause outside playback is ignored", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    context.Pause();
+    REQUIRE(!context.IsPaused());
+
+    context.Stop();
+    REQUIRE(!context.IsPlaying());
+}
+
+TEST_CASE("Step advances exactly the requested frames", "[editor][tooling]")
+{
+    Forge::Log::Init();
+    Forge::Physics::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Faller");
+    entity.AddComponent<Forge::RigidbodyComponent>().Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    entity.AddComponent<Forge::BoxColliderComponent>();
+    entity.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 10.0f, 0.0f };
+
+    context.Play();
+    context.Pause();
+    REQUIRE(context.IsPaused());
+
+    auto& tc = entity.GetComponent<Forge::TransformComponent>();
+
+    // No stepping yet: paused frames must not advance the simulation.
+    context.Update(Forge::Timestep(0.016f));
+    REQUIRE(tc.Translation.y == Approx(10.0f));
+
+    // Three explicit steps.
+    context.Step(3);
+    for (int i = 0; i < 3; i++)
+        context.Update(Forge::Timestep(0.016f));
+
+    REQUIRE(tc.Translation.y < 10.0f);
+
+    // The step budget is spent, so further paused frames do nothing.
+    const float afterSteps = tc.Translation.y;
+    context.Update(Forge::Timestep(0.016f));
+    REQUIRE(tc.Translation.y == Approx(afterSteps));
+
+    context.Stop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Stop is safe to call repeatedly and outside playback", "[editor][tooling]")
+{
+    Forge::Log::Init();
+    Forge::Physics::Init();
+
+    Forge::EditorContext context;
+    REQUIRE_NOTHROW(context.Stop());
+    REQUIRE_NOTHROW(context.Stop());
+
+    context.Play();
+    REQUIRE_NOTHROW(context.Stop());
+    REQUIRE_NOTHROW(context.Stop());
+    REQUIRE(!context.IsPlaying());
+    REQUIRE(!context.IsPaused());
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("EditorContext exposes gizmo mode, space and snap", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+
+    REQUIRE(context.GetGizmoMode() == Forge::Gizmo::Mode::Translate);
+    REQUIRE(context.GetGizmoSpace() == Forge::Gizmo::Space::World);
+    REQUIRE(context.GetTranslationSnap() == Approx(0.0f));
+
+    context.SetGizmoMode(Forge::Gizmo::Mode::Rotate);
+    context.SetGizmoSpace(Forge::Gizmo::Space::Local);
+    context.SetTranslationSnap(0.25f);
+
+    REQUIRE(context.GetGizmoMode() == Forge::Gizmo::Mode::Rotate);
+    REQUIRE(context.GetGizmoSpace() == Forge::Gizmo::Space::Local);
+    REQUIRE(context.GetTranslationSnap() == Approx(0.25f));
+}
+
+TEST_CASE("EditorContext exposes a camera with a usable projection", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    context.GetCamera().SetProjection(60.0f, 16.0f / 9.0f, 0.1f, 1000.0f);
+    context.GetCamera().SetPosition({ 0.0f, 0.0f, 5.0f });
+    context.GetCamera().OnUpdate(0.016f);
+
+    REQUIRE(context.GetCamera().GetPosition() == glm::vec3(0.0f, 0.0f, 5.0f));
+
+    // After an update the combined matrix must reflect the camera placement
+    // rather than still being the untouched default.
+    REQUIRE(context.GetViewProjection() != glm::mat4(1.0f));
+
+    // Moving the camera must change the matrix an agent is handed.
+    const glm::mat4 before = context.GetViewProjection();
+    context.GetCamera().SetPosition({ 10.0f, 2.0f, 5.0f });
+    context.GetCamera().OnUpdate(0.016f);
+    REQUIRE(context.GetViewProjection() != before);
+}
+
+TEST_CASE("EditorContext InstantiatePrefab reports unknown prefabs", "[editor][tooling]")
+{
+    Forge::Log::Init();
+    Forge::PrefabLibrary::SetDirectory(std::string(FORGE_SOURCE_DIR) + "/resources/prefabs/");
+
+    Forge::EditorContext context;
+    REQUIRE(!context.InstantiatePrefab("NoSuchPrefab"));
+
+    const size_t before = context.GetAllEntities().size();
+    context.InstantiatePrefab("NoSuchPrefab", true, glm::vec3(1.0f));
+    REQUIRE(context.GetAllEntities().size() == before);
+}
+
+TEST_CASE("EditorContext round-trips a scene through save and open", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    Forge::EditorContext context;
+    auto entity = context.CreateEntity("Persisted");
+    entity.GetComponent<Forge::TransformComponent>().Translation = { 4.0f, 5.0f, 6.0f };
+    auto& pbr = entity.AddComponent<Forge::PBRMaterialComponent>();
+    pbr.Metallic = 0.75f;
+    pbr.Roughness = 0.25f;
+
+    const std::string path = "test_assets/EditorContextRoundTrip.forge";
+    REQUIRE(context.SaveScene(path));
+
+    context.NewScene();
+    REQUIRE(context.GetAllEntities().empty());
+
+    REQUIRE(context.OpenScene(path));
+    auto reloaded = context.FindEntityByName("Persisted");
+    REQUIRE(reloaded);
+    REQUIRE(reloaded.GetComponent<Forge::TransformComponent>().Translation == glm::vec3(4.0f, 5.0f, 6.0f));
+    REQUIRE(reloaded.GetComponent<Forge::PBRMaterialComponent>().Metallic == Approx(0.75f));
+    REQUIRE(reloaded.GetComponent<Forge::PBRMaterialComponent>().Roughness == Approx(0.25f));
+}
+
+TEST_CASE("An agent can build a small scene entirely through the context", "[editor][tooling]")
+{
+    Forge::Log::Init();
+
+    // This mirrors the real use case: assemble a scene headlessly, save it, and
+    // confirm every entity and component survived.
+    Forge::EditorContext context;
+
+    auto floor = context.CreateEntity("Floor");
+    floor.AddComponent<Forge::BoxColliderComponent>().Size = glm::vec3(20.0f, 1.0f, 20.0f);
+
+    auto player = context.CreateEntity("Player");
+    player.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 2.0f, 0.0f };
+    auto& rb = player.AddComponent<Forge::RigidbodyComponent>();
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    player.AddComponent<Forge::BoxColliderComponent>().Size = glm::vec3(1.0f);
+    player.AddComponent<Forge::ScriptComponent>().ClassName = "Mover";
+
+    auto& material = player.AddComponent<Forge::PBRMaterialComponent>();
+    material.Albedo = { 0.8f, 0.2f, 0.2f };
+
+    REQUIRE(context.GetAllEntities().size() == 2);
+    REQUIRE(context.FindEntityByName("Player").HasComponent<Forge::ScriptComponent>());
+
+    const std::string path = "test_assets/AgentBuiltScene.forge";
+    REQUIRE(context.SaveScene(path));
+
+    Forge::EditorContext reloaded;
+    REQUIRE(reloaded.OpenScene(path));
+
+    auto reloadedPlayer = reloaded.FindEntityByName("Player");
+    REQUIRE(reloadedPlayer);
+    REQUIRE(reloadedPlayer.GetComponent<Forge::TransformComponent>().Translation == glm::vec3(0.0f, 2.0f, 0.0f));
+    REQUIRE(reloadedPlayer.GetComponent<Forge::RigidbodyComponent>().Type == Forge::RigidbodyComponent::BodyType::Dynamic);
+    REQUIRE(reloadedPlayer.GetComponent<Forge::ScriptComponent>().ClassName == "Mover");
+    REQUIRE(reloadedPlayer.GetComponent<Forge::PBRMaterialComponent>().Albedo == glm::vec3(0.8f, 0.2f, 0.2f));
+    REQUIRE(reloaded.FindEntityByName("Floor").HasComponent<Forge::BoxColliderComponent>());
 }

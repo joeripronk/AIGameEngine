@@ -67,13 +67,15 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (146 test cases, 1130 assertions - all passing, order-independent)
+### Tests (165 test cases, 1205 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
 - [x] EngineFeatureTests (serializer, runtime format, physics sync, raycast, prefabs, scripting)
 - [x] RendererFeatureTests (cube/plane/sphere primitives, PNG/HDR texture decoding)
-- [x] ToolingTests (gizmo math, asset registry, game export, editor context)
+- [x] ToolingTests (gizmo math, asset registry, game export, editor context:
+      entity lifecycle, selection, duplication, queries, playback, gizmo config,
+      scene round-trip, and a headless end-to-end agent-built scene)
 - [x] TestSceneTests (loads the comprehensive EngineTest.forge scene and
       verifies every component + physics + the scripting API end-to-end)
 - [x] RendererTests (null stubs)
@@ -171,3 +173,8 @@
 | Discrete detection let fast bodies tunnel | ✅ Fixed - optional adaptive CCD substepping replaces the velocity clamp |
 | Contacts were lost when CCD resolved them mid-frame | ✅ Fixed - contacts accumulate across all substeps of a frame |
 | `Physics::Init()` leaked solver configuration | ✅ Fixed - CCD, max substeps and sleeping thresholds now reset per session |
+| `EditorContext::Step()` did nothing while paused | ✅ Fixed - paused frames routed to the editor update, so explicit steps never simulated |
+| `Play()` could not resume from pause | ✅ Fixed - Play() now clears the paused flag instead of returning early |
+| `Play()` desynced the scene's pause flag | ✅ Fixed - context and scene are now always told together |
+| `DestroyEntity(invalid)` cleared the selection | ✅ Fixed - only destroying a real entity can invalidate the selection |
+| AssetRegistry test counted assets in a shared dir | ✅ Fixed - it now scans its own scratch directory |

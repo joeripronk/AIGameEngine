@@ -67,7 +67,12 @@ namespace Forge {
 
 	void EditorContext::DestroyEntity(Entity entity)
 	{
-		if (!entity || m_SelectedEntity == entity)
+		// Only a real destroy can invalidate the selection. Passing an already
+		// invalid entity must be a no-op, not a way to silently clear selection.
+		if (!entity)
+			return;
+
+		if (m_SelectedEntity == entity)
 			m_SelectedEntity = {};
 
 		m_Scene->DestroyEntity(entity);
@@ -99,29 +104,45 @@ namespace Forge {
 
 	void EditorContext::Play()
 	{
+		// Playing while paused means resume, so clear the paused flag rather
+		// than returning early and leaving the caller stuck.
 		if (m_IsPlaying)
+		{
+			m_IsPaused = false;
+			m_Scene->SetPaused(false);
 			return;
+		}
 
 		m_IsPlaying = true;
 		m_IsPaused = false;
+
+		// The Scene holds its own pause flag and OnUpdateRuntime reads it, so
+		// the context and the scene must be told together. Pause() may have been
+		// called before playback ever started.
+		m_Scene->SetPaused(false);
 		m_Scene->OnRuntimeStart();
 	}
 
 	void EditorContext::Pause()
 	{
+		// Pausing is only meaningful during playback; outside it, toggling would
+		// leave a stale flag that Play() would then have to undo.
+		if (!m_IsPlaying)
+			return;
+
 		m_IsPaused = !m_IsPaused;
 		m_Scene->SetPaused(m_IsPaused);
 	}
 
 	void EditorContext::Stop()
 	{
-		if (m_IsPlaying)
-		{
-			m_Scene->OnRuntimeStop();
-			m_IsPlaying = false;
-			m_IsPaused = false;
-			m_Scene->SetPaused(false);
-		}
+		if (!m_IsPlaying)
+			return;
+
+		m_Scene->OnRuntimeStop();
+		m_IsPlaying = false;
+		m_IsPaused = false;
+		m_Scene->SetPaused(false);
 	}
 
 	void EditorContext::SetPlaying(bool playing)
@@ -145,9 +166,19 @@ namespace Forge {
 		if (m_IsPlaying)
 		{
 			if (m_IsPaused)
-				m_Scene->OnUpdateEditor(ts);
+			{
+				// A paused frame is normally editor-only, but an explicit
+				// Step() request must actually advance the simulation, otherwise
+				// single-stepping silently does nothing.
+				if (m_Scene->HasPendingSteps())
+					m_Scene->OnUpdateSimulation(ts);
+				else
+					m_Scene->OnUpdateEditor(ts);
+			}
 			else
+			{
 				m_Scene->OnUpdateRuntime(ts);
+			}
 		}
 		else
 		{

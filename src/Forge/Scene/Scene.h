@@ -70,6 +70,11 @@ namespace Forge {
 
 		void Step(int frames = 1);
 
+		// Whether a paused frame was requested via Step() and has not yet been
+		// consumed. Callers use this to decide between a simulation update and an
+		// editor-only update, so that stepping actually advances the world.
+		bool HasPendingSteps() const { return m_StepFrames > 0; }
+
 		template<typename... Components>
 		auto GetAllEntitiesWith()
 		{

@@ -69,6 +69,7 @@ resources/hdris/
 /test_*.forge
 /test_*.rt
 /test_assets/
+/test_asset_scan/
 /test_export/
 /test_prefabs/
 /test_scripts/
