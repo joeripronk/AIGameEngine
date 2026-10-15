@@ -224,6 +224,26 @@ namespace Forge {
 		m_StepFrames = frames;
 	}
 
+	std::vector<Entity> Scene::GetEntitiesInOrder() const
+	{
+		std::vector<Entity> entities;
+
+		auto view = m_Registry.view<IDComponent>();
+
+		for (auto handle : view)
+			entities.push_back(Entity{ handle, const_cast<Scene*>(this) });
+
+		// Entity handles are assigned monotonically on creation, so sorting by
+		// handle yields authoring order.
+		std::sort(entities.begin(), entities.end(),
+			[](const Entity& a, const Entity& b)
+			{
+				return static_cast<uint32_t>(a) < static_cast<uint32_t>(b);
+			});
+
+		return entities;
+	}
+
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		FG_CORE_ASSERT_MSG(entity, "Cannot duplicate an invalid entity!");

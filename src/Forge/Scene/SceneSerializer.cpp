@@ -322,14 +322,12 @@ namespace Forge {
 		out << YAML::BeginMap;
 		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
 		out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-		for (auto entityID : m_Scene->m_Registry.view<IDComponent>())
-		{
-			Entity entity{ entityID, m_Scene.get() };
-			if (!entity)
-				continue;
 
+		// Authoring order, not enTT view order: the file is then stable across
+		// save/load cycles, and reloading it reproduces the same entity order.
+		for (const Entity& entity : m_Scene->GetEntitiesInOrder())
 			SerializeEntity(out, entity);
-		}
+
 		out << YAML::EndSeq;
 		out << YAML::EndMap;
 

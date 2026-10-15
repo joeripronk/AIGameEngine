@@ -8,6 +8,8 @@
 
 #include <entt/entt.hpp>
 
+#include <vector>
+
 class b2World;
 
 namespace Forge {
@@ -57,6 +59,15 @@ namespace Forge {
 		void OnViewportResize(uint32_t width, uint32_t height);
 
 		Entity DuplicateEntity(Entity entity);
+
+		// Entities in creation order.
+		//
+		// enTT's views iterate in an unspecified order, which varies with the
+		// sequence of additions and removals. Anything that must be reproducible
+		// (a saved scene, a script update order, "the first primary camera")
+		// needs a defined order, so this sorts by entity handle, which is assigned
+		// monotonically on creation and therefore matches authoring order.
+		std::vector<Entity> GetEntitiesInOrder() const;
 
 		Entity FindEntityByName(std::string_view name);
 		Entity GetEntityByUUID(UUID uuid);

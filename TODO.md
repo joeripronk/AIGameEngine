@@ -67,9 +67,11 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (165 test cases, 1205 assertions - all passing, order-independent)
+### Tests (182 test cases, 1341 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
+- [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
+      entity order/count, empty fields, out-of-range values, save determinism)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
 - [x] EngineFeatureTests (serializer, runtime format, physics sync, raycast, prefabs, scripting)
 - [x] RendererFeatureTests (cube/plane/sphere primitives, PNG/HDR texture decoding)
@@ -178,3 +180,4 @@
 | `Play()` desynced the scene's pause flag | ✅ Fixed - context and scene are now always told together |
 | `DestroyEntity(invalid)` cleared the selection | ✅ Fixed - only destroying a real entity can invalidate the selection |
 | AssetRegistry test counted assets in a shared dir | ✅ Fixed - it now scans its own scratch directory |
+| Entity iteration order was unspecified | ✅ Fixed - `Scene::GetEntitiesInOrder()` gives authoring order; the serializer writes in that order so save/load is a fixed point |

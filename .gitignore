@@ -70,6 +70,7 @@ resources/hdris/
 /test_*.rt
 /test_assets/
 /test_asset_scan/
+/test_roundtrip/
 /test_export/
 /test_prefabs/
 /test_scripts/
