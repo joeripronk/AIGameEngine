@@ -198,6 +198,30 @@ Entities:
 - Comprehensive error handling with logging
 - Platform-agnostic core (Vulkan abstraction)
 
+### Sanitizers find what tests cannot
+
+A use-after-free reads a plausible value, so Debug and Release both pass while
+the engine is corrupting memory. CI runs the suite under ASan + UBSan:
+
+```bash
+cmake -S . -B build-asan -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+  -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+cmake --build build-asan && ASAN_OPTIONS=detect_leaks=0 ./build-asan/bin/ForgeTests
+```
+
+It has found two real defects that no assertion could see: a freed `PhysicsBody`
+read for its ID after removal, and an upstream miniaudio use-after-free on the
+clip-not-found path.
+
+### Test assets must actually decode
+
+A committed asset that is *nearly* right is worse than none, because it decodes
+to plausible garbage. The HDRI fixture checks decoded **values**, not just that
+a buffer came back: stb reads flat RGBE only when the width is under 8, so a
+wider file must be adaptively RLE encoded with four component planes per
+scanline — interleaving pixels instead decodes silently to noise.
+
 ### Error handling convention
 
 The engine has been bitten repeatedly by operations that reported success by

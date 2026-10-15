@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cmath>
 #include <catch2/catch_approx.hpp>
 using Catch::Approx;
 
@@ -138,4 +139,47 @@ TEST_CASE("CpuTexture handles bad input gracefully", "[texture]")
 {
     REQUIRE(Forge::CpuTexture::Load("definitely_missing.png") == nullptr);
     REQUIRE(Forge::CpuTexture::Load(FORGE_SOURCE_DIR "/README.md") == nullptr);
+}
+TEST_CASE("Committed HDRI fixture decodes as HDR", "[renderer][hdr]")
+{
+    const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/environment/sunset.hdr";
+    auto texture = Forge::CpuTexture::Load(path);
+
+    REQUIRE(texture != nullptr);
+    REQUIRE(texture->IsHDR() == true);
+    REQUIRE(texture->GetWidth() == 64);
+    REQUIRE(texture->GetHeight() == 32);
+
+    // IBL prefiltering reads these floats, so they must be finite and actually
+    // carry light rather than being a decodable but empty buffer.
+    const auto& floats = texture->GetFloats();
+    REQUIRE_FALSE(floats.empty());
+
+    bool sawLight = false;
+    bool allFinite = true;
+    float peak = 0.0f;
+    for (float value : floats)
+    {
+        if (!std::isfinite(value))
+            allFinite = false;
+        if (value > peak)
+            peak = value;
+        if (value > 0.0f)
+            sawLight = true;
+    }
+
+    REQUIRE(allFinite);
+    REQUIRE(sawLight);
+
+    // The RGBE encoding is easy to get wrong in a way that still decodes to
+    // finite, plausible-looking numbers - this fixture was briefly written as
+    // interleaved pixels instead of four component planes, and stb decoded that
+    // into garbage rather than failing. So the *values* are checked, not just
+    // their existence: the sun lobe was authored at about 9x the sky, so a
+    // correct decode peaks there and nowhere near a wildly different figure.
+    REQUIRE(peak > 5.0f);
+    REQUIRE(peak < 20.0f);
+
+    // `allFinite` already covers every channel: a decode that left one plane
+    // corrupt would flip it while the others looked fine.
 }

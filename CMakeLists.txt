@@ -87,6 +87,14 @@ add_compile_definitions(
     $<$<CONFIG:Debug>:FG_DEBUG>
     $<$<CONFIG:Release>:FG_RELEASE>
     $<$<CONFIG:Dist>:FG_DIST>
+
+    # CMake has four other stock configurations. They are optimised and carry no
+    # assertions, so they map onto Release. Leaving them out meant a
+    # RelWithDebInfo or MinSizeRel build defined no macro at all and silently
+    # compiled every assert out - caught only by BuildConfigTests, which exists
+    # precisely as the canary for a misconfigured build.
+    $<$<CONFIG:RelWithDebInfo>:FG_RELEASE>
+    $<$<CONFIG:MinSizeRel>:FG_RELEASE>
 )
 
 # Platform definitions

@@ -98,6 +98,45 @@ jobs:
     - name: Run tests
       run: ctest --test-dir build --output-on-failure
 
+  # Memory errors that no test can observe: a use-after-free reads a plausible
+  # value, so Debug and Release both pass while the engine is corrupts memory.
+  # This job found two real ones - a freed PhysicsBody read for its ID, and an
+  # upstream miniaudio defect on the clip-not-found path.
+  sanitizers:
+    name: Sanitizers (ASan + UBSan)
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          ninja-build
+
+    - name: Configure
+      run: >
+        cmake -S . -B build -G Ninja
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo
+        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+    - name: Build
+      run: cmake --build build -j$(nproc)
+
+    # Leaks are reported separately; a leak should not block a change while the
+    # use-after-free class is what needs enforcing.
+    - name: Run tests
+      env:
+        ASAN_OPTIONS: detect_leaks=0
+        UBSAN_OPTIONS: print_stacktrace=1
+      run: ctest --test-dir build --output-on-failure
+
   # The shipping configuration has to keep working, not just compile.
   deploy-dist:
     name: Distribution package (Linux)

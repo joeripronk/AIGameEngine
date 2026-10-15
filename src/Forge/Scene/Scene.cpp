@@ -113,7 +113,14 @@ namespace Forge {
 		if (bodyIt == m_PhysicsBodies.end())
 			return;
 
-		Physics::RemoveBody(bodyIt->second);
+		PhysicsBody* body = bodyIt->second;
+
+		// Read while the body is still alive. Physics::RemoveBody frees it, so
+		// reading body->ID afterwards is a use-after-free - which is exactly what
+		// this did, and which only AddressSanitizer caught: Debug reused the
+		// freed block and read back a stale-but-plausible id, so the lookup
+		// entry silently leaked instead of failing.
+		const uint64_t bodyId = body->ID;
 
 		// The body's RigidbodyComponent points at it, and that pointer has to
 		// be cleared too: leaving it dangling means the next EnsurePhysicsBody
@@ -121,7 +128,11 @@ namespace Forge {
 		if (auto* rb = m_Registry.try_get<RigidbodyComponent>((entt::entity)entity))
 			rb->RuntimeBody = nullptr;
 
-		s_BodyOwnerLookup.erase(bodyIt->second->ID);
+		// Cleared before the body leaves the world, so nothing can resolve it to
+		// an owner while it is still mid-removal.
+		s_BodyOwnerLookup.erase(bodyId);
+
+		Physics::RemoveBody(body);
 		m_PhysicsBodies.erase(bodyIt);
 	}
 

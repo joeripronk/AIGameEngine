@@ -10,7 +10,11 @@ using Catch::Approx;
 #include "Forge/Physics/Physics.h"
 #include "Forge/Scripting/ScriptEngine.h"
 
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <vector>
 
 // These tests load the canonical comprehensive scene (resources/scenes/
 // EngineTest.forge) that exercises every engine component and the scripting
@@ -67,7 +71,7 @@ TEST_CASE("Comprehensive test scene loads every component", "[scene][comprehensi
     REQUIRE(box.HasComponent<Forge::PBRMaterialComponent>());
     REQUIRE(box.GetComponent<Forge::PBRMaterialComponent>().Metallic == Approx(0.1f));
     REQUIRE(box.HasComponent<Forge::MeshComponent>());
-    REQUIRE(box.GetComponent<Forge::MeshComponent>().ModelPath == "resources/primitives/cube.obj");
+    REQUIRE(box.GetComponent<Forge::MeshComponent>().ModelPath == "resources/models/test_triangle.obj");
 
     // Sphere: dynamic rigidbody + sphere collider + PBR material.
     REQUIRE(sphere.HasComponent<Forge::RigidbodyComponent>());
@@ -126,4 +130,111 @@ TEST_CASE("Comprehensive test scene drives physics and scripting", "[scene][comp
 
     Forge::Physics::Shutdown();
     Forge::ScriptEngine::Shutdown();
+}
+// ---------------------------------------------------------------------------
+// The scene is comprehensive, and everything it names actually exists
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Every asset the test scene names exists", "[scene][comprehensive]")
+{
+    // The scene referenced resources/primitives/cube.obj, which is not in the
+    // repository, so the mesh it pointed at silently resolved to nothing. The
+    // test that checked the path only checked the *string*, so it passed while
+    // pointing at a file that does not exist.
+    //
+    // Anything a scene names is a promise that the file is there; a reference
+    // that does not resolve is indistinguishable from a typo at authoring time.
+
+    const std::string scenePath = std::string(FORGE_SOURCE_DIR) + "/resources/scenes/EngineTest.forge";
+    std::ifstream in(scenePath);
+    REQUIRE(in.is_open());
+
+    const std::string contents((std::istreambuf_iterator<char>(in)),
+        std::istreambuf_iterator<char>());
+
+    // The asset-bearing fields the serializer understands.
+    const char* keys[] = { "SourcePath:", "ModelPath:", "Path:" };
+
+    std::vector<std::string> referenced;
+    size_t at = 0;
+
+    while (at < contents.size())
+    {
+        for (const char* key : keys)
+        {
+            const std::string needle = key;
+            if (contents.compare(at, needle.size(), needle) != 0)
+                continue;
+
+            at += needle.size();
+            while (at < contents.size() && (contents[at] == ' ' || contents[at] == '\t'))
+                at++;
+
+            const size_t end = contents.find('\n', at);
+            if (end == std::string::npos)
+                break;
+
+            referenced.push_back(contents.substr(at, end - at));
+            at = end;
+        }
+
+        at++;
+    }
+
+    // The scene is only meaningful if it names assets at all.
+    REQUIRE_FALSE(referenced.empty());
+
+    for (const auto& path : referenced)
+    {
+        INFO("scene references '" << path << "'");
+        REQUIRE_FALSE(path.empty());
+        REQUIRE(std::filesystem::exists(std::string(FORGE_SOURCE_DIR) + "/" + path));
+    }
+}
+
+TEST_CASE("The test scene covers every serialisable component", "[scene][comprehensive]")
+{
+    // GAMEENGINE.md asks for a scene exercising every feature. It drifted: audio
+    // and environment maps were missing entirely, and a component added later
+    // would have joined them silently. This makes that drift a build failure.
+
+    auto scene = Forge::CreateRef<Forge::Scene>();
+    Forge::SceneSerializer serializer(scene);
+    REQUIRE(serializer.Deserialize(std::string(FORGE_SOURCE_DIR) + "/resources/scenes/EngineTest.forge"));
+
+    // Excluded, with the reason:
+    //
+    //  - IDComponent, TagComponent and TransformComponent are added to every
+    //    entity automatically, so they need no explicit coverage.
+    //  - NativeScriptComponent holds function pointers bound via Bind<T>(),
+    //    which a scene file cannot express. It is runtime-only, and covered by
+    //    NativeScriptTests instead.
+
+    // Each component must appear on *some* entity in the scene. Requiring one
+    // entity to carry all of them would be wrong - they belong on different
+    // objects - but their absence anywhere is the drift this catches.
+    // A value argument rather than a type parameter, so the list below reads as
+    // "does any entity carry a CameraComponent" at a glance.
+    const auto anyHas = [&scene](auto tag)
+    {
+        using T = decltype(tag);
+
+        for (Forge::Entity entity : scene->GetEntitiesInOrder())
+        {
+            if (entity.HasComponent<T>())
+                return true;
+        }
+        return false;
+    };
+
+    REQUIRE(anyHas(Forge::CameraComponent{}));
+    REQUIRE(anyHas(Forge::LightComponent{}));
+    REQUIRE(anyHas(Forge::RigidbodyComponent{}));
+    REQUIRE(anyHas(Forge::BoxColliderComponent{}));
+    REQUIRE(anyHas(Forge::SphereColliderComponent{}));
+    REQUIRE(anyHas(Forge::MeshComponent{}));
+    REQUIRE(anyHas(Forge::PBRMaterialComponent{}));
+    REQUIRE(anyHas(Forge::ScriptComponent{}));
+    REQUIRE(anyHas(Forge::AudioSourceComponent{}));
+    REQUIRE(anyHas(Forge::EnvironmentMapComponent{}));
 }

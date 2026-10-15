@@ -68,8 +68,8 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (307 test cases, 2200 assertions - all passing, order-independent
-across Debug/Release/Dist, order-independent)
+### Tests (310 test cases, 2230 assertions - all passing, order-independent
+across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
@@ -165,7 +165,8 @@ across Debug/Release/Dist, order-independent)
 - [x] macOS support (CMake fixes, CI on macos-14)
 - [x] Installer/deployment scripts (tools/deploy.sh, tools/deploy.ps1)
 - [x] Release and Dist configurations built and tested in CI on all 3 platforms
-- [x] CI/CD pipeline (Linux, Windows, macOS - Debug builds + tests)
+- [x] CI/CD pipeline (Linux, Windows, macOS - Debug/Release/Dist + tests)
+- [x] ASan + UBSan CI job (memory errors no test can observe)
 
 ---
 
@@ -213,6 +214,11 @@ across Debug/Release/Dist, order-independent)
 | `FG_DEBUG` was defined in every configuration | ✅ Fixed - asserts and the SIGTRAP debugbreak were compiled into the shipping build; `FG_DEBUG` now follows the configuration and asserts are genuinely compiled out |
 | `Dist` had no optimisation flags | ✅ Fixed - CMake has no built-in `Dist`, so its flags were empty and the shipping binary was larger than Release |
 | `ForgeRuntimeDist` collided with `ForgeRuntime` | ✅ Fixed - both wrote to `bin/ForgeRuntime` with identical sources; removed, since a static library keeps its own configuration anyway |
+| Reading a freed `PhysicsBody` for its ID | ✅ Fixed - `ReleasePhysicsBody` called `Physics::RemoveBody` (which frees) and then read `body->ID` to erase the owner lookup; Debug reused the freed block and read a stale-but-plausible id, so it silently leaked. Found by ASan |
+| Upstream miniaudio use-after-free on clip-not-found | ✅ Avoided - miniaudio 0.11.25 frees the data-buffer node then dereferences it; `StartSound` now verifies the clip exists before handing miniaudio a path |
+| `RelWithDebInfo`/`MinSizeRel` defined no config macro | ✅ Fixed - both silently compiled every assert out; they now map onto Release |
+| The test scene referenced a file that did not exist | ✅ Fixed - it pointed at `resources/primitives/cube.obj`; a new test asserts every path a scene names resolves |
+| The HDRI fixture decoded to NaN under optimisation | ✅ Fixed - it was written as flat RGBE at width 64, which stb parses as RLE; now properly adaptively RLE encoded with four component planes |
 | `GetDeltaTime` was documented but never existed | ✅ Fixed - AGENTS.md listed it as a Lua global but no binding, implementation or test existed, so a script calling it got "attempt to call a nil value" |
 | Delta time leaked across runtime sessions | ✅ Fixed - `s_LastDeltaTime` was never reset, so a script's first `OnCreate` saw the previous session's dt on every play/stop/play |
 | Lua setters failed silently | ✅ Fixed - `SetFloat`/`SetBool`/`SetString`/`SetVector3`/`RemoveComponent`/`Destroy` discarded unknown component and field names, so a typo did nothing and looked like it worked; all now return a boolean and log the field they could not find |

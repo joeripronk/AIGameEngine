@@ -72,7 +72,7 @@ Entities:
       Emissive: [0, 0, 0]
       EmissiveIntensity: 0
     MeshComponent:
-      ModelPath: resources/primitives/cube.obj
+      ModelPath: resources/models/test_triangle.obj
       Scale: [1, 1, 1]
   - Entity: 13565381324559204199
     TagComponent:
@@ -133,3 +133,46 @@ Entities:
       Scale: [1, 1, 1]
     CameraComponent:
       Primary: true
+  - Entity: 4471203390182236611
+    TagComponent:
+      Tag: Ambience
+    TransformComponent:
+      Translation: [4, 2, 4]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    AudioSourceComponent:
+      SourcePath: resources/audio/test_tone.wav
+      Volume: 0.8000000119
+      Pitch: 1
+      Loop: true
+      PlayOnStart: true
+      Bus: Music
+      Spatial: true
+      MinDistance: 2
+      MaxDistance: 30
+  - Entity: 7742118830245590213
+    TagComponent:
+      Tag: Footstep
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    AudioSourceComponent:
+      SourcePath: resources/audio/test_tone.wav
+      Volume: 1
+      Pitch: 1
+      Loop: false
+      PlayOnStart: false
+      Bus: SFX
+      Spatial: true
+      MinDistance: 1
+      MaxDistance: 25
+  - Entity: 3390557284170025846
+    TagComponent:
+      Tag: Skybox
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    EnvironmentMapComponent:
+      Path: resources/environment/sunset.hdr

@@ -343,6 +343,27 @@ namespace Forge {
 			return false;
 		}
 
+		// Checked before miniaudio sees the path, not after.
+		//
+		// miniaudio 0.11.25 has a use-after-free on its data-buffer init failure
+		// path: ma_resource_manager_data_buffer_node_acquire frees the node at
+		// its `done:` label and then dereferences it to test
+		// isDataOwnedByResourceManager. AddressSanitizer flags it the moment a
+		// sound is started for a file that does not exist. Passing it a path that
+		// has already been verified avoids entering that path at all, and gives
+		// the caller a clear reason instead of a generic decode failure.
+		//
+		// The vendored copy is left alone deliberately: it is third-party code,
+		// and a local patch would be lost the next time it is re-vendored.
+		std::error_code existsError;
+		const bool exists = std::filesystem::is_regular_file(filepath, existsError) && !existsError;
+		if (!exists)
+		{
+			FG_CORE_ERROR("AudioEngine: no such audio clip '{0}'", filepath);
+			delete sound;
+			return false;
+		}
+
 		ma_sound_config config = ma_sound_config_init();
 		config.pFilePath = filepath.c_str();
 		config.channelsIn = 0;   // use the engine's channel count
