@@ -1,5 +1,8 @@
 # Build outputs
 build/
+build-debug/
+build-release/
+build-dist/
 bin/
 lib/
 *.o
