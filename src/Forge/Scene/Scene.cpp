@@ -876,11 +876,28 @@ namespace Forge {
 		}
 
 		// Render entities with PBR material but no mesh (use default cube)
+		static Ref<Mesh> defaultCube;
 		auto materialView = m_Registry.view<TransformComponent, PBRMaterialComponent>();
 		for (auto entity : materialView)
 		{
-			// TODO: Render default cube with PBR material
-			(void)entity;
+			// Skip entities that already have a MeshComponent (they were drawn above).
+			if (m_Registry.all_of<MeshComponent>(entity))
+				continue;
+
+			auto& transformComp = materialView.get<TransformComponent>(entity);
+			auto& pbrComp = materialView.get<PBRMaterialComponent>(entity);
+
+			if (!defaultCube)
+			{
+				Ref<CpuMesh> cpuCube = Primitives::CreateCube(1.0f);
+				defaultCube = Mesh::CreateFromCpu(cpuCube.get(), Material{});
+			}
+
+			Renderer::Submit(
+				Renderer::GetShaderLibrary().Get("PBR"),
+				defaultCube->GetVertexArray(),
+				transformComp.GetTransform()
+			);
 		}
 
 		// End scene
