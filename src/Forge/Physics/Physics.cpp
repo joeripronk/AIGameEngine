@@ -15,6 +15,9 @@ namespace Forge {
 	std::vector<PhysicsBody*> Physics::s_Bodies;
 	float Physics::s_SleepVelocityThreshold = 0.05f;
 	float Physics::s_SleepTimeThreshold = 0.5f;
+	bool Physics::s_ContinuousCollision = false;
+	uint32_t Physics::s_MaxSubsteps = 8;
+	uint32_t Physics::s_LastSubstepCount = 1;
 	std::vector<Physics::ContactKey> Physics::s_ActiveContacts;
 	std::vector<Physics::ContactKey> Physics::s_PreviousContacts;
 	std::unordered_map<PhysicsBody*, Physics::CollisionCallback> Physics::s_CollisionCallbacks;
@@ -181,6 +184,14 @@ namespace Forge {
 		s_ActiveContacts.clear();
 		s_PreviousContacts.clear();
 		s_CollisionCallbacks.clear();
+
+		// Reset solver configuration too. Init() is the start of a session, so
+		// leaving these set would let one run's tuning silently leak into the
+		// next (and, in tests, across test cases).
+		s_ContinuousCollision = false;
+		s_MaxSubsteps = 8;
+		s_LastSubstepCount = 1;
+
 		FG_CORE_INFO("Physics initialized (gravity: {0} m/s²)", s_Gravity.y);
 	}
 
@@ -243,8 +254,65 @@ namespace Forge {
 		if (s_Bodies.empty())
 			return;
 
-		// Apply gravity to dynamic bodies. Static and kinematic bodies ignore it, and
-		// sleeping bodies are not simulated at all.
+		// Contacts are accumulated across every substep, so a contact that is
+		// detected and resolved on substep 2 of 8 still counts as having
+		// happened this frame.
+		s_ActiveContacts.clear();
+
+		// Without CCD a single iteration is the whole step.
+		if (!s_ContinuousCollision)
+		{
+			s_LastSubstepCount = 1;
+			SimulateSubstep(timestep);
+			UpdateBodyTransforms();
+			DispatchCollisionCallbacks();
+			return;
+		}
+
+		// Adaptive substepping: split the frame so no body can travel far enough
+		// in one substep to pass through the thinnest collider in the scene.
+		const uint32_t substeps = ComputeSubstepCount(timestep);
+		s_LastSubstepCount = substeps;
+
+		const float substepTime = timestep / static_cast<float>(substeps);
+		for (uint32_t i = 0; i < substeps; i++)
+		{
+			SimulateSubstep(substepTime);
+
+			// Once everything has come to rest the remaining substeps cannot
+			// change anything, so stop early. Note this tests for rest directly:
+			// asking ComputeSubstepCount again would be circular, since by
+			// construction the current substep is short enough not to need
+			// subdividing.
+			if (i + 1 < substeps && IsWorldAtRest())
+				break;
+		}
+
+		UpdateBodyTransforms();
+		DispatchCollisionCallbacks();
+	}
+
+	bool Physics::IsWorldAtRest()
+	{
+		for (PhysicsBody* body : s_Bodies)
+		{
+			// Static bodies never move. Kinematic bodies are driven by their own
+			// velocity, so a fast platform is not at rest even though nothing is
+			// pushing it.
+			if (body->IsStatic || body->IsKinematic)
+				continue;
+
+			if (glm::length(body->Velocity) > s_SleepVelocityThreshold)
+				return false;
+		}
+
+		return true;
+	}
+
+	void Physics::SimulateSubstep(float timestep)
+	{
+		// Apply gravity to dynamic bodies. Static and kinematic bodies ignore it,
+		// and sleeping bodies are not simulated at all.
 		for (auto* body : s_Bodies)
 		{
 			if (!body->IsStatic && !body->IsKinematic && !body->IsSleeping)
@@ -253,23 +321,54 @@ namespace Forge {
 			}
 		}
 
-		// Detect collisions (populates s_ActiveContacts)
 		DetectCollisions();
-
-		// Resolve collisions
 		ResolveCollisions(timestep);
-
-		// Integrate bodies
 		IntegrateBodies(timestep);
-
-		// Update transform components in scene
-		UpdateBodyTransforms();
-
-		// Handle body sleeping
 		HandleSleeping(timestep);
+	}
 
-		// Fire enter/exit callbacks for contacts that began or ended this step.
-		DispatchCollisionCallbacks();
+	uint32_t Physics::ComputeSubstepCount(float timestep)
+	{
+		// The thinnest collider sets the scale: a body must never travel more
+		// than half of it in one substep, or it could pass through.
+		float thinnestCollider = 0.0f;
+		float largestDisplacement = 0.0f;
+
+		for (PhysicsBody* body : s_Bodies)
+		{
+			if (body->Shape == PhysicsBody::ShapeType::Sphere)
+			{
+				thinnestCollider = thinnestCollider > 0.0f
+					? std::min(thinnestCollider, body->SphereRadius * 2.0f)
+					: body->SphereRadius * 2.0f;
+			}
+			else
+			{
+				const float thickness = std::min({ body->BoxSize.x, body->BoxSize.y, body->BoxSize.z });
+				thinnestCollider = thinnestCollider > 0.0f
+					? std::min(thinnestCollider, thickness)
+					: thickness;
+			}
+
+			// Static bodies never move, so they cannot tunnel.
+			if (body->IsStatic)
+				continue;
+
+			// Include the velocity the body will gain from acceleration this step,
+			// otherwise a body that is stationary now but accelerating would be
+			// under-counted.
+			const glm::vec3 stepVelocity = body->Velocity + body->Acceleration * timestep;
+			largestDisplacement = std::max(largestDisplacement, glm::length(stepVelocity) * timestep);
+		}
+
+		// A degenerate collider would divide by zero, and a stationary scene
+		// needs no extra work.
+		if (thinnestCollider <= 0.0f || largestDisplacement <= 0.0f)
+			return 1;
+
+		const float maxStepDistance = thinnestCollider * 0.5f;
+		const uint32_t needed = static_cast<uint32_t>(std::ceil(largestDisplacement / maxStepDistance));
+		return std::clamp(needed, 1u, s_MaxSubsteps);
 	}
 
 	void Physics::CreateBodies()
@@ -310,12 +409,15 @@ namespace Forge {
 			// Update velocity
 			body->Velocity += body->Acceleration * timestep;
 
-			// Clamp velocity to prevent tunneling
-			float maxVelocity = 100.0f;
-			float speed = glm::length(body->Velocity);
-			if (speed > maxVelocity)
+			// Safety clamp. With CCD enabled this should never be reached, since
+			// substepping already keeps each substep shorter than the thinnest
+			// collider; it remains as a guard against a pathological timestep or a
+			// degenerate scene where CCD cannot subdivide further.
+			constexpr float kMaxVelocity = 1000.0f;
+			const float speed = glm::length(body->Velocity);
+			if (speed > kMaxVelocity)
 			{
-				body->Velocity = glm::normalize(body->Velocity) * maxVelocity;
+				body->Velocity = glm::normalize(body->Velocity) * kMaxVelocity;
 			}
 
 			// Update position
@@ -331,8 +433,9 @@ namespace Forge {
 
 	void Physics::DetectCollisions()
 	{
-		s_ActiveContacts.clear();
-
+		// Deliberately appends rather than clearing: Update() clears once per
+		// frame, and with substepping the same pair can touch on several
+		// substeps. Only distinct pairs are recorded.
 		for (size_t i = 0; i < s_Bodies.size(); i++)
 		{
 			for (size_t j = i + 1; j < s_Bodies.size(); j++)
@@ -352,14 +455,18 @@ namespace Forge {
 					? bodyA->IntersectsSphere(*bodyB)
 					: bodyA->IntersectsAABB(*bodyB);
 
-				if (touching)
-				{
-					// Order the pair so the key is stable regardless of body
-					// insertion order into s_Bodies.
-					ContactKey key{ bodyA->ID < bodyB->ID ? bodyA->ID : bodyB->ID,
-					                bodyA->ID < bodyB->ID ? bodyB->ID : bodyA->ID };
+				if (!touching)
+					continue;
+
+				// Order the pair so the key is stable regardless of body
+				// insertion order into s_Bodies.
+				const ContactKey key{ bodyA->ID < bodyB->ID ? bodyA->ID : bodyB->ID,
+				                      bodyA->ID < bodyB->ID ? bodyB->ID : bodyA->ID };
+
+				const bool alreadyRecorded = std::find(s_ActiveContacts.begin(), s_ActiveContacts.end(), key)
+					!= s_ActiveContacts.end();
+				if (!alreadyRecorded)
 					s_ActiveContacts.push_back(key);
-				}
 			}
 		}
 	}

@@ -28,6 +28,28 @@ namespace Forge {
 		static void Update(float timestep);
 		static void Step(int frames = 1);
 
+		// --- Continuous collision detection ---
+		//
+		// Discrete detection only tests overlaps at the positions a body occupies
+		// at the start and end of a step, so a fast body can pass clean through a
+		// thin wall. With CCD enabled the step is divided into as many substeps as
+		// are needed for the fastest-moving body to never travel more than half
+		// the thinnest collider in the scene, and collision detection, response and
+		// integration all run at each substep.
+		//
+		// Substepping is adaptive, so a slow scene still costs exactly one step.
+		// GetLastSubstepCount() reports how many substeps the most recent Update
+		// was divided into, regardless of whether an early-out short-circuited
+		// the remaining ones.
+		static void SetContinuousCollision(bool enabled) { s_ContinuousCollision = enabled; }
+		static bool GetContinuousCollision() { return s_ContinuousCollision; }
+
+		// Upper bound on substeps per Update, which bounds the worst-case cost of
+		// a very fast body. Defaults to 8.
+		static void SetMaxSubsteps(uint32_t steps) { s_MaxSubsteps = steps < 1 ? 1 : steps; }
+		static uint32_t GetMaxSubsteps() { return s_MaxSubsteps; }
+		static uint32_t GetLastSubstepCount() { return s_LastSubstepCount; }
+
 		// Collision queries
 		static bool Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal, uint64_t& hitBodyID);
 		static bool SphereCast(const glm::vec3& origin, float radius, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal);
@@ -103,6 +125,20 @@ namespace Forge {
 		static void IntegrateBodies(float timestep);
 		static void HandleSleeping(float timestep);
 
+		// One simulate iteration: gravity, detection, response, integration and
+		// sleeping. Collision callbacks are dispatched once per Update, not once
+		// per substep, so a contact that spans several substeps still reports a
+		// single Begin.
+		static void SimulateSubstep(float timestep);
+
+		// How many substeps this timestep needs so no body moves further than
+		// half the thinnest collider. Returns 1 when nothing moves.
+		static uint32_t ComputeSubstepCount(float timestep);
+
+		// True when every movable body is below the sleep velocity threshold, so
+		// further substeps of this frame cannot change the outcome.
+		static bool IsWorldAtRest();
+
 		// Fires enter/exit callbacks for contacts that began or ended this step.
 		static void DispatchCollisionCallbacks();
 
@@ -115,6 +151,11 @@ namespace Forge {
 		static int s_StepFrames;
 		static float s_SleepVelocityThreshold;
 		static float s_SleepTimeThreshold;
+
+		// Continuous collision detection state.
+		static bool s_ContinuousCollision;
+		static uint32_t s_MaxSubsteps;
+		static uint32_t s_LastSubstepCount;
 
 		// Contacts that overlapped during the current step, and the contacts that
 		// overlapped during the previous step (for enter/exit detection).

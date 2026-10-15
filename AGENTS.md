@@ -403,6 +403,27 @@ it. Kinematic bodies never sleep.
 Positional correction is weighted by inverse mass, so when one partner is
 immovable the movable body absorbs the entire correction rather than half of it.
 
+### Continuous collision detection
+
+Discrete detection only tests overlaps at step boundaries, so a fast body passes
+clean through a thin wall. Enable CCD to subdivide each frame adaptively:
+
+```cpp
+Physics::SetContinuousCollision(true);
+Physics::SetMaxSubsteps(8);              // worst-case cost bound
+Physics::GetLastSubstepCount();          // diagnostics
+```
+
+The substep count is derived from the fastest body's motion and the thinnest
+collider in the scene, so each substep never moves a body more than half the
+thinnest collider. A stationary scene still costs exactly one substep, and the
+loop exits early once every movable body is below the sleep velocity threshold.
+
+Contacts are accumulated across all substeps of a frame, so an impact that is
+detected and resolved on substep 2 of 17 still fires exactly one `Begin` event.
+
+CCD is opt-in. Without it the previous hard velocity clamp applies instead.
+
 ### Integration
 
 - Physics step runs in `OnUpdateRuntime` and `OnUpdateSimulation`

@@ -67,7 +67,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (138 test cases, 1115 assertions - all passing, order-independent)
+### Tests (146 test cases, 1130 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
@@ -79,7 +79,7 @@
 - [x] RendererTests (null stubs)
 - [x] PhysicsTests (physics engine, collision, integration, body sleeping,
       collision callbacks, Scene entity collision handlers, kinematic bodies,
-      resting-contact regression)
+      resting-contact regression, continuous collision detection)
 - [x] ScriptingTests (Lua engine, Lua collision hooks, script state inspection)
 
 ---
@@ -128,6 +128,7 @@
 
 ### Engine Polish
 - [x] Physics-driven transform updates (Scene sync, both directions)
+- [x] Continuous collision detection (adaptive substepping, opt-in)
 - [x] Physics body sleeping (configurable velocity/time thresholds, wake on contact)
 - [x] Physics collision events (per-body callbacks + Scene entity handlers)
 - [x] DuplicateEntity copies all components
@@ -167,3 +168,6 @@
 | `BodyType::Kinematic` was unimplemented | ✅ Fixed - treated as static; now drives by velocity with infinite mass |
 | `PhysicsBody::SleepTime` uninitialised in component ctors | ✅ Fixed - bodies began with garbage sleep time |
 | Test suite was order-dependent | ✅ Fixed - tests leaking the global script/prefab directories now restore them |
+| Discrete detection let fast bodies tunnel | ✅ Fixed - optional adaptive CCD substepping replaces the velocity clamp |
+| Contacts were lost when CCD resolved them mid-frame | ✅ Fixed - contacts accumulate across all substeps of a frame |
+| `Physics::Init()` leaked solver configuration | ✅ Fixed - CCD, max substeps and sleeping thresholds now reset per session |

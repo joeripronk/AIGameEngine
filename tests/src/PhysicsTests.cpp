@@ -1141,3 +1141,215 @@ TEST_CASE("Overlapping bodies are pushed apart, not together", "[physics][restin
 
     Forge::Physics::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Continuous collision detection
+// ---------------------------------------------------------------------------
+
+namespace {
+    // A static wall of the given half-extent, centred on the origin.
+    Forge::PhysicsBody* MakeWall(uint64_t id, float halfThickness)
+    {
+        auto* wall = new Forge::PhysicsBody(id, Forge::RigidbodyComponent{},
+            Forge::BoxColliderComponent{}, 0.0f);
+        wall->IsStatic = true;
+        wall->Position = glm::vec3(0.0f);
+        wall->BoxSize = glm::vec3(halfThickness, 50.0f, 50.0f);
+        return wall;
+    }
+
+    // A small dynamic box launched along +X at the given speed. `startX` places it
+    // so the bullet crosses the wall within a single 60Hz frame.
+    Forge::PhysicsBody* MakeBullet(uint64_t id, float speed, float size = 0.1f, float startX = -1.0f)
+    {
+        auto* bullet = new Forge::PhysicsBody(id, Forge::RigidbodyComponent{},
+            Forge::BoxColliderComponent{}, 0.0f);
+        bullet->IsStatic = false;
+        bullet->Mass = 1.0f;
+        bullet->InverseMass = 1.0f;
+        bullet->Position = glm::vec3(startX, 0.0f, 0.0f);
+        bullet->Velocity = glm::vec3(speed, 0.0f, 0.0f);
+        bullet->BoxSize = glm::vec3(size);
+        bullet->Restitution = 0.0f;
+        return bullet;
+    }
+}
+
+TEST_CASE("A fast body tunnels through a thin wall without CCD", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(false);
+
+    // A 0.05-thick wall and a 0.1 bullet at 200 m/s travel 3.33 m per step,
+    // so discrete detection never sees the overlap.
+    auto* wall = MakeWall(1, 0.025f);
+    auto* bullet = MakeBullet(2, 200.0f);
+    Forge::Physics::AddBody(wall);
+    Forge::Physics::AddBody(bullet);
+
+    Forge::Physics::Update(1.0f / 60.0f);
+
+    // Documented discrete-detection limitation: the bullet ends up past the wall.
+    REQUIRE(Forge::Physics::GetLastSubstepCount() == 1);
+    REQUIRE(bullet->Position.x > 0.0f);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("A fast body does not tunnel through a thin wall with CCD", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+    Forge::Physics::SetMaxSubsteps(64);
+
+    auto* wall = MakeWall(1, 0.025f);
+    auto* bullet = MakeBullet(2, 200.0f);
+    Forge::Physics::AddBody(wall);
+    Forge::Physics::AddBody(bullet);
+
+    Forge::Physics::Update(1.0f / 60.0f);
+
+    // The bullet must be stopped at the near face of the wall, never beyond it.
+    REQUIRE(Forge::Physics::GetLastSubstepCount() > 1);
+    REQUIRE(bullet->Position.x < 0.0f);
+    REQUIRE(bullet->Position.x > -0.5f);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("CCD keeps a fast body from tunnelling through a sphere", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+    Forge::Physics::SetMaxSubsteps(64);
+
+    auto* ball = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::SphereColliderComponent{}, 0.0f);
+    ball->IsStatic = true;
+    ball->Position = glm::vec3(0.0f);
+    ball->SphereRadius = 0.05f;
+
+    auto* bullet = MakeBullet(2, 200.0f);
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::AddBody(bullet);
+
+    Forge::Physics::Update(1.0f / 60.0f);
+
+    REQUIRE(bullet->Position.x < 0.0f);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("CCD costs nothing when nothing is moving", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+
+    auto* a = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    a->IsStatic = false;
+    a->Position = glm::vec3(0.0f);
+    a->BoxSize = glm::vec3(1.0f);
+
+    Forge::Physics::AddBody(a);
+
+    Forge::Physics::Update(1.0f / 60.0f);
+
+    // A stationary scene must stay at a single substep.
+    REQUIRE(Forge::Physics::GetLastSubstepCount() == 1);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("CCD substep count scales with speed", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+    Forge::Physics::SetMaxSubsteps(64);
+
+    // A 0.1-thick box moving 0.167 m per step needs more substeps than one moving
+    // 0.5 m per step (half the thickness is the per-substep budget).
+    auto* slow = MakeBullet(1, 10.0f);
+    Forge::Physics::AddBody(slow);
+    Forge::Physics::Update(1.0f / 60.0f);
+    const uint32_t slowSubsteps = Forge::Physics::GetLastSubstepCount();
+
+    Forge::Physics::Shutdown();
+
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+    Forge::Physics::SetMaxSubsteps(64);
+
+    auto* fast = MakeBullet(1, 30.0f);
+    Forge::Physics::AddBody(fast);
+    Forge::Physics::Update(1.0f / 60.0f);
+    const uint32_t fastSubsteps = Forge::Physics::GetLastSubstepCount();
+
+    REQUIRE(slowSubsteps > 1);
+    REQUIRE(fastSubsteps > slowSubsteps);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("CCD substeps never exceed the configured maximum", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+    Forge::Physics::SetMaxSubsteps(4);
+
+    auto* bullet = MakeBullet(1, 5000.0f);
+    Forge::Physics::AddBody(bullet);
+
+    Forge::Physics::Update(1.0f / 60.0f);
+
+    REQUIRE(Forge::Physics::GetLastSubstepCount() <= 4);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("CCD reports a collision only once across substeps", "[physics][ccd]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetContinuousCollision(true);
+    Forge::Physics::SetMaxSubsteps(32);
+
+    // A 1.0-thick wall (half-extent 0.5) and a 0.2 bullet at 100 m/s covers
+    // 1.67 m per frame, so the bullet crosses the wall mid-frame.
+    auto* wall = MakeWall(1, 0.5f);
+    auto* bullet = MakeBullet(2, 100.0f, 0.2f, -1.5f);
+    Forge::Physics::AddBody(wall);
+    Forge::Physics::AddBody(bullet);
+    Forge::Physics::SetCollisionCallback(bullet, OnContactA);
+
+    Forge::Physics::Update(1.0f / 60.0f);
+
+    // A contact spanning several substeps must still be a single Begin event,
+    // otherwise callbacks would fire many times for one impact.
+    REQUIRE(Forge::Physics::GetLastSubstepCount() > 1);
+    REQUIRE(g_ContactLogA.Enters == 1);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("CCD defaults to disabled and can be toggled", "[physics][ccd]")
+{
+    Forge::Physics::Init();
+    REQUIRE(Forge::Physics::GetContinuousCollision() == false);
+
+    Forge::Physics::SetContinuousCollision(true);
+    REQUIRE(Forge::Physics::GetContinuousCollision() == true);
+
+    Forge::Physics::SetContinuousCollision(false);
+    REQUIRE(Forge::Physics::GetContinuousCollision() == false);
+
+    Forge::Physics::Shutdown();
+}
