@@ -581,3 +581,254 @@ TEST_CASE("Active contacts are reported for the current step", "[physics][collis
 
     Forge::Physics::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Scene-level entity collision handlers
+// ---------------------------------------------------------------------------
+
+namespace {
+    struct SceneContactLog
+    {
+        int Begins = 0;
+        int Ends = 0;
+        uint64_t SelfID = 0;
+        uint64_t OtherID = 0;
+        bool OtherWasValid = false;
+        glm::vec3 LastNormal = glm::vec3(0.0f);
+    };
+
+    SceneContactLog g_SceneContactA;
+    SceneContactLog g_SceneContactB;
+
+    void SceneRecord(SceneContactLog& log, Forge::Entity self, Forge::Entity other, const glm::vec3& n, Forge::Physics::ContactPhase phase)
+    {
+        if (phase == Forge::Physics::ContactPhase::Begin)
+            ++log.Begins;
+        else
+            ++log.Ends;
+
+        log.SelfID = self.GetUUID();
+        log.OtherWasValid = static_cast<bool>(other);
+        log.OtherID = other ? other.GetUUID() : Forge::UUID();
+        log.LastNormal = n;
+    }
+
+    void SceneOnA(Forge::Entity self, Forge::Entity other, const glm::vec3& n, Forge::Physics::ContactPhase p) { SceneRecord(g_SceneContactA, self, other, n, p); }
+    void SceneOnB(Forge::Entity self, Forge::Entity other, const glm::vec3& n, Forge::Physics::ContactPhase p) { SceneRecord(g_SceneContactB, self, other, n, p); }
+
+    void ResetSceneLogs()
+    {
+        g_SceneContactA = SceneContactLog{};
+        g_SceneContactB = SceneContactLog{};
+    }
+
+    // Builds a static ground plane and a dynamic box resting just above it.
+    void BuildCollisionPair(Forge::Scene& scene, Forge::Entity& ground, Forge::Entity& ball)
+    {
+        ground = scene.CreateEntity("Ground");
+
+        auto& groundRb = ground.AddComponent<Forge::RigidbodyComponent>();
+        groundRb.Type = Forge::RigidbodyComponent::BodyType::Static;
+        auto& groundCollider = ground.AddComponent<Forge::BoxColliderComponent>();
+        groundCollider.Size = glm::vec3(10.0f, 1.0f, 10.0f);
+        ground.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f);
+
+        ball = scene.CreateEntity("Ball");
+
+        auto& ballRb = ball.AddComponent<Forge::RigidbodyComponent>();
+        ballRb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+        auto& ballCollider = ball.AddComponent<Forge::BoxColliderComponent>();
+        ballCollider.Size = glm::vec3(1.0f);
+        ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+    }
+}
+
+TEST_CASE("Scene forwards collision events to entity handlers", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    scene.SetCollisionHandler(ball, SceneOnA);
+    scene.SetCollisionHandler(ground, SceneOnB);
+
+    scene.OnPhysicsStart();
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    // Still separated.
+    REQUIRE(g_SceneContactA.Begins == 0);
+
+    // Drop the ball onto the ground.
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(g_SceneContactA.Begins == 1);
+    REQUIRE(g_SceneContactB.Begins == 1);
+
+    // Each handler receives the correct partner.
+    REQUIRE(g_SceneContactA.SelfID == ball.GetUUID());
+    REQUIRE(g_SceneContactA.OtherWasValid == true);
+    REQUIRE(g_SceneContactA.OtherID == ground.GetUUID());
+
+    REQUIRE(g_SceneContactB.SelfID == ground.GetUUID());
+    REQUIRE(g_SceneContactB.OtherID == ball.GetUUID());
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Scene collision handlers fire on separation", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    scene.SetCollisionHandler(ball, SceneOnA);
+    scene.OnPhysicsStart();
+
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+    REQUIRE(g_SceneContactA.Begins == 1);
+    REQUIRE(g_SceneContactA.Ends == 0);
+
+    // Move the ball away: an end event must fire.
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+    REQUIRE(g_SceneContactA.Ends == 1);
+
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+    REQUIRE(g_SceneContactA.Ends == 1);
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Scene collision handler registered before playback still fires", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    // Registered before OnPhysicsStart, so the handler must be attached to the
+    // body as it is created rather than being silently dropped.
+    scene.SetCollisionHandler(ball, SceneOnA);
+    scene.OnPhysicsStart();
+
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(g_SceneContactA.Begins == 1);
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Scene collision handler registered mid-simulation fires", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    scene.OnPhysicsStart();
+
+    // Register after the bodies exist: must bind immediately.
+    scene.SetCollisionHandler(ball, SceneOnA);
+
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(g_SceneContactA.Begins == 1);
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Unregistering a Scene collision handler stops events", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    scene.SetCollisionHandler(ball, SceneOnA);
+    scene.OnPhysicsStart();
+    scene.SetCollisionHandler(ball, nullptr);
+
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(g_SceneContactA.Begins == 0);
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Scene collision handler survives a stop and restart of playback", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    scene.SetCollisionHandler(ball, SceneOnA);
+
+    scene.OnPhysicsStart();
+    scene.OnPhysicsStop();
+
+    // Handlers live on the Scene, so a second run must re-attach them to the
+    // freshly created bodies.
+    scene.OnPhysicsStart();
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(g_SceneContactA.Begins == 1);
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Destroying an entity mid-simulation is safe", "[physics][scene-collision]")
+{
+    ResetSceneLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    Forge::Scene scene;
+    Forge::Entity ground, ball;
+    BuildCollisionPair(scene, ground, ball);
+
+    scene.SetCollisionHandler(ground, SceneOnB);
+    scene.OnPhysicsStart();
+
+    // Removing the partner mid-simulation must not leave a dangling body or
+    // crash the dispatcher on the next step.
+    scene.DestroyEntity(ball);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(g_SceneContactB.Begins == 0);
+
+    scene.OnPhysicsStop();
+    Forge::Physics::Shutdown();
+}

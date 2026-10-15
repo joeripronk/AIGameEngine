@@ -65,7 +65,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (107 test cases, 1034 assertions - all passing)
+### Tests (125 test cases, 1082 assertions - all passing)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
@@ -75,7 +75,8 @@
 - [x] TestSceneTests (loads the comprehensive EngineTest.forge scene and
       verifies every component + physics + the scripting API end-to-end)
 - [x] RendererTests (null stubs)
-- [x] PhysicsTests (physics engine, collision, integration)
+- [x] PhysicsTests (physics engine, collision, integration, body sleeping,
+      collision callbacks, Scene entity collision handlers)
 - [x] ScriptingTests (Lua engine)
 
 ---
@@ -123,7 +124,9 @@
 - [x] Soft shadow maps (implemented)
 
 ### Engine Polish
-- [x] Physics-driven transform updates (Scene sync)
+- [x] Physics-driven transform updates (Scene sync, both directions)
+- [x] Physics body sleeping (configurable velocity/time thresholds, wake on contact)
+- [x] Physics collision events (per-body callbacks + Scene entity handlers)
 - [x] DuplicateEntity copies all components
 - [x] SerializeRuntime/DeserializeRuntime (binary format)
 - [x] Camera viewport resize handling (CameraComponent::UpdateProjection)

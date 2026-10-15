@@ -4,6 +4,7 @@
 #include "Forge/Core/Timestep.h"
 #include "Forge/Core/UUID.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Physics/Physics.h"
 
 #include <entt/entt.hpp>
 
@@ -32,6 +33,19 @@ namespace Forge {
 		// Physics
 		void OnPhysicsStart();
 		void OnPhysicsStop();
+
+		// --- Entity collision events ---
+		//
+		// Handlers are registered per entity and invoked by the physics step when
+		// that entity's body starts or stops touching another body. Registering
+		// replaces any previous handler; passing nullptr unregisters.
+		//
+		// `other` is the entity on the far side of the contact, or a null Entity
+		// when the other body has no entity (or was destroyed mid-simulation).
+		// `normal` points away from the surface towards `self`.
+		using CollisionHandler = void (*)(Entity self, Entity other, const glm::vec3& normal, Physics::ContactPhase phase);
+
+		void SetCollisionHandler(Entity entity, CollisionHandler handler);
 
 		// Simulation
 		void OnSimulationStart();
@@ -67,6 +81,23 @@ namespace Forge {
 	private:
 		void SyncPhysicsTransforms();
 
+		// Copies TransformComponent translations into the matching physics bodies
+		// before the step. Physics otherwise only writes body -> transform, so
+		// without this a script or the editor that moves an entity during play
+		// would silently fail to move the body.
+		void SyncPhysicsBodiesFromTransforms();
+
+		// Bridges a raw PhysicsBody pair to the owning entities and dispatches to
+		// any registered Scene-level handlers. Static for the callback signature;
+		// the active Scene is tracked in s_CollisionDispatchScene.
+		static void DispatchBodyCollision(PhysicsBody& a, PhysicsBody& b, const glm::vec3& normal, Physics::ContactPhase phase);
+
+		// The Scene currently simulating; set for the duration of a physics step.
+		static Scene* s_CollisionDispatchScene;
+
+		// Maps a body pointer to the entity that owns it, valid for one step.
+		static std::unordered_map<uint64_t, entt::entity> s_BodyOwnerLookup;
+
 		template<typename T>
 		void OnComponentAdded(Entity entity, T& component);
 
@@ -81,6 +112,10 @@ namespace Forge {
 
 		std::unordered_map<UUID, entt::entity> m_EntityMap;
 		std::unordered_map<entt::entity, PhysicsBody*> m_PhysicsBodies;
+
+		// Collision handlers keyed by entity UUID so they survive across
+		// OnPhysicsStart/OnPhysicsStop, which destroy and rebuild bodies.
+		std::unordered_map<UUID, CollisionHandler> m_CollisionHandlers;
 
 		friend class Entity;
 		friend class SceneSerializer;

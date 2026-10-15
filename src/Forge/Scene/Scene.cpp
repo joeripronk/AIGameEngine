@@ -24,6 +24,11 @@
 
 namespace Forge {
 
+	// Only one Scene simulates at a time, so a single static pointer is enough
+	// to bridge the physics callback back to entity handlers.
+	Scene* Scene::s_CollisionDispatchScene = nullptr;
+	std::unordered_map<uint64_t, entt::entity> Scene::s_BodyOwnerLookup;
+
 	Scene::Scene()
 	{
 	}
@@ -128,8 +133,16 @@ namespace Forge {
 
 			// Physics
 			{
-				// Step physics simulation
+				// Publish this Scene for the duration of the step so the static
+				// collision bridge can resolve bodies back to entities.
+				s_CollisionDispatchScene = this;
+
+				// Pull any transform edits made since the last step into the
+				// bodies before integrating.
+				SyncPhysicsBodiesFromTransforms();
 				Physics::Update(ts);
+
+				s_CollisionDispatchScene = nullptr;
 
 				// Write simulation results back into the scene transforms
 				SyncPhysicsTransforms();
@@ -149,7 +162,10 @@ namespace Forge {
 		{
 			// Physics
 			{
+				s_CollisionDispatchScene = this;
+				SyncPhysicsBodiesFromTransforms();
 				Physics::Update(ts);
+				s_CollisionDispatchScene = nullptr;
 				SyncPhysicsTransforms();
 			}
 		}
@@ -358,6 +374,23 @@ namespace Forge {
 
 		m_PhysicsBodies.clear();
 
+		// Bodies are addressed by entity handle for the lifetime of the step;
+		// the collision dispatcher uses this to recover the owning entities.
+		s_BodyOwnerLookup.clear();
+
+		// A body whose entity has a registered handler gets the Scene bridge
+		// callback, so Physics never needs to know about entities itself.
+		const auto attachHandler = [this](entt::entity handle)
+		{
+			auto it = m_Registry.try_get<IDComponent>(handle);
+			if (!it)
+				return;
+
+			auto handler = m_CollisionHandlers.find(it->ID);
+			if (handler != m_CollisionHandlers.end() && handler->second)
+				Physics::SetCollisionCallback(m_PhysicsBodies[handle], &Scene::DispatchBodyCollision);
+		};
+
 		// Box colliders
 		auto view = m_Registry.view<RigidbodyComponent, TransformComponent, BoxColliderComponent>();
 		for (auto e : view)
@@ -371,6 +404,8 @@ namespace Forge {
 			rb.RuntimeBody = body;
 			m_PhysicsBodies[e] = body;
 			Physics::AddBody(body);
+			s_BodyOwnerLookup[body->ID] = e;
+			attachHandler(e);
 		}
 
 		// Sphere colliders
@@ -386,9 +421,71 @@ namespace Forge {
 			rb.RuntimeBody = body;
 			m_PhysicsBodies[e] = body;
 			Physics::AddBody(body);
+			s_BodyOwnerLookup[body->ID] = e;
+			attachHandler(e);
 		}
 
 		FG_CORE_INFO("Physics started with {0} bodies", Physics::GetBodies().size());
+	}
+
+	void Scene::SetCollisionHandler(Entity entity, CollisionHandler handler)
+	{
+		if (!entity)
+			return;
+
+		const UUID uuid = entity.GetUUID();
+
+		if (!handler)
+		{
+			m_CollisionHandlers.erase(uuid);
+
+			// Also detach from the live body if the simulation is running.
+			auto bodyIt = m_PhysicsBodies.find((entt::entity)entity);
+			if (bodyIt != m_PhysicsBodies.end())
+				Physics::SetCollisionCallback(bodyIt->second, nullptr);
+			return;
+		}
+
+		m_CollisionHandlers[uuid] = handler;
+
+		// If the body already exists, bind immediately so callers do not have to
+		// register handlers only before playback.
+		auto bodyIt = m_PhysicsBodies.find((entt::entity)entity);
+		if (bodyIt != m_PhysicsBodies.end())
+			Physics::SetCollisionCallback(bodyIt->second, &Scene::DispatchBodyCollision);
+	}
+
+	void Scene::DispatchBodyCollision(PhysicsBody& a, PhysicsBody& b, const glm::vec3& normal, Physics::ContactPhase phase)
+	{
+		Scene* scene = s_CollisionDispatchScene;
+		if (!scene)
+			return;
+
+		// Resolve a body back to its entity; a body with no entity (or one that
+		// was destroyed mid-simulation) yields a null Entity rather than
+		// aborting dispatch.
+		const auto owner = [scene](PhysicsBody& body) -> Entity
+		{
+			auto it = s_BodyOwnerLookup.find(body.ID);
+			if (it == s_BodyOwnerLookup.end() || !scene->m_Registry.valid(it->second))
+				return Entity{ entt::null, scene };
+
+			return Entity{ it->second, scene };
+		};
+
+		Entity self = owner(a);
+		Entity other = owner(b);
+
+		if (!self)
+			return;
+
+		auto it = scene->m_CollisionHandlers.find(self.GetUUID());
+		if (it == scene->m_CollisionHandlers.end() || !it->second)
+			return;
+
+		// Physics already oriented `normal` to point away from the surface
+		// towards `self` for this side of the pair, so it forwards unchanged.
+		it->second(self, other, normal, phase);
 	}
 
 	void Scene::OnPhysicsStop()
@@ -400,8 +497,28 @@ namespace Forge {
 
 		m_PhysicsBodies.clear();
 
+		// Body pointers are gone, so the body->entity lookup must not outlive
+		// them. Handlers themselves are kept so they still apply on the next run.
+		s_BodyOwnerLookup.clear();
+		s_CollisionDispatchScene = nullptr;
+
 		Physics::OnSceneStop();
 		Physics::Shutdown();
+	}
+
+	void Scene::SyncPhysicsBodiesFromTransforms()
+	{
+		for (auto& [entityHandle, body] : m_PhysicsBodies)
+		{
+			if (!body || body->IsStatic || !m_Registry.valid(entityHandle))
+				continue;
+
+			const auto* transform = m_Registry.try_get<TransformComponent>(entityHandle);
+			if (!transform)
+				continue;
+
+			body->Position = transform->Translation;
+		}
 	}
 
 	void Scene::SyncPhysicsTransforms()

@@ -349,6 +349,53 @@ Component type names: `Camera`, `Script`, `Rigidbody`, `BoxCollider`,
 ### Integration
 
 - Physics step runs in `OnUpdateRuntime` and `OnUpdateSimulation`
+- Transform translations are copied into dynamic bodies before the step, so
+  scripts and the editor can move an entity during play
 - Transforms are updated from physics bodies after step
 - Collision detection (AABB + sphere) with impulse response and friction
 - Raycasting (ray-AABB / ray-sphere) via Physics::Raycast
+- Sphere casting via Physics::SphereCast
+
+### Collision events
+
+Contacts are reported as edges, not as a per-step stream. A pair fires
+`Begin` on the step it starts touching and `End` on the step it stops; a pair
+that is still touching on the next step fires neither.
+
+At the physics level:
+
+```cpp
+// Per-body callback. `normal` points away from the surface towards `self`.
+Physics::SetCollisionCallback(body, &OnContact);
+void OnContact(PhysicsBody& self, PhysicsBody& other,
+               const glm::vec3& normal, Physics::ContactPhase phase);
+
+// Contact pairs resolved during the step that just completed.
+for (const auto& key : Physics::GetActiveContacts())
+    FG_INFO("contact {0} <-> {1}", key.A, key.B);
+```
+
+At the scene level, entities get the same events without touching bodies:
+
+```cpp
+scene.SetCollisionHandler(entity, &OnEntityCollision);
+void OnEntityCollision(Entity self, Entity other, const glm::vec3& normal,
+                       Forge::Physics::ContactPhase phase);
+
+// `other` is a null Entity when the partner body has no entity.
+```
+
+Handlers are keyed by entity UUID, so they survive `OnPhysicsStop` /
+`OnPhysicsStart` and are re-attached to the bodies as they are built. They may
+also be registered mid-simulation, or unregistered by passing `nullptr`.
+
+### Sleeping
+
+Bodies whose speed stays under the thresholds fall asleep and stop integrating:
+
+```cpp
+Physics::SetSleepVelocityThreshold(0.05f);  // metres/second
+Physics::SetSleepTimeThreshold(0.5f);       // seconds
+```
+
+A collision wakes both bodies in the pair.
