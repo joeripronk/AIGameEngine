@@ -138,6 +138,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CPU texture loading (stb_image LDR + Radiance HDR)
 - [x] CPU model import (assimp: glTF/GLB/OBJ/FBX)
 - [x] Resource fixtures committed (scene, scripts, prefab, model, texture, audio)
+- [ ] **Commit the missing resource fixtures** — `resources/models/`, `resources/textures/` and `resources/prefabs/` are absent, so the line above is only half true. `resources/` currently holds `audio/`, `environment/`, `scenes/`, `scripts/` and `shaders/` only. Six tests fail on a clean checkout because of it (see the table below); `TestSceneTests` exists precisely because a scene once referenced a model that was never committed.
+- [ ] Create `test_assets/` before writing to it — `EditorContext::SaveScene` does not create parent directories, so the two save/open round-trip tests in `ToolingTests` fail unless the directory already exists
 - [x] IBL (Image-Based Lighting) with HDRIs (irradiance + prefilter cubemaps)
 - [x] Soft shadow maps (implemented)
 
@@ -227,3 +229,4 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | `RemoveComponent` left the physics body alive | ✅ Fixed - there was no removal hook at all, so erasing a collider mid-simulation left a live `PhysicsBody` colliding with dimensions that no longer existed and `RuntimeBody` dangling; `Scene::OnComponentRemoved` now releases it |
 | `AudioSourceComponent` was missing from the editor UI | ✅ Fixed - the component existed, serialized, played and was exposed to Lua, but could not be seen, edited or created in the GUI at all; now rendered in the Inspector with a Scene > Create Audio Source item |
 | `SetSoundVolume` was reverted by the next frame | ✅ Fixed - the authored volume is the single source of truth; both the setter and the per-frame spatial recompute compose gain through `ComputeEffectiveGain` |
+| `vendor/*` submodules could not be cloned | ✅ Fixed - the gitlinks were committed without a `.gitmodules`, so `git submodule update --init` failed with `no submodule mapping found` and a fresh clone could not configure at all |
