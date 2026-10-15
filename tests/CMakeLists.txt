@@ -60,3 +60,6 @@ endif()
 
 # Add test executable
 add_test(NAME ForgeTests COMMAND ForgeTests)
+set_tests_properties(ForgeTests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
