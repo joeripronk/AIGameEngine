@@ -250,6 +250,15 @@ namespace Forge {
 				sphere.AddComponent<PBRMaterialComponent>();
 				m_Editor.SelectEntity(sphere);
 			}
+			if (ImGui::MenuItem("Create Audio Source"))
+			{
+				// Added here because there is no generic "Add Component" menu: an
+				// audio source was previously only reachable by hand-editing the
+				// scene file or driving EditorContext from an agent.
+				auto source = m_Editor.CreateEntity("AudioSource");
+				source.AddComponent<AudioSourceComponent>();
+				m_Editor.SelectEntity(source);
+			}
 			if (ImGui::MenuItem("Delete Selected"))
 			{
 				if (m_Editor.HasSelection())
@@ -384,6 +393,53 @@ namespace Forge {
 				light.Type = (decltype(light.Type))current;
 			ImGui::ColorEdit3("Color##light", &light.Color.x);
 			ImGui::SliderFloat("Intensity##light", &light.Intensity, 0.0f, 50.0f);
+		}
+
+		if (entity.HasComponent<AudioSourceComponent>())
+		{
+			auto& audio = entity.GetComponent<AudioSourceComponent>();
+			ImGui::Text("Audio Source");
+
+			// Kept in a member buffer rather than a local: InputText needs stable
+			// storage across frames, and a local would be reinitialised from the
+			// component each frame, discarding anything mid-edit.
+			strncpy(m_AudioPathBuffer, audio.SourcePath.c_str(), sizeof(m_AudioPathBuffer) - 1);
+			m_AudioPathBuffer[sizeof(m_AudioPathBuffer) - 1] = '\0';
+			if (ImGui::InputText("Clip##audio", m_AudioPathBuffer, sizeof(m_AudioPathBuffer)))
+				audio.SourcePath = m_AudioPathBuffer;
+
+			ImGui::SliderFloat("Volume##audio", &audio.Volume, 0.0f, 1.0f);
+			ImGui::DragFloat("Pitch##audio", &audio.Pitch, 0.01f, 0.01f, 8.0f);
+			ImGui::Checkbox("Loop##audio", &audio.Loop);
+			ImGui::Checkbox("Play On Start##audio", &audio.PlayOnStart);
+
+			// Buses are named rather than numeric so the choice survives a
+			// reordering of the enum and matches what the Lua and scene files use.
+			const char* busNames[] = { "Master", "Music", "SFX", "Voice", "UI" };
+			int currentBus = (int)audio.Bus;
+			if (currentBus < 0 || currentBus >= (int)AudioBus::Count)
+				currentBus = (int)AudioBus::SoundEffects;
+			if (ImGui::Combo("Bus##audio", &currentBus, busNames, IM_ARRAYSIZE(busNames)))
+				audio.Bus = (AudioBus)currentBus;
+
+			ImGui::Separator();
+			ImGui::Checkbox("Spatial (3D)##audio", &audio.Spatial);
+
+			// Distances are meaningless without spatialisation, so they are only
+			// shown when it is on rather than being editable and inert.
+			if (audio.Spatial)
+			{
+				ImGui::DragFloat("Min Distance##audio", &audio.MinDistance, 0.1f, 0.0f, 1000.0f);
+				ImGui::DragFloat("Max Distance##audio", &audio.MaxDistance, 0.1f, 0.0f, 1000.0f);
+
+				// The engine clamps MaxDistance up to just past MinDistance, so an
+				// inverted pair does not silence the source. It collapses the
+				// falloff to a sliver though: full volume everywhere inside
+				// MinDistance, inaudible immediately outside it - a cliff rather
+				// than a ramp. Corrected here where the author can see it.
+				if (audio.MaxDistance < audio.MinDistance)
+					audio.MaxDistance = audio.MinDistance;
+			}
 		}
 
 		if (entity.HasComponent<ScriptComponent>())

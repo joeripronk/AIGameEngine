@@ -124,7 +124,7 @@ across Debug/Release/Dist, order-independent)
 - [x] Gizmo manipulation (math layer)
 - [x] AssetRegistry / asset browser backend
 - [x] ImGui asset browser panel
-- [x] ImGui inspector (all components), hierarchy, properties, gizmo toolbar
+- [x] ImGui inspector (all components incl. AudioSourceComponent), hierarchy, properties, gizmo toolbar
 - [x] ImGui gizmo pointer interaction (drag translate mode)
 - [x] Actual viewport rendering (PBR + shadows rendered to swapchain)
 
@@ -208,4 +208,5 @@ across Debug/Release/Dist, order-independent)
 | `FG_DEBUG` was defined in every configuration | ✅ Fixed - asserts and the SIGTRAP debugbreak were compiled into the shipping build; `FG_DEBUG` now follows the configuration and asserts are genuinely compiled out |
 | `Dist` had no optimisation flags | ✅ Fixed - CMake has no built-in `Dist`, so its flags were empty and the shipping binary was larger than Release |
 | `ForgeRuntimeDist` collided with `ForgeRuntime` | ✅ Fixed - both wrote to `bin/ForgeRuntime` with identical sources; removed, since a static library keeps its own configuration anyway |
+| `AudioSourceComponent` was missing from the editor UI | ✅ Fixed - the component existed, serialized, played and was exposed to Lua, but could not be seen, edited or created in the GUI at all; now rendered in the Inspector with a Scene > Create Audio Source item |
 | `SetSoundVolume` was reverted by the next frame | ✅ Fixed - the authored volume is the single source of truth; both the setter and the per-frame spatial recompute compose gain through `ComputeEffectiveGain` |

@@ -530,6 +530,11 @@ PlaySound("resources/audio/jump.ogg", 1.0, 1.0, false, "SFX")
 serialized by name. An unrecognised name in a scene file falls back to the
 default rather than failing the load.
 
+Authoring is available both ways. `EditorContext` drives it from an agent, and
+the Inspector renders every authored field with a Scene > Create Audio Source
+item — there is no generic Add Component menu, so a component the GUI does not
+render is a component the GUI cannot create.
+
 ### 3D positional audio
 
 `AudioSourceComponent::Spatial` makes a sound's world position come from its

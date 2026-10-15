@@ -52,6 +52,12 @@ namespace Forge {
 		EditorContext m_Editor;
 		ViewportRenderer m_Viewport;
 
+		// Edit buffers for ImGui text fields. These have to outlive the frame:
+		// ImGui::InputText writes through this pointer every frame, so a local
+		// would be re-seeded from the component each frame and discard anything
+		// the author had typed.
+		char m_AudioPathBuffer[256] = {};
+
 		std::string m_Notification;
 		bool m_NotificationIsError = false;
 		int m_NotificationFramesRemaining = 0;

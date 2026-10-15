@@ -770,6 +770,28 @@ TEST_CASE("Inverted radii do not produce undefined behaviour", "[audio][spatial]
 	REQUIRE(std::isfinite(mix.Gain));
 	REQUIRE(mix.Gain >= 0.0f);
 	REQUIRE(mix.Gain <= 1.0f);
+
+	// What it actually does: the engine raises MaxDistance to just past
+	// MinDistance, which collapses the falloff to a sliver. A source inside
+	// MinDistance is full volume and one just outside it is gone, so the curve
+	// is a cliff rather than a ramp. Pinned because the editor corrects this at
+	// authoring time, and that correction is only justified if this is what it
+	// prevents - the comment there originally claimed the source went silent,
+	// which it does not.
+	REQUIRE(Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), { 0.0f, 0.0f, -10.0f }, spatial).Gain == Approx(1.0f));
+
+	const auto justOutside = Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), { 0.0f, 0.0f, -20.5f }, spatial);
+	REQUIRE(justOutside.Gain == Approx(0.0f));
+
+	// A well-ordered pair at the same distances falls off gradually instead.
+	const auto ordered = MakeSpatial(5.0f, 20.0f);
+	const auto midway = Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), { 0.0f, 0.0f, -12.5f }, ordered);
+
+	REQUIRE(midway.Gain > 0.0f);
+	REQUIRE(midway.Gain < 1.0f);
 }
 
 TEST_CASE("Moving the listener changes the mix", "[audio][spatial]")
