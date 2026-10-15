@@ -480,6 +480,9 @@ namespace Forge {
 		tonemapDesc.format = nvrhi::Format::RGBA16_FLOAT;
 		tonemapDesc.isShaderResource = true;
 		tonemapDesc.isRenderTarget = true;
+		tonemapDesc.keepInitialState = true;
+		tonemapDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		tonemapDesc.debugName = "TonemappedBuffer";
 		s_TonemappedBuffer = s_Device->createTexture(tonemapDesc);
 
 		// Create Final buffer
@@ -489,6 +492,9 @@ namespace Forge {
 		finalDesc.format = nvrhi::Format::RGBA8_UNORM;
 		finalDesc.isShaderResource = true;
 		finalDesc.isRenderTarget = true;
+		finalDesc.keepInitialState = true;
+		finalDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		finalDesc.debugName = "FinalBuffer";
 		s_FinalBuffer = s_Device->createTexture(finalDesc);
 
 		// Create post-processing framebuffers.
@@ -583,6 +589,9 @@ namespace Forge {
 		hdrDesc.format = nvrhi::Format::RGBA16_FLOAT;
 		hdrDesc.isShaderResource = true;
 		hdrDesc.isRenderTarget = true;
+		hdrDesc.keepInitialState = true;
+		hdrDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		hdrDesc.debugName = "HDRBuffer";
 		s_HDRBuffer = s_Device->createTexture(hdrDesc);
 
 		FG_CORE_INFO("HDR buffer created: {0}x{1}", width, height);
@@ -596,6 +605,9 @@ namespace Forge {
 		ssaoInput.format = nvrhi::Format::RGBA32_FLOAT;
 		ssaoInput.isShaderResource = true;
 		ssaoInput.isRenderTarget = true;
+		ssaoInput.keepInitialState = true;
+		ssaoInput.initialState = nvrhi::ResourceStates::RenderTarget;
+		ssaoInput.debugName = "SSAOInput";
 		s_SSAOInput = s_Device->createTexture(ssaoInput);
 
 		nvrhi::TextureDesc ssaoOutput;
@@ -604,6 +616,9 @@ namespace Forge {
 		ssaoOutput.format = nvrhi::Format::R8_UNORM;
 		ssaoOutput.isShaderResource = true;
 		ssaoOutput.isRenderTarget = true;
+		ssaoOutput.keepInitialState = true;
+		ssaoOutput.initialState = nvrhi::ResourceStates::RenderTarget;
+		ssaoOutput.debugName = "SSAOOutput";
 		s_SSAOOutput = s_Device->createTexture(ssaoOutput);
 
 		FG_CORE_INFO("SSAO buffer created: {0}x{1}", width, height);

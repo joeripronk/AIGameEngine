@@ -88,6 +88,8 @@ namespace Forge {
 		desc.format = nvrhi::Format::RGBA8_UNORM;
 		desc.isShaderResource = true;
 		desc.isRenderTarget = true;
+		desc.keepInitialState = true;
+		desc.initialState = nvrhi::ResourceStates::RenderTarget;
 		desc.debugName = "VulkanTexture";
 
 		auto device = VulkanRendererAPI::GetStaticDevice();
