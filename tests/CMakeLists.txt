@@ -25,6 +25,7 @@ target_sources(ForgeTests
         src/SerializationTests.cpp
         src/ExportTests.cpp
         src/AudioTests.cpp
+        src/ReverbTests.cpp
 )
 
 target_link_libraries(ForgeTests

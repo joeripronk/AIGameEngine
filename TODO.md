@@ -72,7 +72,7 @@
 - [x] SceneTests (entities, components, serialization)
 - [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
       AudioSourceComponent round-trip, Scene lifecycle, Lua audio API,
-      3D spatial maths, mixing buses, gapless looping and streaming policy)
+      3D spatial maths, mixing buses, gapless looping, reverb DSP)
 - [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
       entity order/count, empty fields, out-of-range values, save determinism)
 - [x] ExportTests (game export completeness and failure reporting, prefab authoring,
@@ -150,6 +150,7 @@
 - [x] Click-free playback (fade in/out, volume ramping, deferred sound release)
 - [x] Audio mixing buses (Master/Music/SFX/Voice/UI, one-call ducking)
 - [x] Gapless looping (data-source LOOPING flag, short-clip buffering policy)
+- [x] Reverb (Freeverb-style comb+allpass DSP, pure and headless-testable)
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

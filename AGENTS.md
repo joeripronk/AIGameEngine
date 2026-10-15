@@ -352,6 +352,41 @@ a second `StopSound` on the same handle returns false, letting callers tell
 (shutdown, leaving playback) and sounds must not outlive the scene that owns
 them.
 
+### Reverb
+
+A Freeverb-style algorithmic reverb (8 feedback comb filters then 4 allpass
+filters, per channel) lives in the engine as **pure DSP on PCM**:
+
+```cpp
+Forge::ReverbSettings settings;      // RoomSize, Dampening, WetLevel, DryLevel, Width
+settings.RoomSize = 0.8f;
+
+Forge::ReverbProcessor reverb(settings, 48000);
+std::vector<float> processed(samples.size());
+reverb.Process(samples.data(), processed.data(), frames);
+```
+
+This is implemented here rather than delegated to miniaudio's node graph,
+because **the vendored miniaudio exposes only `sound` and `group` node types** —
+there are no DSP nodes to attach a reverb to. Being pure arithmetic, every
+property is unit-testable with no audio device: the tail decays, the dry signal
+passes through untouched, wet+dry cannot clip, and the parameters actually change
+the output.
+
+Two details that are easy to get wrong, and were:
+
+- **Comb feedback must be applied when writing back into the delay line**
+  (`buffer = input + filterstore * feedback`), not when reading forward
+  (`output = delayed + filterstore * feedback`). The latter raises the loop gain
+  above one and the bank diverges to infinity within a second.
+- **Width applies to the wet signal only.** Applying it to the dry path alters
+  the original signal, which is not what a width control should do. At width 0
+  the tail is mono; at width 1 each channel keeps its own.
+
+Processing is a separate step from playback: load a clip, run it through a
+processor to bake in the effect, then play the result. That suits music and
+ambience, where the tail does not need to react to anything.
+
 ### Gapless looping
 
 A looping sound needs `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` on its data

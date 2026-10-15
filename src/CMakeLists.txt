@@ -78,6 +78,8 @@ target_sources(ForgeCore
         Forge/Scripting/ScriptableEntity.cpp
         Forge/Audio/AudioEngine.h
         Forge/Audio/AudioEngine.cpp
+        Forge/Audio/ReverbProcessor.h
+        Forge/Audio/ReverbProcessor.cpp
         Forge/Debug/Instrumentor.h
 )
 
