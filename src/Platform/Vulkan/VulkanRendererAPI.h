@@ -63,6 +63,7 @@ namespace Forge {
 		static VkPhysicalDevice GetPhysicalDevice() { return s_PhysicalDevice; }
 		static VkDevice GetLogicalDevice() { return s_LogicalDevice; }
 		static VkQueue GetGraphicsQueue() { return s_GraphicsQueue; }
+		static uint32_t GetGraphicsQueueIndex() { return s_GraphicsQueueIndex; }
 
 		// Command pool for the graphics queue. Used by the swapchain readback,
 		// which records its own one-shot command buffer outside nvrhi.

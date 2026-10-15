@@ -12,6 +12,10 @@
 #include "backends/imgui_impl_vulkan.h"
 
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "Platform/Vulkan/VulkanSwapchain.h"
+#include "Platform/Vulkan/VulkanTexture.h"
+
+#include <nvrhi/common/resource.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -41,16 +45,71 @@ namespace Forge {
 
 		ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetWindow().GetNativeWindow()), true);
 
+		// Initialise the ImGui Vulkan backend with dynamic rendering (the engine
+		// uses nvrhi's vk::RenderingInfo / beginRendering, not VkRenderPass).
+		//
+		// The internal descriptor pool is large enough for the font atlas + one
+		// descriptor set per ImGui texture (viewport image).
+		m_ImGuiVulkanInitInfo = {};
+		m_ImGuiVulkanInitInfo.ApiVersion = VK_API_VERSION_1_3;
+		m_ImGuiVulkanInitInfo.Instance = VulkanRendererAPI::GetInstance();
+		m_ImGuiVulkanInitInfo.PhysicalDevice = VulkanRendererAPI::GetPhysicalDevice();
+		m_ImGuiVulkanInitInfo.Device = VulkanRendererAPI::GetLogicalDevice();
+		m_ImGuiVulkanInitInfo.QueueFamily = VulkanRendererAPI::GetGraphicsQueueIndex();
+		m_ImGuiVulkanInitInfo.Queue = VulkanRendererAPI::GetGraphicsQueue();
+		m_ImGuiVulkanInitInfo.PipelineCache = VK_NULL_HANDLE;
+		m_ImGuiVulkanInitInfo.DescriptorPool = VK_NULL_HANDLE;
+		m_ImGuiVulkanInitInfo.DescriptorPoolSize = 256;
+		m_ImGuiVulkanInitInfo.Allocator = nullptr;
+		m_ImGuiVulkanInitInfo.MinImageCount = VulkanRendererAPI::GetSwapchain().GetImageCount();
+		m_ImGuiVulkanInitInfo.ImageCount = VulkanRendererAPI::GetSwapchain().GetImageCount();
+		m_ImGuiVulkanInitInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+		m_ImGuiVulkanInitInfo.UseDynamicRendering = true;
+		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo = {};
+		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
+		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.pNext = nullptr;
+		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.viewMask = 0;
+		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_ImGuiRenderFormat;
+		m_ImGuiRenderFormat = VulkanRendererAPI::GetSwapchain().GetVkFormat();
+
+		IM_ASSERT(ImGui_ImplVulkan_Init(&m_ImGuiVulkanInitInfo));
+
 		m_Editor.GetCamera().SetPosition({ 0.0f, 5.0f, 12.0f });
 		m_Editor.GetCamera().SetRotation({ 20.0f, 0.0f, 0.0f });
 
 		m_Viewport.Init(800, 600);
+
+		// Create a linear sampler for the viewport render texture.
+		VkSamplerCreateInfo samplerInfo = {};
+		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.minLod = 0.0f;
+		samplerInfo.maxLod = 0.0f;
+		VkDevice device = VulkanRendererAPI::GetLogicalDevice();
+		if (device)
+			vkCreateSampler(device, &samplerInfo, nullptr, &m_ViewportSampler);
 	}
 
 	EditorApp::~EditorApp()
 	{
-		m_Viewport.Shutdown();
+		ImGui_ImplVulkan_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
+		m_Viewport.Shutdown();
+
+		if (m_ViewportSampler != VK_NULL_HANDLE)
+		{
+			VkDevice device = VulkanRendererAPI::GetLogicalDevice();
+			if (device)
+				vkDestroySampler(device, m_ViewportSampler, nullptr);
+			m_ViewportSampler = VK_NULL_HANDLE;
+		}
+
 		ImGui::DestroyContext();
 	}
 
@@ -115,12 +174,31 @@ namespace Forge {
 
 				SyncEditorCamera();
 				m_Editor.Update(timestep);
+
+				// Acquire a swapchain image for this frame.
+				const uint32_t swapchainImage = Renderer::AcquireSwapchainImage();
+
+				// Open the frame's command list and render the scene into the
+				// swapchain image (G-buffer → shadow → SSAO → HDR → tonemapped
+				// → final composite).
+				Renderer::BeginScene();
+				Renderer::RenderScene(m_Editor.GetScene().get(), swapchainImage);
+				Renderer::BeginSSAOPass();
+				Renderer::BeginHDRPass();
+				Renderer::BeginFinalPass();
+				// EndFinalPass is a no-op (the final pass is the last render
+				// pass; EndScene closes the command list).
+				Renderer::EndScene();
+
+				// Present the swapchain image.
+				Renderer::PresentSwapchainImage(swapchainImage);
 			}
 
 			GetWindowScope()->OnUpdate();
 			ExecuteMainThreadQueue();
 
 			ImGui_ImplGlfw_NewFrame();
+			ImGui_ImplVulkan_NewFrame();
 			ImGui::NewFrame();
 
 			DrawMenuBar();
@@ -539,9 +617,25 @@ namespace Forge {
 				if ((uint32_t)size.x != m_Viewport.GetWidth() || (uint32_t)size.y != m_Viewport.GetHeight())
 					m_Viewport.Resize((uint32_t)size.x, (uint32_t)size.y);
 
-				ImGui::Image(
-					ImTextureID((void*)(uintptr_t)m_Viewport.GetRenderTexture().get()),
-					size);
+				// Register the viewport texture with ImGui if we haven't yet.
+				// The VulkanTexture's native handles are used because the
+				// ImGui Vulkan backend requires a VkDescriptorSet (not a raw
+				// object pointer) as ImTextureID.
+				if (!m_ViewportTextureId)
+				{
+					auto vulkanTex = std::dynamic_pointer_cast<VulkanTexture>(m_Viewport.GetRenderTexture());
+					if (vulkanTex)
+					{
+						VkImageView view = vulkanTex->GetVkImageView();
+						if (view != VK_NULL_HANDLE)
+						{
+							m_ViewportTextureId = ImTextureID(
+								(void*)ImGui_ImplVulkan_AddTexture(m_ViewportSampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+						}
+					}
+				}
+
+				ImGui::Image(m_ViewportTextureId, size);
 			}
 		}
 		else

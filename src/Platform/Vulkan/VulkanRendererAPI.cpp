@@ -910,6 +910,12 @@ namespace Forge {
 		if (!s_SSAOPipeline || !s_SSAOBindingLayout || !commandList)
 			return;
 
+		// The depth texture must be valid; a null handle would cause a
+		// segfault inside nvrhi's RefCountPtr::InternalAddRef when the
+		// binding set is created.
+		if (!depthTexture)
+			return;
+
 		// Upload SSAO uniform buffer.
 		// Layout: mat4 invViewProj (64 bytes) + vec4 params (16 bytes) + vec2 texelSize (8 bytes) = 88 bytes
 		glm::vec4 ssaoParams(1.0f, 0.5f, 0.002f, 1.5f); // intensity, radius, bias, power
@@ -945,6 +951,11 @@ namespace Forge {
 			samplerDesc.setMipFilter(true);
 			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
 			nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
+			if (!ssaoSampler)
+			{
+				FG_CORE_WARN("SSAO: failed to create sampler");
+				return;
+			}
 			nvrhi::BindingSetItem ssaoSamplerItem{};
 			ssaoSamplerItem.resourceHandle = ssaoSampler.Get();
 			ssaoSamplerItem.slot = 0;

@@ -6,6 +6,10 @@
 
 #include <string>
 
+#include <vulkan/vulkan.h>
+#include "imgui.h"
+#include "backends/imgui_impl_vulkan.h"
+
 namespace Forge {
 
 	class EditorApp : public Application
@@ -55,11 +59,22 @@ namespace Forge {
 		EditorContext m_Editor;
 		ViewportRenderer m_Viewport;
 
+		// ImGui Vulkan backend initialisation (dynamic rendering, internal descriptor pool).
+		ImGui_ImplVulkan_InitInfo m_ImGuiVulkanInitInfo = {};
+
 		// Edit buffers for ImGui text fields. These have to outlive the frame:
 		// ImGui::InputText writes through this pointer every frame, so a local
 		// would be re-seeded from the component each frame and discard anything
 		// the author had typed.
 		char m_AudioPathBuffer[256] = {};
+
+		// Descriptor set for the viewport render texture (registered once with
+		// ImGui_ImplVulkan_AddTexture after the texture is created).
+		ImTextureID m_ViewportTextureId = 0;
+
+		VkFormat m_ImGuiRenderFormat = VK_FORMAT_UNDEFINED;
+
+		VkSampler m_ViewportSampler = VK_NULL_HANDLE;
 
 		std::string m_Notification;
 		bool m_NotificationIsError = false;

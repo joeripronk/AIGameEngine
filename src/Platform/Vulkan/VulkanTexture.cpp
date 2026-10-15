@@ -122,6 +122,24 @@ namespace Forge {
 	{
 	}
 
+	VkImage VulkanTexture::GetVkImage() const
+	{
+		if (!m_Texture)
+			return VK_NULL_HANDLE;
+
+		VkImage image = static_cast<VkImage>(m_Texture->getNativeObject(nvrhi::ObjectTypes::VK_Image));
+		return image;
+	}
+
+	VkImageView VulkanTexture::GetVkImageView() const
+	{
+		if (!m_Texture)
+			return VK_NULL_HANDLE;
+
+		VkImageView view = static_cast<VkImageView>(m_Texture->getNativeObject(nvrhi::ObjectTypes::VK_ImageView));
+		return view;
+	}
+
 	Ref<Texture> Texture::Create(const std::string& filepath)
 	{
 		return CreateRef<VulkanTexture>(filepath);

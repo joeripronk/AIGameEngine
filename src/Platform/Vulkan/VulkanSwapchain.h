@@ -46,8 +46,10 @@ namespace Forge {
 
 		nvrhi::FramebufferHandle GetFramebuffer(uint32_t imageIndex) const;
 		nvrhi::Format GetFormat() const { return m_Format; }
+		VkFormat GetVkFormat() const { return m_VkFormat; }
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }
+		uint32_t GetImageCount() const { return static_cast<uint32_t>(m_ImageTextures.size()); }
 
 		bool IsValid() const { return m_Swapchain != VK_NULL_HANDLE; }
 
