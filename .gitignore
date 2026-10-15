@@ -3,7 +3,6 @@ build/
 bin/
 lib/
 *.o
-*.obj
 *.lib
 *.dll
 *.so
@@ -54,10 +53,9 @@ vendor/lua/build/
 vendor/miniaudio/build/
 vendor/physx/build/
 
-# Resources (git-lfs for large files)
-resources/models/
-resources/textures/
-resources/hdris/
+# Resources - tracked via git-lfs (see .gitattributes)
+# Large binary assets are stored on the remote; git keeps pointer files locally.
+# See .gitattributes for which extensions are LFS-tracked.
 
 # Test artifacts
 *.forge

@@ -1,7 +1,29 @@
-# Binary files use LFS
+# Git LFS tracking for binary game assets
+# These files can be large and slow git clone; LFS stores them on the remote
+# and downloads them on demand.
+
+# 3D models (binary and JSON formats)
 resources/models/*.glb filter=lfs diff=lfs merge=lfs -text
 resources/models/*.gltf filter=lfs diff=lfs merge=lfs -text
+resources/models/*.fbx filter=lfs diff=lfs merge=lfs -text
+resources/models/*.obj filter=lfs diff=lfs merge=lfs -text
+
+# Textures (raster image formats)
 resources/textures/*.png filter=lfs diff=lfs merge=lfs -text
 resources/textures/*.jpg filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.jpeg filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.ktx filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.ktx2 filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.dds filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.webp filter=lfs diff=lfs merge=lfs -text
+resources/textures/*.bmp filter=lfs diff=lfs merge=lfs -text
+
+# HDR images (can be large)
 resources/hdris/*.hdr filter=lfs diff=lfs merge=lfs -text
 resources/hdris/*.exr filter=lfs diff=lfs merge=lfs -text
+resources/hdris/*.png filter=lfs diff=lfs merge=lfs -text
+
+# Audio (compressed formats)
+resources/audio/*.ogg filter=lfs diff=lfs merge=lfs -text
+resources/audio/*.mp3 filter=lfs diff=lfs merge=lfs -text
+resources/audio/*.flac filter=lfs diff=lfs merge=lfs -text
