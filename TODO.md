@@ -67,11 +67,12 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (224 test cases, 1508 assertions - all passing, order-independent)
+### Tests (238 test cases, 1583 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
-      AudioSourceComponent round-trip, Scene lifecycle, Lua audio API)
+      AudioSourceComponent round-trip, Scene lifecycle, Lua audio API,
+      3D spatial maths: attenuation curve, rolloff, panning, listener rotation)
 - [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
       entity order/count, empty fields, out-of-range values, save determinism)
 - [x] ExportTests (game export completeness and failure reporting, prefab authoring,
@@ -145,6 +146,7 @@
 - [x] Mesh loading from file (CPU assimp path; GPU path pending)
 - [x] Audio engine (per-sound handles, WAV/MP3/FLAC decode + playback)
 - [x] AudioSourceComponent + Scene playback lifecycle + Lua audio API
+- [x] 3D positional audio (listener-relative attenuation and stereo panning)
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

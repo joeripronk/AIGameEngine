@@ -105,6 +105,10 @@ namespace Forge {
 		// Starts every AudioSourceComponent whose PlayOnStart is set.
 		void StartAudioSources();
 
+		// Points the audio listener at the primary camera, which is what the
+		// renderer treats as the viewpoint.
+		void UpdateAudioListener();
+
 		// Releases finished one-shot sounds and tracks looping ones.
 		void UpdateAudioSources();
 

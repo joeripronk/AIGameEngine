@@ -592,6 +592,8 @@ namespace Forge {
 			return;
 		}
 
+		UpdateAudioListener();
+
 		auto view = m_Registry.view<AudioSourceComponent>();
 		for (auto handle : view)
 		{
@@ -602,8 +604,28 @@ namespace Forge {
 			if (!audio.PlayOnStart || audio.SourcePath.empty())
 				continue;
 
+			AudioEngine::SpatialParams spatial;
+			spatial.Enabled = audio.Spatial;
+			spatial.MinDistance = audio.MinDistance;
+			spatial.MaxDistance = audio.MaxDistance;
+
+			const glm::vec3* position = nullptr;
+			glm::vec3 worldPosition(0.0f);
+			if (audio.Spatial)
+			{
+				if (const auto* transform = m_Registry.try_get<TransformComponent>(handle))
+					worldPosition = transform->Translation;
+
+				position = &worldPosition;
+			}
+
 			AudioEngine::SoundHandle sound = AudioEngine::InvalidSound;
-			if (!AudioEngine::PlaySound(audio.SourcePath, audio.Volume, audio.Pitch, audio.Loop, &sound))
+			const bool started = position
+				? AudioEngine::PlaySoundAt(audio.SourcePath, *position, spatial,
+					audio.Volume, audio.Pitch, audio.Loop, &sound)
+				: AudioEngine::PlaySound(audio.SourcePath, audio.Volume, audio.Pitch, audio.Loop, &sound);
+
+			if (!started)
 			{
 				FG_CORE_WARN("Scene: could not start audio source '{0}'", audio.SourcePath);
 				continue;
@@ -614,6 +636,27 @@ namespace Forge {
 		}
 	}
 
+	void Scene::UpdateAudioListener()
+	{
+		// The primary camera is the listener, matching how it drives rendering.
+		Forge::AudioEngine::ListenerState listener;
+		listener.Position = { 0.0f, 0.0f, 0.0f };
+
+		Entity camera = GetPrimaryCameraEntity();
+		if (camera && camera.HasComponent<TransformComponent>())
+		{
+			const auto& tc = camera.GetComponent<TransformComponent>();
+			listener.Position = tc.Translation;
+
+			// The engine's camera convention is +X right, +Y up, -Z forward.
+			const glm::vec3 forward = glm::normalize(tc.Rotation);
+			listener.Forward = forward;
+			listener.Up = { 0.0f, 1.0f, 0.0f };
+		}
+
+		AudioEngine::SetListener(listener);
+	}
+
 	void Scene::UpdateAudioSources()
 	{
 		auto view = m_Registry.view<AudioSourceComponent>();
@@ -622,6 +665,14 @@ namespace Forge {
 			auto& audio = view.get<AudioSourceComponent>(handle);
 			if (audio.SoundHandle == AudioEngine::InvalidSound)
 				continue;
+
+			// A spatial source follows its entity, so a sound attached to a moving
+			// object pans and attenuates as that object moves.
+			if (audio.Spatial)
+			{
+				if (const auto* transform = m_Registry.try_get<TransformComponent>(handle))
+					(void)AudioEngine::SetSoundPosition(audio.SoundHandle, transform->Translation);
+			}
 
 			if (AudioEngine::IsSoundPlaying(audio.SoundHandle))
 				continue;
@@ -634,6 +685,11 @@ namespace Forge {
 
 			audio.Finished = true;
 		}
+
+		// Re-mix after positions and the listener have moved, so gains and pans
+		// reflect this frame rather than the last.
+		UpdateAudioListener();
+		AudioEngine::UpdateSpatialization();
 	}
 
 	void Scene::StopAudioSources()

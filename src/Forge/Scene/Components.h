@@ -225,6 +225,14 @@ namespace Forge {
 		// Start playing automatically when playback begins.
 		bool PlayOnStart = true;
 
+		// 3D audio. When enabled the sound's world position comes from its
+		// TransformComponent and it is attenuated and panned relative to the
+		// listener (the primary camera). When disabled it plays at full volume
+		// from the centre, which is right for music and UI.
+		bool Spatial = false;
+		float MinDistance = 1.0f;
+		float MaxDistance = 20.0f;
+
 		// --- Runtime only (not serialized) ---
 
 		// Handle of the currently playing sound, or 0 when not playing.

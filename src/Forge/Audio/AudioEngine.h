@@ -2,6 +2,8 @@
 
 #include "Forge/Core/Base.h"
 
+#include <glm/glm.hpp>
+
 #include <string>
 #include <unordered_map>
 
@@ -54,6 +56,37 @@ namespace Forge {
 	class AudioEngine
 	{
 	public:
+		// How a sound is positioned relative to the listener.
+		struct SpatialParams
+		{
+			bool Enabled = false;
+
+			// Inside MinDistance a sound plays at full volume. Between MinDistance
+			// and MaxDistance it falls off; beyond MaxDistance it is silent.
+			float MinDistance = 1.0f;
+			float MaxDistance = 20.0f;
+
+			// Exponent on the normalised distance. 1 is linear (natural), higher
+			// values fall off faster, lower values carry further.
+			float Rolloff = 1.0f;
+		};
+
+		// The listener's pose. Defaults to the origin looking down -Z, which
+		// matches the engine's camera convention.
+		struct ListenerState
+		{
+			glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+			glm::vec3 Forward = { 0.0f, 0.0f, -1.0f };
+			glm::vec3 Up = { 0.0f, 1.0f, 0.0f };
+		};
+
+		// Result of spatialising one sound.
+		struct SpatialMix
+		{
+			float Gain = 1.0f;   // linear 0..1 volume multiplier
+			float Pan = 0.0f;    // stereo, -1 hard left .. +1 hard right
+		};
+
 		// Opaque, stable identifier for a playing sound. Valid until the sound is
 		// stopped or the engine shuts down.
 		using SoundHandle = uint64_t;
@@ -76,6 +109,37 @@ namespace Forge {
 		[[nodiscard]] static bool PlaySound(const std::string& filepath,
 			float volume = 1.0f, float pitch = 1.0f, bool loop = false,
 			SoundHandle* outHandle = nullptr);
+
+		// As above, but positioned in the world and attenuated/panned relative to
+		// the listener. `position` is ignored when `spatial.Enabled` is false.
+		[[nodiscard]] static bool PlaySoundAt(const std::string& filepath,
+			const glm::vec3& position, const SpatialParams& spatial,
+			float volume = 1.0f, float pitch = 1.0f, bool loop = false,
+			SoundHandle* outHandle = nullptr);
+
+		// --- 3D audio ---
+		//
+		// Spatialisation is computed here rather than delegated to miniaudio,
+		// because this version of the library exposes no listener accessor. Doing
+		// it in the engine keeps it a pure function of positions, which means it
+		// is unit-testable with no audio device at all.
+
+		// The listener's pose, normally driven by the primary camera.
+		static void SetListener(const ListenerState& listener);
+		static const ListenerState& GetListener();
+
+		// Moves an already-playing sound. Ignored for non-spatial sounds.
+		[[nodiscard]] static bool SetSoundPosition(SoundHandle handle, const glm::vec3& position);
+
+		// Recomputes gain and pan for every spatial sound. Call once per frame
+		// after moving the listener and any sources.
+		static void UpdateSpatialization();
+
+		// Pure spatial maths: distance attenuation and stereo pan of `source`
+		// relative to `listener`. Exposed so the curve can be verified without a
+		// sound card.
+		static SpatialMix ComputeSpatialMix(const ListenerState& listener,
+			const glm::vec3& source, const SpatialParams& spatial);
 
 		[[nodiscard]] static bool StopSound(SoundHandle handle);
 		[[nodiscard]] static bool SetSoundVolume(SoundHandle handle, float volume);
@@ -105,12 +169,27 @@ namespace Forge {
 		{
 			ma_sound* Sound = nullptr;
 			std::string SourcePath;
+
+			// Authored volume, kept separate from the spatialised volume so
+			// spatialisation can be recomputed each frame without compounding
+			// attenuation or losing the author's intent.
+			float BaseVolume = 1.0f;
+
+			SpatialParams Spatial;
+			glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
 		};
 
 		static PlayingSound* Find(SoundHandle handle);
 
+		// Shared implementation behind PlaySound and PlaySoundAt.
+		[[nodiscard]] static bool StartSound(const std::string& filepath,
+			float volume, float pitch, bool loop,
+			const glm::vec3* position, const SpatialParams& spatial,
+			SoundHandle* outHandle);
+
 		static ma_engine* s_Engine;
 		static float s_MasterVolume;
+		static ListenerState s_Listener;
 		static std::unordered_map<SoundHandle, PlayingSound> s_Sounds;
 		static SoundHandle s_NextHandle;
 	};

@@ -500,3 +500,279 @@ TEST_CASE("Lua entity PlaySound and StopSound are callable", "[scripting][audio]
 	Forge::ScriptEngine::OnRuntimeStop();
 	Forge::ScriptEngine::Shutdown();
 }
+// ---------------------------------------------------------------------------
+// 3D positional audio
+//
+// The spatial maths lives in the engine rather than miniaudio, so it is a pure
+// function of positions and can be verified with no audio device at all. Every
+// test below runs regardless of whether this machine has a sound card.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+	Forge::AudioEngine::SpatialParams MakeSpatial(float minDistance = 1.0f, float maxDistance = 20.0f, float rolloff = 1.0f)
+	{
+		Forge::AudioEngine::SpatialParams spatial;
+		spatial.Enabled = true;
+		spatial.MinDistance = minDistance;
+		spatial.MaxDistance = maxDistance;
+		spatial.Rolloff = rolloff;
+		return spatial;
+	}
+
+	// A listener at the origin facing -Z, which is the engine's convention.
+	Forge::AudioEngine::ListenerState DefaultListener()
+	{
+		Forge::AudioEngine::ListenerState listener;
+		listener.Position = { 0.0f, 0.0f, 0.0f };
+		listener.Forward = { 0.0f, 0.0f, -1.0f };
+		listener.Up = { 0.0f, 1.0f, 0.0f };
+		return listener;
+	}
+
+} // namespace
+
+TEST_CASE("A non-spatial sound is full volume and centred", "[audio][spatial]")
+{
+	const auto mix = Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), { 50.0f, 50.0f, 50.0f }, Forge::AudioEngine::SpatialParams{});
+
+	REQUIRE(mix.Gain == Approx(1.0f));
+	REQUIRE(mix.Pan == Approx(0.0f));
+}
+
+TEST_CASE("A spatial sound inside MinDistance is full volume", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(2.0f, 20.0f);
+
+	// Exactly at, and inside, the inner radius.
+	for (float distance : { 0.0f, 0.5f, 1.0f, 2.0f })
+	{
+		const auto mix = Forge::AudioEngine::ComputeSpatialMix(
+			DefaultListener(), { 0.0f, 0.0f, -distance }, spatial);
+		REQUIRE(mix.Gain == Approx(1.0f));
+	}
+}
+
+TEST_CASE("A spatial sound beyond MaxDistance is silent", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(1.0f, 10.0f);
+
+	for (float distance : { 10.0f, 25.0f, 1000.0f })
+	{
+		const auto mix = Forge::AudioEngine::ComputeSpatialMix(
+			DefaultListener(), { 0.0f, 0.0f, -distance }, spatial);
+		REQUIRE(mix.Gain == Approx(0.0f));
+	}
+}
+
+TEST_CASE("Attenuation falls off monotonically between the radii", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(1.0f, 11.0f);
+
+	float previous = 1.0f;
+	for (float distance = 1.0f; distance <= 11.0f; distance += 1.0f)
+	{
+		const auto mix = Forge::AudioEngine::ComputeSpatialMix(
+			DefaultListener(), { 0.0f, 0.0f, -distance }, spatial);
+
+		REQUIRE(mix.Gain <= previous);
+		REQUIRE(mix.Gain >= 0.0f);
+		REQUIRE(mix.Gain <= 1.0f);
+		previous = mix.Gain;
+	}
+
+	// Linear rolloff over an even span should land at the midpoint.
+	const auto mid = Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), { 0.0f, 0.0f, -6.0f }, spatial);
+	REQUIRE(mid.Gain == Approx(0.5f).margin(0.02f));
+}
+
+TEST_CASE("Rolloff shapes the attenuation curve", "[audio][spatial]")
+{
+	const glm::vec3 probe = { 0.0f, 0.0f, -5.5f };
+
+	const auto gentle = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), probe, MakeSpatial(1.0f, 11.0f, 0.5f));
+	const auto natural = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), probe, MakeSpatial(1.0f, 11.0f, 1.0f));
+	const auto sharp = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), probe, MakeSpatial(1.0f, 11.0f, 2.0f));
+
+	// Higher rolloff attenuates harder at the same distance.
+	REQUIRE(gentle.Gain > natural.Gain);
+	REQUIRE(natural.Gain > sharp.Gain);
+}
+
+TEST_CASE("Panning follows the listener's right axis", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(1.0f, 50.0f);
+
+	// Facing -Z, so the listener's right is +X.
+	const auto ahead = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), { 0.0f, 0.0f, -5.0f }, spatial);
+	const auto right = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), { 5.0f, 0.0f, 0.0f }, spatial);
+	const auto left = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), { -5.0f, 0.0f, 0.0f }, spatial);
+	const auto behind = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), { 0.0f, 0.0f, 5.0f }, spatial);
+
+	// Dead ahead and dead behind are both centred; a listener should not hear a
+	// source swing wide as it passes.
+	REQUIRE(ahead.Pan == Approx(0.0f).margin(0.001f));
+	REQUIRE(behind.Pan == Approx(0.0f).margin(0.001f));
+
+	// Right is positive, left is negative.
+	REQUIRE(right.Pan > 0.9f);
+	REQUIRE(left.Pan < -0.9f);
+}
+
+TEST_CASE("Panning rotates with the listener", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(1.0f, 50.0f);
+	const glm::vec3 toTheRight = { 5.0f, 0.0f, 0.0f };
+
+	// Facing -Z, the source is to the right.
+	const auto facingDefault = Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), toTheRight, spatial);
+	REQUIRE(facingDefault.Pan > 0.9f);
+
+	// Turn 90 degrees to face +X: the same source is now directly ahead.
+	auto turned = DefaultListener();
+	turned.Forward = { 1.0f, 0.0f, 0.0f };
+	const auto facingTurned = Forge::AudioEngine::ComputeSpatialMix(
+		turned, toTheRight, spatial);
+	REQUIRE(facingTurned.Pan == Approx(0.0f).margin(0.001f));
+
+	// Turn 90 more to face +Z. The same source, which was to the right, is now
+	// to the listener's left, so the pan must swap sign.
+	auto opposite = DefaultListener();
+	opposite.Forward = { 0.0f, 0.0f, 1.0f };
+	const auto facingOpposite = Forge::AudioEngine::ComputeSpatialMix(
+		opposite, toTheRight, spatial);
+	REQUIRE(facingOpposite.Pan < -0.9f);
+}
+
+TEST_CASE("A sound at the listener is centred, not NaN", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(1.0f, 20.0f);
+
+	// At the exact listener position there is no direction to pan towards;
+	// dividing by the distance here would produce NaN.
+	const auto mix = Forge::AudioEngine::ComputeSpatialMix(DefaultListener(), { 0.0f, 0.0f, 0.0f }, spatial);
+
+	REQUIRE(mix.Gain == Approx(1.0f));
+	REQUIRE(mix.Pan == Approx(0.0f));
+	REQUIRE_FALSE(std::isnan(mix.Pan));
+	REQUIRE_FALSE(std::isnan(mix.Gain));
+}
+
+TEST_CASE("Degenerate listener orientation is corrected", "[audio][audio]")
+{
+	Forge::AudioEngine::Shutdown();
+	Forge::AudioEngine::Shutdown();   // reset to the default listener
+
+	// A zero-length forward or up vector would make the pan maths produce NaN
+	// for every sound, so SetListener substitutes a sane orientation.
+	Forge::AudioEngine::ListenerState broken;
+	broken.Position = { 1.0f, 2.0f, 3.0f };
+	broken.Forward = { 0.0f, 0.0f, 0.0f };
+	broken.Up = { 0.0f, 0.0f, 0.0f };
+
+	Forge::AudioEngine::SetListener(broken);
+
+	const auto& listener = Forge::AudioEngine::GetListener();
+	REQUIRE(glm::length(listener.Forward) > 0.5f);
+	REQUIRE(glm::length(listener.Up) > 0.5f);
+	REQUIRE(listener.Position == glm::vec3(1.0f, 2.0f, 3.0f));
+
+	// And spatialisation still produces finite results.
+	const auto mix = Forge::AudioEngine::ComputeSpatialMix(
+		listener, { 4.0f, 2.0f, 3.0f }, MakeSpatial());
+	REQUIRE_FALSE(std::isnan(mix.Gain));
+	REQUIRE_FALSE(std::isnan(mix.Pan));
+}
+
+TEST_CASE("Inverted radii do not produce undefined behaviour", "[audio][spatial]")
+{
+	const auto spatial = MakeSpatial(20.0f, 5.0f);   // min greater than max
+
+	// A caller could author MaxDistance below MinDistance. It should not crash
+	// or produce garbage.
+	const auto mix = Forge::AudioEngine::ComputeSpatialMix(
+		DefaultListener(), { 0.0f, 0.0f, -10.0f }, spatial);
+
+	REQUIRE(std::isfinite(mix.Gain));
+	REQUIRE(mix.Gain >= 0.0f);
+	REQUIRE(mix.Gain <= 1.0f);
+}
+
+TEST_CASE("Moving the listener changes the mix", "[audio][spatial]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	const auto spatial = MakeSpatial(1.0f, 10.0f);
+	const glm::vec3 source = { 0.0f, 0.0f, -5.0f };
+
+	auto near = DefaultListener();
+	near.Position = { 0.0f, 0.0f, 0.0f };
+	Forge::AudioEngine::SetListener(near);
+	Forge::AudioEngine::ListenerState saved = near;
+
+	auto far = DefaultListener();
+	far.Position = { 0.0f, 0.0f, 5.0f };   // 10 m away
+	Forge::AudioEngine::SetListener(far);
+
+	const auto afterFar = Forge::AudioEngine::ComputeSpatialMix(
+		Forge::AudioEngine::GetListener(), source, spatial);
+
+	Forge::AudioEngine::SetListener(saved);
+	const auto afterNear = Forge::AudioEngine::ComputeSpatialMix(
+		Forge::AudioEngine::GetListener(), source, spatial);
+
+	REQUIRE(afterFar.Gain < afterNear.Gain);
+	REQUIRE(afterFar.Gain == Approx(0.0f));
+}
+
+TEST_CASE("SetSoundPosition is safe for an unknown handle", "[audio][spatial]")
+{
+	Forge::AudioEngine::Shutdown();
+	REQUIRE(Forge::AudioEngine::SetSoundPosition(4242, { 1.0f, 2.0f, 3.0f }) == false);
+	REQUIRE_NOTHROW(Forge::AudioEngine::UpdateSpatialization());
+}
+
+TEST_CASE("AudioSourceComponent spatial fields round-trip", "[audio][serialization][spatial]")
+{
+	std::error_code ec;
+	fs::create_directories("test_audio", ec);
+
+	auto scene = Forge::CreateRef<Forge::Scene>();
+	auto entity = scene->CreateEntity("Footstep");
+
+	auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = "resources/audio/step.wav";
+	audio.Spatial = true;
+	audio.MinDistance = 3.5f;
+	audio.MaxDistance = 42.0f;
+
+	const std::string path = "test_audio/audio_spatial.forge";
+	Forge::SceneSerializer serializer(scene);
+	REQUIRE(serializer.Serialize(path));
+
+	auto reloaded = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer reader(reloaded);
+	REQUIRE(reader.Deserialize(path));
+
+	auto restored = reloaded->FindEntityByName("Footstep");
+	REQUIRE(restored);
+
+	const auto& r = restored.GetComponent<Forge::AudioSourceComponent>();
+	REQUIRE(r.Spatial == true);
+	REQUIRE(r.MinDistance == Approx(3.5f));
+	REQUIRE(r.MaxDistance == Approx(42.0f));
+}
+
+TEST_CASE("A non-spatial source defaults to 2D behaviour", "[audio][component][spatial]")
+{
+	Forge::Scene scene;
+	auto entity = scene.CreateEntity("Music");
+	auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+
+	// Music and UI should default to playing at full volume regardless of where
+	// they are in the world.
+	REQUIRE(audio.Spatial == false);
+}

@@ -4,10 +4,14 @@
 #define MINIAUDIO_IMPLEMENTATION
 #include <miniaudio.h>
 
+#include <algorithm>
+#include <cmath>
+
 namespace Forge {
 
 	ma_engine* AudioEngine::s_Engine = nullptr;
 	float AudioEngine::s_MasterVolume = 1.0f;
+	AudioEngine::ListenerState AudioEngine::s_Listener{};
 	std::unordered_map<AudioEngine::SoundHandle, AudioEngine::PlayingSound> AudioEngine::s_Sounds;
 	AudioEngine::SoundHandle AudioEngine::s_NextHandle = 1; // 0 is InvalidSound
 
@@ -143,6 +147,19 @@ namespace Forge {
 	bool AudioEngine::PlaySound(const std::string& filepath, float volume, float pitch, bool loop,
 		SoundHandle* outHandle)
 	{
+		return StartSound(filepath, volume, pitch, loop, nullptr, SpatialParams{}, outHandle);
+	}
+
+	bool AudioEngine::PlaySoundAt(const std::string& filepath, const glm::vec3& position,
+		const SpatialParams& spatial, float volume, float pitch, bool loop,
+		SoundHandle* outHandle)
+	{
+		return StartSound(filepath, volume, pitch, loop, &position, spatial, outHandle);
+	}
+
+	bool AudioEngine::StartSound(const std::string& filepath, float volume, float pitch, bool loop,
+		const glm::vec3* position, const SpatialParams& spatial, SoundHandle* outHandle)
+	{
 		if (outHandle)
 			*outHandle = InvalidSound;
 
@@ -187,7 +204,6 @@ namespace Forge {
 			return false;
 		}
 
-		ma_sound_set_volume(sound, (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume));
 		ma_sound_set_pitch(sound, (pitch <= 0.0f) ? 1.0f : pitch);
 		ma_sound_set_looping(sound, loop ? 1 : 0);
 
@@ -195,11 +211,118 @@ namespace Forge {
 		PlayingSound& entry = s_Sounds[handle];
 		entry.Sound = sound;
 		entry.SourcePath = filepath;
+		entry.BaseVolume = (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume);
+		entry.Spatial = spatial;
+		entry.Position = position ? *position : glm::vec3(0.0f);
+
+		// A spatial sound starts at its computed mix, not its authored volume.
+		if (spatial.Enabled)
+		{
+			const SpatialMix mix = ComputeSpatialMix(s_Listener, entry.Position, spatial);
+			ma_sound_set_volume(sound, entry.BaseVolume * mix.Gain);
+			ma_sound_set_pan(sound, mix.Pan);
+		}
+		else
+		{
+			ma_sound_set_volume(sound, entry.BaseVolume);
+		}
 
 		if (outHandle)
 			*outHandle = handle;
 
 		return true;
+	}
+
+	// --- 3D audio ---------------------------------------------------------
+
+	void AudioEngine::SetListener(const AudioEngine::ListenerState& listener)
+	{
+		s_Listener = listener;
+
+		// Degenerate bases would produce NaN in ComputeSpatialMix; fall back to a
+		// sane default orientation rather than poisoning every sound.
+		if (glm::length(s_Listener.Forward) < 1e-6f)
+			s_Listener.Forward = { 0.0f, 0.0f, -1.0f };
+
+		if (glm::length(s_Listener.Up) < 1e-6f)
+			s_Listener.Up = { 0.0f, 1.0f, 0.0f };
+	}
+
+	const AudioEngine::ListenerState& AudioEngine::GetListener()
+	{
+		return s_Listener;
+	}
+
+	bool AudioEngine::SetSoundPosition(SoundHandle handle, const glm::vec3& position)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		entry->Position = position;
+		return true;
+	}
+
+	AudioEngine::SpatialMix AudioEngine::ComputeSpatialMix(const ListenerState& listener,
+		const glm::vec3& source, const SpatialParams& spatial)
+	{
+		SpatialMix mix;
+
+		if (!spatial.Enabled)
+			return mix;   // full volume, centred
+
+		const glm::vec3 toSource = source - listener.Position;
+		const float distance = glm::length(toSource);
+
+		// At or inside MinDistance the sound is at full volume. Beyond
+		// MaxDistance it is inaudible.
+		const float minDistance = std::max(spatial.MinDistance, 0.0f);
+		const float maxDistance = std::max(spatial.MaxDistance, minDistance + 1e-4f);
+
+		if (distance >= maxDistance)
+			mix.Gain = 0.0f;
+		else if (distance <= minDistance)
+			mix.Gain = 1.0f;
+		else
+		{
+			const float normalized = (distance - minDistance) / (maxDistance - minDistance);
+			const float falloff = 1.0f - glm::clamp(normalized, 0.0f, 1.0f);
+
+			// Applying rolloff as an exponent keeps 1.0 meaning "linear", which
+			// is the intuitive default.
+			mix.Gain = std::pow(falloff, std::max(spatial.Rolloff, 0.0f));
+		}
+
+		// A sound at (or extremely near) the listener has no meaningful
+		// direction, so leave it centred rather than dividing by ~0.
+		if (distance < 1e-4f)
+			return mix;
+
+		// Pan from the source's offset along the listener's right axis. Using the
+		// right vector rather than the full direction keeps a sound directly
+		// behind the listener centred, which is what a listener expects.
+		const glm::vec3 forward = glm::normalize(listener.Forward);
+		const glm::vec3 right = glm::cross(forward, glm::normalize(listener.Up));
+
+		const glm::vec3 direction = toSource / distance;
+		mix.Pan = glm::clamp(dot(direction, right), -1.0f, 1.0f);
+
+		return mix;
+	}
+
+	void AudioEngine::UpdateSpatialization()
+	{
+		for (auto& [handle, entry] : s_Sounds)
+		{
+			(void)handle;
+
+			if (!entry.Spatial.Enabled || !entry.Sound)
+				continue;
+
+			const SpatialMix mix = ComputeSpatialMix(s_Listener, entry.Position, entry.Spatial);
+			ma_sound_set_volume(entry.Sound, entry.BaseVolume * mix.Gain);
+			ma_sound_set_pan(entry.Sound, mix.Pan);
+		}
 	}
 
 	bool AudioEngine::StopSound(SoundHandle handle)

@@ -330,6 +330,30 @@ AudioEngine::SetSoundVolume(sound, 0.5f);
 AudioEngine::StopSound(sound);      // only this sound
 ```
 
+### 3D positional audio
+
+`AudioSourceComponent::Spatial` makes a sound's world position come from its
+`TransformComponent`; it is then attenuated and panned relative to the listener,
+which the Scene drives from the primary camera. Music and UI leave it off, so
+they play at full volume and centred regardless of camera motion.
+
+Attenuation is linear between `MinDistance` and `MaxDistance`, with `Rolloff` as
+an exponent (1 = natural). Pan comes from the source's offset along the
+listener's right axis, so a source dead ahead *or directly behind* is centred.
+
+Spatial maths lives in the engine rather than miniaudio, because that version of
+the library exposes no listener accessor. The benefit is that it is a pure
+function of positions, so the curve is unit-testable with no audio device:
+
+```cpp
+const auto mix = AudioEngine::ComputeSpatialMix(listener, sourcePos, spatialParams);
+// mix.Gain in [0,1], mix.Pan in [-1,1]
+
+AudioEngine::SetListener(listener);
+AudioEngine::SetSoundPosition(handle, newPos);
+AudioEngine::UpdateSpatialization();   // once per frame
+```
+
 From Lua:
 
 ```lua
