@@ -120,6 +120,8 @@ namespace Forge {
 		glfwSetScrollCallback(m_Window, [](GLFWwindow* window, double xoffset, double yoffset)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.ScrollOffsetX += xoffset;
+			data.ScrollOffsetY += yoffset;
 			MouseScrolledEvent event((float)xoffset, (float)yoffset);
 			data.EventCallback(event);
 		});

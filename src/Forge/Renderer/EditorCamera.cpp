@@ -1,13 +1,9 @@
 #include "fgpch.h"
 #include "Forge/Renderer/EditorCamera.h"
+#include "Platform/Vulkan/VulkanWindow.h"
 #include "Forge/Events/MouseEvent.h"
 #include "Forge/Events/KeyEvent.h"
 #include "Forge/Core/Application.h"
-
-// GLFW 3.6 mouse wheel support
-#if !defined(GLFW_INCLUDE_VULKAN)
-#include <GLFW/glfw3.h>
-#endif
 
 namespace Forge {
 
@@ -49,28 +45,30 @@ namespace Forge {
 		float speed = 5.0f * ts;
 		float zoomSpeed = 2.0f * ts;
 
-		GLFWwindow* window = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-
 		// Movement direction based on camera rotation (yaw)
 		float yaw = glm::radians(m_Rotation.y);
 		glm::vec3 forward = glm::vec3(-sin(yaw), 0.0f, -cos(yaw));
 		glm::vec3 right = glm::vec3(cos(yaw), 0.0f, -sin(yaw));
 
-		if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS)
+		if (glfwGetKey(nullptr, GLFW_KEY_W) == GLFW_PRESS)
 			m_Position += speed * forward;
-		if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS)
+		if (glfwGetKey(nullptr, GLFW_KEY_S) == GLFW_PRESS)
 			m_Position -= speed * forward;
-		if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS)
+		if (glfwGetKey(nullptr, GLFW_KEY_A) == GLFW_PRESS)
 			m_Position -= speed * right;
-		if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS)
+		if (glfwGetKey(nullptr, GLFW_KEY_D) == GLFW_PRESS)
 			m_Position += speed * right;
-		if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS)
+		if (glfwGetKey(nullptr, GLFW_KEY_Q) == GLFW_PRESS)
 			m_Position.y -= speed;
-		if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
+		if (glfwGetKey(nullptr, GLFW_KEY_E) == GLFW_PRESS)
 			m_Position.y += speed;
 
-		// Zoom
-		m_ZoomLevel -= zoomSpeed * static_cast<float>(glfwGetMouseWheel(window));
+		// Zoom (callback-based scroll offset)
+		glm::vec2 scrollOffset = { 0.0f, 0.0f };
+		auto& vkWindowScope = Application::Get().GetWindowScope();
+		if (vkWindowScope)
+			scrollOffset = static_cast<VulkanWindow&>(*vkWindowScope).GetScrollOffset();
+		m_ZoomLevel -= zoomSpeed * scrollOffset.y;
 		m_ZoomLevel = glm::clamp(m_ZoomLevel, 0.1f, 10.0f);
 
 		Recalculate();

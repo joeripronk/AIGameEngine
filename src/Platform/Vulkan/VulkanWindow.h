@@ -24,6 +24,14 @@ namespace Forge {
 
 		void* GetNativeWindow() const override { return m_Window; }
 
+		glm::vec2 GetScrollOffset()
+		{
+			glm::vec2 offset = { (float)m_Data.ScrollOffsetX, (float)m_Data.ScrollOffsetY };
+			m_Data.ScrollOffsetX = 0.0;
+			m_Data.ScrollOffsetY = 0.0;
+			return offset;
+		}
+
 	private:
 		struct WindowData
 		{
@@ -32,6 +40,8 @@ namespace Forge {
 			uint32_t Height;
 			bool VSync = true;
 			EventCallbackFn EventCallback;
+			double ScrollOffsetX = 0.0;
+			double ScrollOffsetY = 0.0;
 		};
 
 		GLFWwindow* m_Window = nullptr;
