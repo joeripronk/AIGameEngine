@@ -587,7 +587,7 @@ entity:StopSound()
 
 ### Lua Integration
 
-- Global functions: `GetTime()`, `GetDeltaTime(ts)`, `SpawnPrefab(name)`
+- Global functions: `GetTime()`, `GetDeltaTime()`, `SpawnPrefab(name)`
 A script is a Lua file in `resources/scripts/` that returns a table with
 optional `OnCreate(entity)`, `OnUpdate(entity, dt)`, `OnDestroy(entity)`,
 `OnCollision(other, nx, ny, nz)` and `OnCollisionEnd(other, nx, ny, nz)`.
@@ -662,6 +662,28 @@ That distinction is the whole point: `lua_toboolean` maps both `nil` and `0` to
 false, so a typo'd field name would read back as a legitimate `false` and the
 caller could not tell the difference.
 
+### GetDeltaTime
+
+```lua
+function M.OnUpdate(entity, dt)
+    local x = x + GetDeltaTime() * speed   -- seconds this frame
+end
+```
+
+Per **entity**, not a single global: two entities ticked in one frame share a
+value, but an entity that is not being ticked must not report a stale one as if
+it were current. `GetDeltaTime(entity)` is that entity's last frame;
+`GetDeltaTime()` is the current frame's, for a script with no entity in hand.
+
+Recorded before `OnUpdate` is called, so it is correct *inside* the hook rather
+than one frame behind. Cleared on `OnRuntimeStart` — left over from a previous
+run it would give a script's first `OnCreate` the last session's dt, and an
+entity whose handle happened to be reused would inherit another's value. The
+editor's play/stop/play cycle hits that every time.
+
+`0.0` is returned when there is no frame to describe (before any update, or for
+an entity that has never been ticked) rather than a substituted value.
+
 ### Mutating a component reports whether it worked
 
 Every binding that **changes** something returns a boolean and logs the failure.
@@ -685,9 +707,10 @@ Getters return `nil` on an unknown field, which Lua already handles naturally.
 
 ### Available API
 
-- Globals: `GetTime()`, `Log(msg)`, `SpawnPrefab(name, x, y, z)`,
+- Globals: `GetTime()`, `GetDeltaTime([entity])`, `Log(msg)`,
+  `SpawnPrefab(name, x, y, z)`,
   `PlaySound(path, volume, pitch, loop)` -> `ok, handle`,
-  `StopSound(handle)`, `Scene`
+  `StopSound(handle)`, `SetBusVolume(name, v)`, `GetBusVolume(name)`, `Scene`
 - Entity: `PlaySound(path, volume, pitch, loop)`, `StopSound`,
   `GetName/SetName`, `Get/SetPosition`, `Get/SetRotation`,
   `Get/SetScale`, `HasComponent`, `AddComponent`, `RemoveComponent`,
@@ -699,6 +722,11 @@ Getters return `nil` on an unknown field, which Lua already handles naturally.
 
 Component type names: `Camera`, `Script`, `Rigidbody`, `BoxCollider`,
 `SphereCollider`, `Light`, `PBRMaterial`, `Mesh`, `Transform`, `Audio`.
+
+`Get/SetFloat`, `Get/SetBool`, `Get/SetString` and `Get/SetVector3` take a
+component name and a field name, so `entity:SetFloat("BoxCollider", "Friction",
+0.5)`. The getters return `nil` for an unknown field; the setters return
+`false` and log what they could not find.
 
 ### Native Scripting
 

@@ -93,6 +93,19 @@ namespace Forge {
 		[[nodiscard]] static bool SetScriptBool(Entity entity, const char* field, bool value);
 		[[nodiscard]] static bool SetScriptString(Entity entity, const char* field, const std::string& value);
 
+		// Delta time, in seconds.
+		//
+		// AGENTS.md documented GetDeltaTime in the Lua API and no such binding
+		// existed, so a script calling it got "attempt to call a nil value".
+		//
+		// GetEntityDeltaTime returns the dt of the frame `entity` was last
+		// updated in, or 0.0 if it never has been. GetLastDeltaTime is the
+		// current frame's, which is what a script with no entity in hand wants.
+		// Reporting 0.0 is honest rather than a fallback: a script calling this
+		// outside OnUpdate has no frame to describe.
+		[[nodiscard]] static double GetEntityDeltaTime(Entity entity);
+		[[nodiscard]] static double GetLastDeltaTime();
+
 	private:
 		// Pushes the entity's script table onto the stack. Returns false (leaving
 		// the stack untouched) when there is no script for that entity.
@@ -109,6 +122,18 @@ namespace Forge {
 		static std::unordered_map<uint32_t, int> s_EntityScripts;
 		// class name -> luaL_ref for the compiled source chunk (reused per spawn)
 		static std::unordered_map<std::string, std::string> s_ScriptSourceCache;
+
+		// Delta times of the current frame, in seconds.
+		//
+		// Per entity rather than a single global, because dt is a property of a
+		// call: two entities updated in the same frame share a value, but an
+		// entity that is not being updated must not report a stale one as if it
+		// were current.
+		static std::unordered_map<uint32_t, double> s_EntityDeltaTimes;
+
+		// The newest of the above, which is what a script with no entity
+		// argument means by "the delta time".
+		static double s_LastDeltaTime;
 	};
 
 }

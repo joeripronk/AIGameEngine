@@ -21,6 +21,8 @@ namespace Forge {
 	Scene* ScriptEngine::s_ActiveScene = nullptr;
 	std::string ScriptEngine::s_ScriptDirectory = "resources/scripts/";
 	std::unordered_map<uint32_t, int> ScriptEngine::s_EntityScripts;
+	std::unordered_map<uint32_t, double> ScriptEngine::s_EntityDeltaTimes;
+	double ScriptEngine::s_LastDeltaTime = 0.0;
 	std::unordered_map<std::string, std::string> ScriptEngine::s_ScriptSourceCache;
 
 	namespace {
@@ -925,6 +927,32 @@ namespace Forge {
 			return 1;
 		}
 
+		// GetDeltaTime([entity]) - the delta time of the frame the optional entity
+		// was last updated in, in seconds.
+		//
+		// AGENTS.md documented this and no such binding existed, so a script
+		// calling it got "attempt to call a nil value".
+		//
+		// Without an argument it reports the most recent delta of any entity,
+		// which is the frame the script is being ticked in. Per-entity rather
+		// than a single global, because two entities updated in one frame share a
+		// dt but an entity that is not being updated must not report a stale
+		// value as if it were current.
+		int LuaGetDeltaTime(lua_State* L)
+		{
+			Entity* entity = TestEntity(L, 1);
+
+			if (entity && *entity)
+			{
+				lua_pushnumber(L, Forge::ScriptEngine::GetEntityDeltaTime(*entity));
+				return 1;
+			}
+
+			// No entity argument, or it was not one: the current frame's delta.
+			lua_pushnumber(L, Forge::ScriptEngine::GetLastDeltaTime());
+			return 1;
+		}
+
 		int LuaLog(lua_State* L)
 		{
 			FG_CORE_INFO("[Lua] {0}", SafeString(L, 1));
@@ -972,6 +1000,7 @@ namespace Forge {
 
 		// Global functions
 		lua_register(L, "GetTime", LuaGetTime);
+		lua_register(L, "GetDeltaTime", LuaGetDeltaTime);
 		lua_register(L, "Log", LuaLog);
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
 		lua_register(L, "PlaySound", LuaPlaySound);
@@ -1034,6 +1063,14 @@ namespace Forge {
 
 		s_ActiveScene = scene;
 		s_EntityScripts.clear();
+
+		// Delta times are per-frame, per-session state. Left over from a
+		// previous run they would make a script's first OnCreate see the last
+		// session's dt - and an entity whose handle happens to be reused would
+		// inherit another entity's value. The editor's play/stop/play cycle hits
+		// this every time.
+		s_EntityDeltaTimes.clear();
+		s_LastDeltaTime = 0.0;
 
 		if (!s_LuaState || !scene)
 			return;
@@ -1130,6 +1167,11 @@ namespace Forge {
 
 	void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
 	{
+		// Recorded before the call, so GetDeltaTime() is correct inside OnUpdate
+		// itself rather than reporting the previous frame.
+		s_EntityDeltaTimes[(uint32_t)(entt::entity)entity] = ts.GetSeconds();
+		s_LastDeltaTime = ts.GetSeconds();
+
 		CallEntityFunction(entity, "OnUpdate", ts.GetSeconds());
 	}
 
@@ -1433,6 +1475,27 @@ namespace Forge {
 		if (s_LuaState)
 			luaL_unref(s_LuaState, LUA_REGISTRYINDEX, it->second);
 		s_EntityScripts.erase(it);
+
+		// Erased alongside the script, or the per-entity delta outlives the
+		// entity it belonged to and is never reclaimed for the session.
+		s_EntityDeltaTimes.erase(entityID);
+	}
+
+	double ScriptEngine::GetEntityDeltaTime(Entity entity)
+	{
+		if (!entity)
+			return 0.0;
+
+		auto it = s_EntityDeltaTimes.find((uint32_t)(entt::entity)entity);
+		if (it == s_EntityDeltaTimes.end())
+			return 0.0;
+
+		return it->second;
+	}
+
+	double ScriptEngine::GetLastDeltaTime()
+	{
+		return s_LastDeltaTime;
 	}
 
 }

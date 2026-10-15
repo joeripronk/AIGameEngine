@@ -68,7 +68,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (305 test cases, 2182 assertions - all passing, order-independent
+### Tests (307 test cases, 2200 assertions - all passing, order-independent
 across Debug/Release/Dist, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -213,6 +213,8 @@ across Debug/Release/Dist, order-independent)
 | `FG_DEBUG` was defined in every configuration | ✅ Fixed - asserts and the SIGTRAP debugbreak were compiled into the shipping build; `FG_DEBUG` now follows the configuration and asserts are genuinely compiled out |
 | `Dist` had no optimisation flags | ✅ Fixed - CMake has no built-in `Dist`, so its flags were empty and the shipping binary was larger than Release |
 | `ForgeRuntimeDist` collided with `ForgeRuntime` | ✅ Fixed - both wrote to `bin/ForgeRuntime` with identical sources; removed, since a static library keeps its own configuration anyway |
+| `GetDeltaTime` was documented but never existed | ✅ Fixed - AGENTS.md listed it as a Lua global but no binding, implementation or test existed, so a script calling it got "attempt to call a nil value" |
+| Delta time leaked across runtime sessions | ✅ Fixed - `s_LastDeltaTime` was never reset, so a script's first `OnCreate` saw the previous session's dt on every play/stop/play |
 | Lua setters failed silently | ✅ Fixed - `SetFloat`/`SetBool`/`SetString`/`SetVector3`/`RemoveComponent`/`Destroy` discarded unknown component and field names, so a typo did nothing and looked like it worked; all now return a boolean and log the field they could not find |
 | Script state inspection could not read booleans | ✅ Fixed - added `GetScriptBool`/`SetScriptBool`/`SetScriptString`; `GetScriptBool` is type-strict so a missing field cannot be mistaken for `false` |
 | Native scripting was unusable | ✅ Fixed - `AddComponent<NativeScriptComponent>` was a link error (no add hook); the update loop called a null function pointer for unbound components, handed every instance a null entity, and leaked instances past the session |

@@ -369,3 +369,88 @@ TEST_CASE("Script state inspection covers booleans and writes back", "[scripting
 
     Forge::ScriptEngine::OnRuntimeStop();
 }
+
+// ---------------------------------------------------------------------------
+// GetDeltaTime
+// ---------------------------------------------------------------------------
+
+TEST_CASE("GetDeltaTime is bound and reports the frame's delta", "[scripting][deltatime]")
+{
+    Forge::Log::Init();
+    Forge::Scene scene;
+
+    const char* kScriptDir = FORGE_SOURCE_DIR "/resources/scripts/";
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+
+    auto entity = scene.CreateEntity("Timer");
+    auto& script = entity.AddComponent<Forge::ScriptComponent>();
+    script.ClassName = "DeltaProbe";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    // Before any frame has run there is no delta to report. 0 is the honest
+    // answer rather than a fallback value.
+    double value = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "DeltaBeforeUpdate", value));
+    REQUIRE(value == Approx(0.0));
+    REQUIRE(Forge::ScriptEngine::GetLastDeltaTime() == Approx(0.0));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.02f));
+
+    // Inside OnUpdate it must be this frame's delta, not the previous one.
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "DeltaInUpdate", value));
+    REQUIRE(value == Approx(0.02));
+
+    // ...and it must agree with the dt the engine passed to OnUpdate.
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "DeltaArgument", value));
+    REQUIRE(value == Approx(0.02));
+
+    // Naming the entity explicitly gives the same answer.
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "DeltaFromSelf", value));
+    REQUIRE(value == Approx(0.02));
+
+    // With no argument, from inside the tick, it is also the current frame.
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "DeltaNoArg", value));
+    REQUIRE(value == Approx(0.02));
+
+    // The C++ accessor agrees, so tooling sees the same number Lua does.
+    REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(entity) == Approx(0.02));
+    REQUIRE(Forge::ScriptEngine::GetLastDeltaTime() == Approx(0.02));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+}
+
+TEST_CASE("GetDeltaTime follows each frame rather than a fixed value", "[scripting][deltatime]")
+{
+    Forge::Log::Init();
+    Forge::Scene scene;
+
+    const char* kScriptDir = FORGE_SOURCE_DIR "/resources/scripts/";
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+
+    auto entity = scene.CreateEntity("Timer");
+    entity.AddComponent<Forge::ScriptComponent>().ClassName = "DeltaProbe";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    // A varying dt must show up. A binding that returned a constant, or lagged
+    // a frame behind, would pass the single-frame test above.
+    scene.OnUpdateRuntime(Forge::Timestep(0.02f));
+    REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(entity) == Approx(0.02));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.05f));
+    REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(entity) == Approx(0.05));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.01f));
+    REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(entity) == Approx(0.01));
+
+    // An entity that was never updated has no delta of its own, and must say
+    // so rather than borrowing one that belongs to another entity.
+    auto idle = scene.CreateEntity("Idle");
+    REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(idle) == Approx(0.0));
+
+    // Nor does a null entity.
+    REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(Forge::Entity()) == Approx(0.0));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+}
