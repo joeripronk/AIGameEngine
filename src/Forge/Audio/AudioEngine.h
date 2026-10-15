@@ -39,7 +39,7 @@ namespace Forge {
 	class AudioEngine
 	{
 	public:
-		static bool Init();
+		[[nodiscard]] static bool Init();
 		static void Shutdown();
 		static bool IsInitialized();
 
@@ -48,8 +48,8 @@ namespace Forge {
 		static Ref<AudioBuffer> LoadAudioBuffer(const std::string& filepath);
 
 		// Playback (no-op / false when no output device is available).
-		static bool PlayAudioBuffer(const Ref<AudioBuffer>& buffer);
-		static bool StopAudioBuffer(const Ref<AudioBuffer>& buffer);
+		[[nodiscard]] static bool PlayAudioBuffer(const Ref<AudioBuffer>& buffer);
+		[[nodiscard]] static bool StopAudioBuffer(const Ref<AudioBuffer>& buffer);
 
 		// Global volume in [0, 1] (default 1.0).
 		static void SetMasterVolume(float volume);

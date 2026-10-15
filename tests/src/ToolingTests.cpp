@@ -632,7 +632,7 @@ TEST_CASE("EditorContext InstantiatePrefab reports unknown prefabs", "[editor][t
     REQUIRE(!context.InstantiatePrefab("NoSuchPrefab"));
 
     const size_t before = context.GetAllEntities().size();
-    context.InstantiatePrefab("NoSuchPrefab", true, glm::vec3(1.0f));
+    REQUIRE_FALSE(context.InstantiatePrefab("NoSuchPrefab", true, glm::vec3(1.0f)));
     REQUIRE(context.GetAllEntities().size() == before);
 }
 

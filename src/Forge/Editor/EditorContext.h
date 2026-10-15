@@ -24,8 +24,8 @@ namespace Forge {
 		// --- Scene management -------------------------------------------------
 		Ref<Scene> GetScene() const { return m_Scene; }
 		void NewScene();
-		bool OpenScene(const std::string& path);
-		bool SaveScene(const std::string& path) const;
+		[[nodiscard]] bool OpenScene(const std::string& path);
+		[[nodiscard]] bool SaveScene(const std::string& path) const;
 
 		// --- Selection --------------------------------------------------------
 		Entity GetSelectedEntity() const { return m_SelectedEntity; }
@@ -36,11 +36,11 @@ namespace Forge {
 		// --- Entity operations ------------------------------------------------
 		Entity CreateEntity(const std::string& name = "Entity");
 		void DestroyEntity(Entity entity);
-		Entity DuplicateEntity(Entity entity);
+		[[nodiscard]] Entity DuplicateEntity(Entity entity);
 
 		// --- Queries ----------------------------------------------------------
-		Entity FindEntityByName(const std::string& name) const;
-		Entity GetEntityByUUID(UUID uuid) const;
+		[[nodiscard]] Entity FindEntityByName(const std::string& name) const;
+		[[nodiscard]] Entity GetEntityByUUID(UUID uuid) const;
 		std::vector<Entity> GetAllEntities() const;
 
 		// --- Playback ---------------------------------------------------------
@@ -69,7 +69,7 @@ namespace Forge {
 		const glm::mat4& GetViewProjection() const { return m_Camera.GetViewProjectionMatrix(); }
 
 		// --- Asset / prefab ---------------------------------------------------
-		Entity InstantiatePrefab(const std::string& prefabName, bool usePosition = false, const glm::vec3& position = glm::vec3(0.0f));
+		[[nodiscard]] Entity InstantiatePrefab(const std::string& prefabName, bool usePosition = false, const glm::vec3& position = glm::vec3(0.0f));
 
 	private:
 		Ref<Scene> m_Scene;

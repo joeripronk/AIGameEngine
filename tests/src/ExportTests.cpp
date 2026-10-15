@@ -266,7 +266,7 @@ TEST_CASE("An exported scene can be loaded back", "[export]")
 		entity.AddComponent<Forge::ScriptComponent>().ClassName = "Mover";
 
 		Forge::SceneSerializer serializer(scene);
-		serializer.Serialize(authored);
+		REQUIRE(serializer.Serialize(authored));
 	}
 
 	Forge::GameExporter::Options options;

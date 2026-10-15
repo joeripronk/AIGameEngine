@@ -47,7 +47,8 @@ namespace {
 		std::filesystem::create_directories("test_roundtrip", ec);
 
 		Forge::SceneSerializer serializer(source);
-		serializer.Serialize(path);
+		if (!serializer.Serialize(path))
+			return false;
 
 		reloaded = Forge::CreateRef<Forge::Scene>();
 		Forge::SceneSerializer reader(reloaded);
@@ -500,8 +501,8 @@ TEST_CASE("Saving twice produces an identical file", "[serialization][roundtrip]
 
 	{
 		Forge::SceneSerializer serializer(scene);
-		serializer.Serialize(first);
-		serializer.Serialize(second);
+		REQUIRE(serializer.Serialize(first));
+		REQUIRE(serializer.Serialize(second));
 	}
 
 	// Re-saving the same scene must be byte-identical, otherwise diffs in version

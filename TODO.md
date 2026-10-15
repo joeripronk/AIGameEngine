@@ -67,7 +67,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (204 test cases, 1417 assertions - all passing, order-independent)
+### Tests (204 test cases, 1424 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
@@ -189,3 +189,7 @@
 | `Prefab::IsValid()` accepted corrupt files | ✅ Fixed - the file must parse and contain a recognisable entity |
 | `SceneSerializer::Serialize` returned void, so `SaveScene` always returned true | ✅ Fixed - Serialize returns bool and checks the stream after flushing; an agent now learns whether a save happened |
 | Editor UI discarded save and export results | ✅ Fixed - failures now surface as a notification instead of being silently swallowed |
+| 11 call sites discarded a fallible result | ✅ Fixed - fallible APIs are now `[[nodiscard]]`, so the compiler enforces the convention |
+| Editor UI ignored scene-open failures | ✅ Fixed - opening a scene now reports success or failure |
+| Screenshot capture failure was silent | ✅ Fixed - `FG_CAPTURE_PATH` capture failures are logged |
+| `AudioEngine` is never called by either app | ⚠️ Built and tested but not wired into the editor or runtime |

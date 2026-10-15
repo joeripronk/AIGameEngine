@@ -137,7 +137,12 @@ namespace Forge {
 				// verification (FG_CAPTURE_PATH=/tmp/frame.ppm).
 				if (const char* capturePath = std::getenv("FG_CAPTURE_PATH"))
 				{
-					Renderer::CaptureSwapchainImage(swapchainImage, capturePath);
+					// A capture that silently failed would leave a verification
+					// script staring at a stale or missing image, so report it.
+					if (!Renderer::CaptureSwapchainImage(swapchainImage, capturePath))
+					{
+						FG_CORE_ERROR("Runtime: failed to capture frame to '{0}'", capturePath);
+					}
 				}
 
 				Renderer::PresentSwapchainImage(swapchainImage);

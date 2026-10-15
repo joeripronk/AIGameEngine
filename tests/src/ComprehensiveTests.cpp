@@ -129,7 +129,7 @@ TEST_CASE("Scene serialization with all components", "[comprehensive][serializer
     newTC1.Scale = tc1.Scale;
 
     Forge::SceneSerializer serializer(tempScene);
-    serializer.Serialize(filepath);
+    REQUIRE(serializer.Serialize(filepath));
 
     // Deserialize
     auto newSceneRef = Forge::CreateRef<Forge::Scene>();

@@ -21,13 +21,13 @@ namespace Forge {
 		explicit Prefab(const std::string& filepath);
 
 		// Serializes `entity` (and its components) to a prefab file.
-		static bool CreateFromEntity(Entity entity, const std::string& filepath);
+		[[nodiscard]] static bool CreateFromEntity(Entity entity, const std::string& filepath);
 
 		// Instantiates this prefab into `scene`. When `usePosition` is true the
 		// spawned entity's translation is overridden with `position`.
 		Entity Instantiate(Scene* scene, bool usePosition = false, const glm::vec3& position = glm::vec3(0.0f)) const;
 
-		bool IsValid() const;
+		[[nodiscard]] bool IsValid() const;
 		const std::string& GetFilePath() const { return m_FilePath; }
 
 	private:
@@ -45,7 +45,7 @@ namespace Forge {
 	public:
 		// Returns a cached prefab, loading it from `directory/<name>.forge` on
 		// first use. Returns nullptr when the file cannot be found.
-		static Ref<Prefab> Get(const std::string& name, const std::string& directory = "");
+		[[nodiscard]] static Ref<Prefab> Get(const std::string& name, const std::string& directory = "");
 
 		static void Clear() { s_Prefabs.clear(); }
 		static void SetDirectory(const std::string& directory) { s_Directory = directory; }

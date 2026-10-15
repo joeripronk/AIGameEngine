@@ -112,7 +112,7 @@ TEST_CASE("Scene serializer round-trips every component", "[serializer][feature]
 
 	const std::string path = "test_full_scene.forge";
 	Forge::SceneSerializer serializer(scene);
-	serializer.Serialize(path);
+	REQUIRE(serializer.Serialize(path));
 
 	auto loaded = Forge::CreateRef<Forge::Scene>();
 	Forge::SceneSerializer loader(loaded);

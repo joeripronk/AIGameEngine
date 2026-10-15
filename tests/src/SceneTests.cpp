@@ -295,7 +295,7 @@ TEST_CASE("Scene serialization round-trip", "[scene][serializer]")
     newRB3.FixedRotation = rComp.FixedRotation;
 
     Forge::SceneSerializer serializer(tempScene);
-    serializer.Serialize(filepath);
+    REQUIRE(serializer.Serialize(filepath));
 
     // Verify the serialized file exists and is valid
     std::ifstream verifyFile(filepath);

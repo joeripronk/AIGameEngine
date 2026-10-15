@@ -56,10 +56,10 @@ namespace Forge {
 		// --- Tooling / embedding API (also used by tests and the editor) ----
 
 		// Executes a raw Lua string in the global environment.
-		static bool ExecuteString(const std::string& code, std::string* errorOut = nullptr);
+		[[nodiscard]] static bool ExecuteString(const std::string& code, std::string* errorOut = nullptr);
 
 		// Loads a script file, associates it with `entity`, and calls OnCreate.
-		static bool LoadScriptForEntity(Entity entity, const std::string& filepath, std::string* errorOut = nullptr);
+		[[nodiscard]] static bool LoadScriptForEntity(Entity entity, const std::string& filepath, std::string* errorOut = nullptr);
 
 		// Calls a named function on an entity's loaded script table.
 		static bool CallEntityFunction(Entity entity, const char* functionName, float dt = 0.0f);
@@ -79,12 +79,12 @@ namespace Forge {
 		//
 		// Returns false if the entity has no script, the field is absent, or the
 		// field is not a number/string.
-		static bool GetScriptNumber(Entity entity, const char* field, double& out);
-		static bool GetScriptString(Entity entity, const char* field, std::string& out);
+		[[nodiscard]] static bool GetScriptNumber(Entity entity, const char* field, double& out);
+		[[nodiscard]] static bool GetScriptString(Entity entity, const char* field, std::string& out);
 
 		// Writes a number into an entity's script table, so tools can drive a
 		// script's inputs the same way Lua would.
-		static bool SetScriptNumber(Entity entity, const char* field, double value);
+		[[nodiscard]] static bool SetScriptNumber(Entity entity, const char* field, double value);
 
 	private:
 		// Pushes the entity's script table onto the stack. Returns false (leaving

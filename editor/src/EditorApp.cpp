@@ -442,12 +442,18 @@ namespace Forge {
 
 			// Double-click a prefab/scene to open it.
 			if (asset.Type == AssetType::Scene && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
-				m_Editor.OpenScene(asset.Path);
+			{
+				const bool opened = m_Editor.OpenScene(asset.Path);
+				Notify(opened ? "Opened " + asset.Name : "Failed to open " + asset.Path, !opened);
+			}
 
 			if (asset.Type == AssetType::Scene && ImGui::BeginPopupContextItem("open"))
 			{
 				if (ImGui::MenuItem("Open Scene"))
-					m_Editor.OpenScene(asset.Path);
+				{
+					const bool opened = m_Editor.OpenScene(asset.Path);
+					Notify(opened ? "Opened " + asset.Name : "Failed to open " + asset.Path, !opened);
+				}
 				ImGui::EndPopup();
 			}
 

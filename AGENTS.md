@@ -198,6 +198,23 @@ Entities:
 - Comprehensive error handling with logging
 - Platform-agnostic core (Vulkan abstraction)
 
+### Error handling convention
+
+The engine has been bitten repeatedly by operations that reported success by
+default rather than by verification, so the rule is explicit:
+
+- **Every fallible public API is `[[nodiscard]]`.** The compiler enforces it.
+- **Every fallible call site must do something with the result.** Handle it,
+  log it, forward it, or cast to `void` with a comment saying why it is
+  intentionally ignored.
+- **`bool` means "verify, don't assume."** A function returning `bool` has
+  actually checked. Never return `true` unconditionally as a placeholder.
+- **UI and tooling must surface failures.** The editor reports save, open and
+  export failures as notifications rather than discarding them; an agent driving
+  `EditorContext` relies on these return values to know whether work persisted.
+- **Predicates are exempt.** `IsValid()`, `HasScript()`, `IsWorldAtRest()` and
+  similar are not `[[nodiscard]]`; ignoring a predicate is normal.
+
 ## Editor Requirements
 
 The editor must be fully controllable by AI agents:

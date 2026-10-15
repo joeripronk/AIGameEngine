@@ -21,7 +21,7 @@ namespace Forge {
 			std::string GameName = "Game";
 		};
 
-		static bool Export(const Options& options);
+		[[nodiscard]] static bool Export(const Options& options);
 
 	private:
 		static bool CopyFile(const std::string& from, const std::string& to);
