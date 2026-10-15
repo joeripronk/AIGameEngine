@@ -1,8 +1,10 @@
 #pragma once
 
 #include "Forge/Core/Base.h"
+#include "Forge/Audio/AudioEngine.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace Forge {
@@ -91,5 +93,15 @@ namespace Forge {
 		Channel m_Left;
 		Channel m_Right;
 	};
+
+	// Convenience: loads a clip, runs it through a reverb, and returns the
+	// processed audio as a playable buffer. Returns nullptr if the clip cannot be
+	// decoded.
+	//
+	// The result has no source path, so the streaming playback path cannot play
+	// it; write it with AudioBuffer::WriteWav to produce something that can be
+	// streamed, which is how an effect gets baked ahead of time.
+	[[nodiscard]] Ref<AudioBuffer> ProcessAudioFile(const std::string& filepath,
+		const ReverbSettings& settings);
 
 }

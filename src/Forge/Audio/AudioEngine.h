@@ -52,6 +52,23 @@ namespace Forge {
 		// The source path, retained so playback can (re)load it through miniaudio.
 		const std::string& GetSourcePath() const { return m_SourcePath; }
 
+		// Wraps interleaved stereo float PCM that is already in memory.
+		//
+		// This is how a processor's output becomes playable: run PCM through a
+		// ReverbProcessor, hand the result to FromSamples, and play the result
+		// rather than the original file. The path is optional; a buffer with no
+		// path simply cannot be streamed, so playback of it is not supported -
+		// it exists to be inspected or written out.
+		[[nodiscard]] static Ref<AudioBuffer> FromSamples(const float* samples,
+			uint64_t frameCount, uint32_t sampleRate, uint32_t channels = 2);
+
+		// Writes this buffer to `filepath` as a 16-bit PCM WAV. Returns false if
+		// the file could not be opened or written.
+		//
+		// Used to bake processed audio to disk, so an effect applied at build time
+		// is available to the streaming playback path at run time.
+		[[nodiscard]] bool WriteWav(const std::string& filepath) const;
+
 	private:
 		friend class AudioEngine;
 

@@ -383,9 +383,29 @@ Two details that are easy to get wrong, and were:
   the original signal, which is not what a width control should do. At width 0
   the tail is mono; at width 1 each channel keeps its own.
 
-Processing is a separate step from playback: load a clip, run it through a
-processor to bake in the effect, then play the result. That suits music and
-ambience, where the tail does not need to react to anything.
+### Baking an effect to a file
+
+Processing is a separate step from playback, and the result is a real asset
+rather than something stranded in memory:
+
+```cpp
+auto processed = Forge::ProcessAudioFile("ambience.wav", settings);
+processed->WriteWav("resources/audio/ambience_cave.wav");   // now streamable
+```
+
+`AudioBuffer::FromSamples` wraps in-memory PCM and `AudioBuffer::WriteWav`
+emits 16-bit PCM, so baked audio is playable by the ordinary streaming path.
+Samples outside [-1, 1] are clamped rather than cast: a wrapping cast turns an
+out-of-range value into full scale of the *opposite* sign, which is a click
+rather than a loud sample.
+
+Note that `LoadAudioBuffer` decodes to a fixed 48 kHz **stereo** target
+regardless of the file, so a mono source is upmixed and resampled on load, and
+every decoded buffer carries that rate. Both the reverb's stereo requirement
+and `WriteWav`'s header depend on this.
+
+That suits music and ambience, where the tail does not need to react to
+anything.
 
 ### Gapless looping
 

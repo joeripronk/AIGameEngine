@@ -7,7 +7,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <new>
 #include <system_error>
 
 namespace Forge {
@@ -665,6 +668,92 @@ namespace Forge {
 	uint32_t AudioEngine::GetActiveSoundCount()
 	{
 		return static_cast<uint32_t>(s_Sounds.size());
+	}
+
+	Ref<AudioBuffer> AudioBuffer::FromSamples(const float* samples, uint64_t frameCount,
+		uint32_t sampleRate, uint32_t channels)
+	{
+		if (!samples || frameCount == 0 || sampleRate == 0 || channels == 0)
+			return nullptr;
+
+		const size_t sampleCount = static_cast<size_t>(frameCount) * channels;
+
+		auto buffer = CreateRef<AudioBuffer>();
+		buffer->m_Samples = new (std::nothrow) float[sampleCount];
+		if (!buffer->m_Samples)
+		{
+			FG_CORE_ERROR("AudioBuffer::FromSamples: out of memory");
+			return nullptr;
+		}
+
+		memcpy(buffer->m_Samples, samples, sampleCount * sizeof(float));
+
+		buffer->m_FrameCount = frameCount;
+		buffer->m_Channels = channels;
+		buffer->m_SampleRate = sampleRate;
+
+		// No source path: this audio only exists in memory.
+		return buffer;
+	}
+
+	bool AudioBuffer::WriteWav(const std::string& filepath) const
+	{
+		if (filepath.empty() || m_Samples == nullptr || m_FrameCount == 0 || m_SampleRate == 0)
+		{
+			FG_CORE_ERROR("AudioBuffer::WriteWav: buffer is empty or no path given");
+			return false;
+		}
+
+		const uint16_t channels = static_cast<uint16_t>(m_Channels);
+		const uint16_t bitsPerSample = 16;
+		const uint32_t dataSize = static_cast<uint32_t>(m_FrameCount) * channels * (bitsPerSample / 8);
+		const uint32_t byteRate = m_SampleRate * channels * (bitsPerSample / 8);
+		const uint16_t blockAlign = channels * (bitsPerSample / 8);
+
+		std::ofstream out(filepath, std::ios::binary);
+		if (!out.is_open())
+		{
+			FG_CORE_ERROR("AudioBuffer::WriteWav: cannot open '{0}' for writing", filepath);
+			return false;
+		}
+
+		const auto writeU32 = [&out](uint32_t value) { out.write(reinterpret_cast<const char*>(&value), 4); };
+		const auto writeU16 = [&out](uint16_t value) { out.write(reinterpret_cast<const char*>(&value), 2); };
+
+		out.write("RIFF", 4);
+		writeU32(36 + dataSize);
+		out.write("WAVE", 4);
+
+		out.write("fmt ", 4);
+		writeU32(16);            // PCM subchunk size
+		writeU16(1);             // PCM format
+		writeU16(channels);
+		writeU32(m_SampleRate);
+		writeU32(byteRate);
+		writeU16(blockAlign);
+		writeU16(bitsPerSample);
+
+		out.write("data", 4);
+		writeU32(dataSize);
+
+		// Float to 16-bit PCM. Clamped rather than wrapped: a value outside
+		// [-1, 1] would otherwise wrap to full-scale of the opposite sign, which
+		// is a loud click rather than a loud sample.
+		for (uint64_t i = 0; i < m_FrameCount * m_Channels; i++)
+		{
+			const float value = (std::clamp(m_Samples[i], -1.0f, 1.0f) * 32767.0f);
+			writeU16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(value))));
+		}
+
+		out.flush();
+
+		if (!out.good())
+		{
+			FG_CORE_ERROR("AudioBuffer::WriteWav: failed while writing '{0}'", filepath);
+			return false;
+		}
+
+		return true;
 	}
 
 	bool AudioEngine::PlayAudioBuffer(const Ref<AudioBuffer>& buffer)

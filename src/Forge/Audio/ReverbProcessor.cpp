@@ -1,6 +1,8 @@
 #include "fgpch.h"
 #include "Forge/Audio/ReverbProcessor.h"
 
+#include "Forge/Audio/AudioEngine.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -210,6 +212,34 @@ namespace Forge {
 			output[frame * 2] = outLeft;
 			output[(frame * 2) + 1] = outRight;
 		}
+	}
+
+	Ref<AudioBuffer> ProcessAudioFile(const std::string& filepath, const ReverbSettings& settings)
+	{
+		auto source = AudioEngine::LoadAudioBuffer(filepath);
+		if (!source || source->GetFrameCount() == 0)
+			return nullptr;
+
+		const uint64_t frames = source->GetFrameCount();
+		const uint32_t channels = source->GetChannels();
+		if (channels != 2)
+		{
+			// The processor is stereo. LoadAudioBuffer decodes to a fixed stereo
+			// target today, so this cannot currently fire - it is here because
+			// treating a non-stereo decode as stereo would reinterpret every other
+			// sample, which is silent data corruption rather than a bad return
+			// code, and FromSamples can already produce other channel counts.
+			FG_CORE_ERROR("ProcessAudioFile: '{0}' is {1}-channel; reverb requires stereo", filepath, channels);
+			return nullptr;
+		}
+
+		ReverbProcessor processor(settings, source->GetSampleRate());
+
+		std::vector<float> processed(static_cast<size_t>(frames) * channels, 0.0f);
+		processor.Process(source->GetSamples(), processed.data(), frames);
+
+		return AudioBuffer::FromSamples(processed.data(), frames,
+			source->GetSampleRate(), channels);
 	}
 
 }
