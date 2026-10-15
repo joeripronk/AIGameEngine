@@ -62,3 +62,14 @@ resources/hdris/
 # Test artifacts
 *.forge
 !resources/scenes/*.forge
+
+# Test artifacts written into the working directory by the test suite
+/bad.rt
+/test_full_scene.rt
+/test_*.forge
+/test_*.rt
+/test_assets/
+/test_export/
+/test_prefabs/
+/test_scripts/
+/test_tools/
