@@ -174,10 +174,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] ASan + UBSan CI job (memory errors no test can observe)
 
 ### ✨ New Features
-- [ ] SSAO sample positions uniform array (shader fixed, needs runtime setup)
-- [ ] UpdateDescriptorSets fully implemented
-- [ ] nvrhi submodule updated with improved error handling
-- [ ] forest.exr improved (20 → 68 bytes proper EXR)
+- [x] SSAO sample positions uniform array (shader fixed, runtime setup complete)
+- [x] UpdateDescriptorSets fully implemented
+- [x] nvrhi submodule updated with improved error handling
+- [x] forest.exr improved (20 → 68 bytes proper EXR)
 
 ---
 
