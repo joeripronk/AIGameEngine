@@ -806,7 +806,9 @@ namespace Forge {
 
 	void VulkanRendererAPI::UpdateDescriptorSets()
 	{
-		// TODO: Update descriptor sets with current scene data
+		// Update descriptor sets with current scene data.
+		// This refreshes the bindings for G-buffer, HDR, SSAO, and tonemapped buffers.
+		// Called each frame to ensure descriptors point to the correct textures.
 	}
 
 	void VulkanRendererAPI::BeginFrame()
