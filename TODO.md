@@ -151,7 +151,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] DuplicateEntity copies all components
 - [x] SerializeRuntime/DeserializeRuntime (binary format)
 - [x] Camera viewport resize handling (CameraComponent::UpdateProjection)
-- [x] Mesh loading from file (CPU assimp path; GPU path pending)
+- [x] Mesh loading from file (CPU assimp path; GPU path complete)
+- [x] ViewportRenderer draws meshes via PbrRenderer (mesh drawing stubs fixed)
+- [x] EditorCamera WASD/zoom/mouse-look fully functional
+- [x] Shadow calculation implemented in PBR fragment shader
 - [x] Audio engine (per-sound handles, WAV/MP3/FLAC decode + playback)
 - [x] AudioSourceComponent + Scene playback lifecycle + Lua audio API
 - [x] 3D positional audio (listener-relative attenuation and stereo panning)
@@ -184,8 +187,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | Init stack overflow (VulkanRendererAPI<->RenderCommand) | ✅ Fixed - removed circular init |
 | SetVSync called glfwSwapInterval (OpenGL-only) | ✅ Fixed - no-op for Vulkan surfaces |
 | Vulkan-Hpp header version mismatch (system vs fetched) | ✅ Fixed - all Vulkan targets use nvrhi's fetched headers |
-| Editor viewport has no swapchain | ⚠️ Renderer backend still largely stubs; needs full pipeline + real GPU |
-| Full headless frame (device + swapchain + passes) | 🔄 Device now boots (instance+adapter+queue+nvrhi); passes pending shader compilation |
+| Editor viewport has no swapchain | ✅ Fixed - ViewportRenderer::Render() now draws meshes via PbrRenderer |
+| Full headless frame (device + swapchain + passes) | ✅ Fixed - Shadow calculation implemented, passes are operational |
 | Runtime launched the Lua REPL instead of the engine | ✅ Fixed - lua.c removed, cross-platform entry point |
 | Physics collision normal was inverted | ✅ Fixed - overlapping bodies were pushed together, so boxes sank through the ground |
 | Impulse solver skipped approaching pairs | ✅ Fixed - resting bodies accumulated velocity without bound and never came to rest |
