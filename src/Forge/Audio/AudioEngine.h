@@ -12,6 +12,26 @@ struct ma_sound;
 
 namespace Forge {
 
+	// Mixing buses. Sounds route through one bus and the bus has a single
+	// volume, so an effect like "duck the music while someone speaks" is one
+	// call rather than a sweep over every playing sound.
+	enum class AudioBus : uint8_t
+	{
+		Master = 0,
+		Music,
+		SoundEffects,
+		Voice,
+		Interface,
+		Count
+	};
+
+	// Human-readable bus name ("Music", "SFX", ...). Out-of-range values report
+	// as "Master", since this feeds logging and the inspector rather than logic.
+	std::string AudioBusName(AudioBus bus);
+
+	// Parses a bus name case-insensitively. Returns false for an unknown name.
+	bool ParseAudioBus(const std::string& name, AudioBus& out);
+
 	// A decoded, in-memory audio clip. Decoding is device independent, so
 	// loading works even without a sound card (e.g. in tests/headless).
 	class AudioBuffer
@@ -110,12 +130,30 @@ namespace Forge {
 			float volume = 1.0f, float pitch = 1.0f, bool loop = false,
 			SoundHandle* outHandle = nullptr);
 
+		// As above, but routed through a mixing bus.
+		[[nodiscard]] static bool PlaySoundOnBus(const std::string& filepath,
+			AudioBus bus, float volume = 1.0f, float pitch = 1.0f, bool loop = false,
+			SoundHandle* outHandle = nullptr);
+
 		// As above, but positioned in the world and attenuated/panned relative to
 		// the listener. `position` is ignored when `spatial.Enabled` is false.
 		[[nodiscard]] static bool PlaySoundAt(const std::string& filepath,
 			const glm::vec3& position, const SpatialParams& spatial,
 			float volume = 1.0f, float pitch = 1.0f, bool loop = false,
 			SoundHandle* outHandle = nullptr);
+
+		// As above, and routed through a mixing bus. Preferred over PlaySoundOnBus
+		// plus a follow-up SetSoundBus: the bus is correct from the first sample
+		// rather than after a frame of the wrong routing.
+		[[nodiscard]] static bool PlaySoundAtOnBus(const std::string& filepath,
+			const glm::vec3& position, const SpatialParams& spatial, AudioBus bus,
+			float volume = 1.0f, float pitch = 1.0f, bool loop = false,
+			SoundHandle* outHandle = nullptr);
+
+		// Moves an already-playing sound to a different bus. Takes effect on the
+		// next mix.
+		[[nodiscard]] static bool SetSoundBus(SoundHandle handle, AudioBus bus);
+		[[nodiscard]] static bool GetSoundBus(SoundHandle handle, AudioBus& out);
 
 		// --- Click-free playback ---
 		//
@@ -135,6 +173,25 @@ namespace Forge {
 		// Per-frame housekeeping: reclaims sounds whose fade-out has finished and
 		// re-mixes spatial sounds. The Scene calls this once per frame.
 		static void Update();
+
+		// --- Mixing buses ---
+		//
+		// A sound's effective volume is BusVolume(its bus) x its own volume x
+		// its spatial gain, so changing a bus volume re-mixes every sound on that
+		// bus without touching them individually.
+
+		// Sets a bus volume in [0, 1]. Values outside the range are clamped.
+		// Returns false only for an out-of-range bus index.
+		[[nodiscard]] static bool SetBusVolume(AudioBus bus, float volume);
+		static float GetBusVolume(AudioBus bus);
+
+		// Convenience overload for callers with a name (Lua, serialization).
+		[[nodiscard]] static bool SetBusVolume(const std::string& busName, float volume);
+		static float GetBusVolume(const std::string& busName);
+
+		// The volume a sound on `bus` is heard at, before its own volume and
+		// spatial gain are applied.
+		static float ComputeBusGain(AudioBus bus);
 
 		// --- 3D audio ---
 		//
@@ -206,6 +263,9 @@ namespace Forge {
 			// True once a fade-out has been requested. The sound keeps playing
 			// until the fade completes, so it must not be reclaimed yet.
 			bool PendingRelease = false;
+
+			// Mixing bus this sound routes through.
+			AudioBus Bus = AudioBus::SoundEffects;
 		};
 
 		static PlayingSound* Find(SoundHandle handle);
@@ -214,11 +274,12 @@ namespace Forge {
 		[[nodiscard]] static bool StartSound(const std::string& filepath,
 			float volume, float pitch, bool loop,
 			const glm::vec3* position, const SpatialParams& spatial,
-			SoundHandle* outHandle);
+			AudioBus bus, SoundHandle* outHandle);
 
 		static ma_engine* s_Engine;
 		static float s_MasterVolume;
 		static float s_FadeDuration;
+		static float s_BusVolumes[static_cast<size_t>(AudioBus::Count)];
 		static ListenerState s_Listener;
 		static std::unordered_map<SoundHandle, PlayingSound> s_Sounds;
 		static SoundHandle s_NextHandle;

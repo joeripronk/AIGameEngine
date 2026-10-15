@@ -847,3 +847,293 @@ TEST_CASE("A non-spatial source defaults to 2D behaviour", "[audio][component][s
 	// they are in the world.
 	REQUIRE(audio.Spatial == false);
 }
+
+// ---------------------------------------------------------------------------
+// Mixing buses
+//
+// Ducking music under dialogue must be one call regardless of how many sounds
+// are playing, which is what the bus abstraction buys. The gain maths is pure,
+// so it is verified with no audio device.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Audio bus names round-trip through parsing", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::AudioBusName;
+	using Forge::ParseAudioBus;
+
+	for (auto bus : { AudioBus::Master, AudioBus::Music, AudioBus::SoundEffects,
+	                  AudioBus::Voice, AudioBus::Interface })
+	{
+		AudioBus parsed = AudioBus::Master;
+		REQUIRE(ParseAudioBus(AudioBusName(bus), parsed));
+		REQUIRE(parsed == bus);
+	}
+}
+
+TEST_CASE("Bus names parse case-insensitively with aliases", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::ParseAudioBus;
+
+	AudioBus bus = AudioBus::Master;
+
+	REQUIRE(ParseAudioBus("music", bus));
+	REQUIRE(bus == AudioBus::Music);
+
+	REQUIRE(ParseAudioBus("MUSIC", bus));
+	REQUIRE(bus == AudioBus::Music);
+
+	// Aliases so a script can use the obvious word.
+	REQUIRE(ParseAudioBus("sfx", bus));
+	REQUIRE(bus == AudioBus::SoundEffects);
+
+	REQUIRE(ParseAudioBus("sound", bus));
+	REQUIRE(bus == AudioBus::SoundEffects);
+
+	REQUIRE(ParseAudioBus("ui", bus));
+	REQUIRE(bus == AudioBus::Interface);
+
+	// An unknown name is rejected rather than silently mapped somewhere wrong.
+	REQUIRE(ParseAudioBus("NotABus", bus) == false);
+	REQUIRE(ParseAudioBus("", bus) == false);
+}
+
+TEST_CASE("Every bus starts at full volume", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::AudioEngine;
+
+	for (auto bus : { AudioBus::Master, AudioBus::Music, AudioBus::SoundEffects,
+	                  AudioBus::Voice, AudioBus::Interface })
+		REQUIRE(Forge::AudioEngine::GetBusVolume(bus) == Approx(1.0f));
+}
+
+TEST_CASE("Bus volume is clamped to a valid range", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::AudioEngine;
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 0.25f));
+	REQUIRE(Forge::AudioEngine::GetBusVolume(AudioBus::Music) == Approx(0.25f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 5.0f));
+	REQUIRE(Forge::AudioEngine::GetBusVolume(AudioBus::Music) == Approx(1.0f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, -3.0f));
+	REQUIRE(Forge::AudioEngine::GetBusVolume(AudioBus::Music) == Approx(0.0f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 1.0f));
+}
+
+TEST_CASE("Setting a bus by name works and unknown names fail", "[audio][bus]")
+{
+	using Forge::AudioEngine;
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume("Music", 0.4f));
+	REQUIRE(Forge::AudioEngine::GetBusVolume("Music") == Approx(0.4f));
+
+	// An unknown bus must be reported, not silently ignored: a typo that
+	// silently did nothing would leave music playing over dialogue.
+	REQUIRE(Forge::AudioEngine::SetBusVolume("NotABus", 0.1f) == false);
+	REQUIRE(Forge::AudioEngine::GetBusVolume("NotABus") == Approx(1.0f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume("Music", 1.0f));
+}
+
+TEST_CASE("Buses mix independently", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::AudioEngine;
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 0.5f));
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::SoundEffects, 1.0f));
+
+	// Ducking music must not touch effects.
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Music) == Approx(0.5f));
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::SoundEffects) == Approx(1.0f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 1.0f));
+}
+
+TEST_CASE("Master volume multiplies into every bus", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::AudioEngine;
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Master, 0.5f));
+
+	// Everything is heard through Master, so halving it halves every bus.
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Music) == Approx(0.5f));
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Voice) == Approx(0.5f));
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Interface) == Approx(0.5f));
+
+	// A bus set to full volume is still attenuated by a quiet Master.
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 1.0f));
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Music) == Approx(0.5f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Master, 1.0f));
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Music) == Approx(1.0f));
+}
+
+TEST_CASE("Ducking music leaves voice untouched", "[audio][bus]")
+{
+	using Forge::AudioBus;
+	using Forge::AudioEngine;
+
+	// The exact effect this feature exists for.
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 0.3f));
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Voice, 1.0f));
+
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Music) == Approx(0.3f));
+	REQUIRE(Forge::AudioEngine::ComputeBusGain(AudioBus::Voice) == Approx(1.0f));
+
+	REQUIRE(Forge::AudioEngine::SetBusVolume(AudioBus::Music, 1.0f));
+}
+
+TEST_CASE("SetSoundBus is safe for an unknown handle", "[audio][bus]")
+{
+	Forge::AudioEngine::Shutdown();
+	REQUIRE(Forge::AudioEngine::SetSoundBus(9999, Forge::AudioBus::Music) == false);
+
+	Forge::AudioBus bus = Forge::AudioBus::Music;
+	REQUIRE(Forge::AudioEngine::GetSoundBus(9999, bus) == false);
+}
+
+TEST_CASE("A sound reports the bus it was started on", "[audio][bus]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; bus routing requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_bus.wav", 48000, 1.0);
+
+	Forge::AudioEngine::SoundHandle handle = Forge::AudioEngine::InvalidSound;
+	REQUIRE(Forge::AudioEngine::PlaySoundOnBus(wav, Forge::AudioBus::Music, 1.0f, 1.0f, true, &handle));
+
+	Forge::AudioBus bus = Forge::AudioBus::SoundEffects;
+	REQUIRE(Forge::AudioEngine::GetSoundBus(handle, bus));
+	REQUIRE(bus == Forge::AudioBus::Music);
+
+	// Moving it between buses takes effect immediately.
+	REQUIRE(Forge::AudioEngine::SetSoundBus(handle, Forge::AudioBus::Voice));
+	REQUIRE(Forge::AudioEngine::GetSoundBus(handle, bus));
+	REQUIRE(bus == Forge::AudioBus::Voice);
+
+	Forge::AudioEngine::StopAllSounds();
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("AudioSourceComponent bus round-trips", "[audio][bus][serialization]")
+{
+	std::error_code ec;
+	fs::create_directories("test_audio", ec);
+
+	auto scene = Forge::CreateRef<Forge::Scene>();
+	auto entity = scene->CreateEntity("Theme");
+	auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = "resources/audio/theme.ogg";
+	audio.Bus = Forge::AudioBus::Music;
+
+	const std::string path = "test_audio/audio_bus.forge";
+	Forge::SceneSerializer serializer(scene);
+	REQUIRE(serializer.Serialize(path));
+
+	auto reloaded = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer reader(reloaded);
+	REQUIRE(reader.Deserialize(path));
+
+	auto restored = reloaded->FindEntityByName("Theme");
+	REQUIRE(restored);
+	REQUIRE(restored.GetComponent<Forge::AudioSourceComponent>().Bus == Forge::AudioBus::Music);
+}
+
+TEST_CASE("An unknown bus name in a scene file falls back to the default", "[audio][bus][serialization]")
+{
+	std::error_code ec;
+	fs::create_directories("test_audio", ec);
+
+	// A hand-edited or older scene file with a bad bus name must not lose the
+	// whole scene; the source keeps its other fields.
+	const std::string path = "test_audio/audio_bus_bad.forge";
+	{
+		std::ofstream out(path);
+		out << "Scene: Untitled\n"
+			<< "Entities:\n"
+			<< "  - Entity: 12345\n"
+			<< "    TagComponent:\n"
+			<< "      Tag: BadBus\n"
+			<< "    TransformComponent:\n"
+			<< "      Translation: [0, 0, 0]\n"
+			<< "      Rotation: [0, 0, 0]\n"
+			<< "      Scale: [1, 1, 1]\n"
+			<< "    AudioSourceComponent:\n"
+			<< "      SourcePath: theme.ogg\n"
+			<< "      Volume: 1\n"
+			<< "      Pitch: 1\n"
+			<< "      Loop: true\n"
+			<< "      PlayOnStart: true\n"
+			<< "      Bus: NotARealBus\n";
+	}
+
+	auto reloaded = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer reader(reloaded);
+	REQUIRE(reader.Deserialize(path));
+
+	auto restored = reloaded->FindEntityByName("BadBus");
+	REQUIRE(restored);
+
+	const auto& audio = restored.GetComponent<Forge::AudioSourceComponent>();
+	// Falls back to the component default, and the rest of the source survives.
+	REQUIRE(audio.Bus == Forge::AudioBus::SoundEffects);
+	REQUIRE(audio.SourcePath == "theme.ogg");
+	REQUIRE(audio.Loop == true);
+}
+
+TEST_CASE("Lua can set and read bus volumes", "[scripting][audio][bus]")
+{
+	Forge::Log::Init();
+	Forge::ScriptEngine::Init();
+
+	std::string error;
+	const std::string code =
+		"assert(SetBusVolume('Music', 0.35) == true)\n"
+		"assert(math.abs(GetBusVolume('Music') - 0.35) < 0.001)\n"
+		// An unknown bus must report failure rather than silently doing nothing.
+		"assert(SetBusVolume('NotABus', 0.1) == false)\n"
+		"assert(GetBusVolume('NotABus') == nil)\n"
+		// Ducking must leave other buses alone.
+		"assert(SetBusVolume('Voice', 1.0) == true)\n"
+		"assert(math.abs(GetBusVolume('Voice') - 1.0) < 0.001)\n"
+		"assert(SetBusVolume('Music', 1.0) == true)\n"
+		"return true";
+
+	REQUIRE(Forge::ScriptEngine::ExecuteString(code, &error));
+
+	Forge::ScriptEngine::Shutdown();
+}
+
+TEST_CASE("Lua PlaySound accepts a bus name and rejects a bad one", "[scripting][audio][bus]")
+{
+	Forge::Log::Init();
+	Forge::ScriptEngine::Init();
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_lua_bus.wav", 48000, 1.0);
+
+	std::string error;
+	const std::string code =
+		"local ok = PlaySound('" + wav + "', 1.0, 1.0, false, 'Music')\n"
+		"assert(type(ok) == 'boolean')\n"
+		// An unknown bus is reported, not silently routed to SFX.
+		"local bad = PlaySound('" + wav + "', 1.0, 1.0, false, 'NotABus')\n"
+		"assert(bad == false)\n"
+		"return true";
+
+	REQUIRE(Forge::ScriptEngine::ExecuteString(code, &error));
+
+	Forge::ScriptEngine::Shutdown();
+}

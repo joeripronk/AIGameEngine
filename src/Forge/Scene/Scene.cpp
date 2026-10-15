@@ -620,10 +620,13 @@ namespace Forge {
 			}
 
 			AudioEngine::SoundHandle sound = AudioEngine::InvalidSound;
+			// The bus is passed at start rather than set afterwards, so the very
+			// first sample is mixed through the right bus.
 			const bool started = position
-				? AudioEngine::PlaySoundAt(audio.SourcePath, *position, spatial,
+				? AudioEngine::PlaySoundAtOnBus(audio.SourcePath, *position, spatial, audio.Bus,
 					audio.Volume, audio.Pitch, audio.Loop, &sound)
-				: AudioEngine::PlaySound(audio.SourcePath, audio.Volume, audio.Pitch, audio.Loop, &sound);
+				: AudioEngine::PlaySoundOnBus(audio.SourcePath, audio.Bus,
+					audio.Volume, audio.Pitch, audio.Loop, &sound);
 
 			if (!started)
 			{

@@ -279,6 +279,16 @@ namespace Forge {
 		{
 			if (comp == "Script" && entity.HasComponent<ScriptComponent>() && field == "ClassName") { entity.GetComponent<ScriptComponent>().ClassName = value; return true; }
 			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "SourcePath") { entity.GetComponent<AudioSourceComponent>().SourcePath = value; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "Bus")
+			{
+				Forge::AudioBus bus = entity.GetComponent<AudioSourceComponent>().Bus;
+				if (ParseAudioBus(value, bus))
+				{
+					entity.GetComponent<AudioSourceComponent>().Bus = bus;
+					return true;
+				}
+				return false;   // unknown bus name: reject rather than ignore
+			}
 			if (comp == "Mesh" && entity.HasComponent<MeshComponent>() && field == "ModelPath") { entity.GetComponent<MeshComponent>().ModelPath = value; return true; }
 			if (comp == "Tag" && field == "Tag") { entity.GetComponent<TagComponent>().Tag = value; return true; }
 			return false;
@@ -692,13 +702,58 @@ namespace Forge {
 			const float pitch = (float)luaL_optnumber(L, 3, 1.0);
 			const bool loop = lua_toboolean(L, 4) != 0;
 
+			// Optional fifth argument routes the sound through a named bus.
+			Forge::AudioBus bus = Forge::AudioBus::SoundEffects;
+			if (lua_gettop(L) >= 5)
+			{
+				const std::string busName = SafeString(L, 5);
+				if (!busName.empty() && !ParseAudioBus(busName, bus))
+				{
+					// Unknown bus: report failure instead of guessing.
+					lua_pushboolean(L, 0);
+					lua_pushnumber(L, 0);
+					return 2;
+				}
+			}
+
 			AudioEngine::SoundHandle handle = AudioEngine::InvalidSound;
-			const bool started = AudioEngine::PlaySound(path, volume, pitch, loop, &handle);
+			const bool started = AudioEngine::PlaySoundOnBus(path, bus, volume, pitch, loop, &handle);
 
 			lua_pushboolean(L, started ? 1 : 0);
 			// Second return value is the handle, for StopSound.
 			lua_pushnumber(L, (lua_Number)handle);
 			return 2;
+		}
+
+		// SetBusVolume(name, volume) -> boolean
+		//
+		// Ducking a bus is one call regardless of how many sounds it holds:
+		//   SetBusVolume("Music", 0.3)
+		int LuaSetBusVolume(lua_State* L)
+		{
+			const std::string busName = SafeString(L, 1);
+			const float volume = (float)luaL_optnumber(L, 2, 1.0);
+
+			// An unknown bus name returns false rather than silently succeeding,
+			// so a typo in a script is visible.
+			lua_pushboolean(L, AudioEngine::SetBusVolume(busName, volume) ? 1 : 0);
+			return 1;
+		}
+
+		// GetBusVolume(name) -> number
+		int LuaGetBusVolume(lua_State* L)
+		{
+			const std::string busName = SafeString(L, 1);
+			Forge::AudioBus bus = Forge::AudioBus::SoundEffects;
+
+			if (!ParseAudioBus(busName, bus))
+			{
+				lua_pushnil(L);
+				return 1;
+			}
+
+			lua_pushnumber(L, AudioEngine::GetBusVolume(bus));
+			return 1;
 		}
 
 		// StopSound(handle) -> boolean
@@ -862,6 +917,8 @@ namespace Forge {
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
 		lua_register(L, "PlaySound", LuaPlaySound);
 		lua_register(L, "StopSound", LuaStopSound);
+		lua_register(L, "SetBusVolume", LuaSetBusVolume);
+		lua_register(L, "GetBusVolume", LuaGetBusVolume);
 
 		// Entity metatable
 		luaL_newmetatable(L, kEntityMeta);

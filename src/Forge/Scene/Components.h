@@ -2,6 +2,7 @@
 
 #include "Forge/Core/UUID.h"
 #include "Forge/Renderer/Texture.h"
+#include "Forge/Audio/AudioEngine.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -224,6 +225,10 @@ namespace Forge {
 
 		// Start playing automatically when playback begins.
 		bool PlayOnStart = true;
+
+		// Mixing bus this source routes through. Lowering a bus's volume ducks
+		// every source on it in one call, rather than iterating each one.
+		AudioBus Bus = AudioBus::SoundEffects;
 
 		// 3D audio. When enabled the sound's world position comes from its
 		// TransformComponent and it is attenuated and panned relative to the

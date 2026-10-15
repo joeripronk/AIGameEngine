@@ -347,6 +347,7 @@ namespace Forge {
 			out << YAML::Key << "Pitch" << YAML::Value << audio.Pitch;
 			out << YAML::Key << "Loop" << YAML::Value << audio.Loop;
 			out << YAML::Key << "PlayOnStart" << YAML::Value << audio.PlayOnStart;
+			out << YAML::Key << "Bus" << YAML::Value << AudioBusName(audio.Bus);
 			out << YAML::Key << "Spatial" << YAML::Value << audio.Spatial;
 			out << YAML::Key << "MinDistance" << YAML::Value << audio.MinDistance;
 			out << YAML::Key << "MaxDistance" << YAML::Value << audio.MaxDistance;
@@ -505,6 +506,13 @@ namespace Forge {
 			audio.Pitch = GetFloat(audioNode, "Pitch", audio.Pitch);
 			audio.Loop = GetBool(audioNode, "Loop", audio.Loop);
 			audio.PlayOnStart = GetBool(audioNode, "PlayOnStart", audio.PlayOnStart);
+
+			// Absent or unknown bus names fall back to the component default
+			// rather than failing the load: a typo should not lose the whole
+			// scene.
+			Forge::AudioBus parsedBus = audio.Bus;
+			if (ParseAudioBus(GetString(audioNode, "Bus"), parsedBus))
+				audio.Bus = parsedBus;
 			audio.Spatial = GetBool(audioNode, "Spatial", audio.Spatial);
 			audio.MinDistance = GetFloat(audioNode, "MinDistance", audio.MinDistance);
 			audio.MaxDistance = GetFloat(audioNode, "MaxDistance", audio.MaxDistance);

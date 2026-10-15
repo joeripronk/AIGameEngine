@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cctype>
 
 namespace Forge {
 
@@ -13,6 +14,113 @@ namespace Forge {
 	float AudioEngine::s_MasterVolume = 1.0f;
 	AudioEngine::ListenerState AudioEngine::s_Listener{};
 	float AudioEngine::s_FadeDuration = 0.02f;
+
+	// Every bus starts at full volume.
+	float AudioEngine::s_BusVolumes[static_cast<size_t>(AudioBus::Count)] =
+	{
+		1.0f, 1.0f, 1.0f, 1.0f, 1.0f
+	};
+
+	// --- Mixing buses ------------------------------------------------------
+
+	std::string AudioBusName(AudioBus bus)
+	{
+		switch (bus)
+		{
+			case AudioBus::Master:        return "Master";
+			case AudioBus::Music:         return "Music";
+			case AudioBus::SoundEffects:  return "SFX";
+			case AudioBus::Voice:         return "Voice";
+			case AudioBus::Interface:     return "UI";
+			case AudioBus::Count:         break;
+		}
+
+		return "Master";
+	}
+
+	bool ParseAudioBus(const std::string& name, AudioBus& out)
+	{
+		const auto lower = [](std::string text)
+		{
+			std::transform(text.begin(), text.end(), text.begin(),
+				[](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+			return text;
+		};
+
+		const std::string lowered = lower(name);
+
+		// Match the canonical names first, then a few natural aliases so a script
+		// can say "SoundEffects" without needing to know the engine calls it SFX.
+		for (size_t i = 0; i < static_cast<size_t>(AudioBus::Count); i++)
+		{
+			const auto bus = static_cast<AudioBus>(i);
+			if (lower(AudioBusName(bus)) == lowered)
+			{
+				out = bus;
+				return true;
+			}
+		}
+
+		if (lowered == "sound" || lowered == "soundeffects" || lowered == "sfx")
+		{
+			out = AudioBus::SoundEffects;
+			return true;
+		}
+		if (lowered == "ui" || lowered == "interface")
+		{
+			out = AudioBus::Interface;
+			return true;
+		}
+
+		return false;
+	}
+
+	bool AudioEngine::SetBusVolume(AudioBus bus, float volume)
+	{
+		const auto index = static_cast<size_t>(bus);
+		if (index >= static_cast<size_t>(AudioBus::Count))
+			return false;
+
+		s_BusVolumes[index] = (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume);
+
+		// Apply immediately so ducking takes effect on this frame rather than
+		// waiting for the next Update().
+		UpdateSpatialization();
+		return true;
+	}
+
+	float AudioEngine::GetBusVolume(AudioBus bus)
+	{
+		const auto index = static_cast<size_t>(bus);
+		if (index >= static_cast<size_t>(AudioBus::Count))
+			return 1.0f;
+		return s_BusVolumes[index];
+	}
+
+	bool AudioEngine::SetBusVolume(const std::string& busName, float volume)
+	{
+		AudioBus bus = AudioBus::SoundEffects;
+		if (!ParseAudioBus(busName, bus))
+			return false;
+
+		return SetBusVolume(bus, volume);
+	}
+
+	float AudioEngine::GetBusVolume(const std::string& busName)
+	{
+		AudioBus bus = AudioBus::SoundEffects;
+		if (!ParseAudioBus(busName, bus))
+			return 1.0f;
+		return GetBusVolume(bus);
+	}
+
+	float AudioEngine::ComputeBusGain(AudioBus bus)
+	{
+		// Everything is heard through Master, so its volume multiplies in.
+		const float own = GetBusVolume(bus);
+		const float master = GetBusVolume(AudioBus::Master);
+		return own * master;
+	}
 	std::unordered_map<AudioEngine::SoundHandle, AudioEngine::PlayingSound> AudioEngine::s_Sounds;
 	AudioEngine::SoundHandle AudioEngine::s_NextHandle = 1; // 0 is InvalidSound
 
@@ -148,18 +256,56 @@ namespace Forge {
 	bool AudioEngine::PlaySound(const std::string& filepath, float volume, float pitch, bool loop,
 		SoundHandle* outHandle)
 	{
-		return StartSound(filepath, volume, pitch, loop, nullptr, SpatialParams{}, outHandle);
+		return StartSound(filepath, volume, pitch, loop, nullptr, SpatialParams{},
+			AudioBus::SoundEffects, outHandle);
 	}
 
 	bool AudioEngine::PlaySoundAt(const std::string& filepath, const glm::vec3& position,
 		const SpatialParams& spatial, float volume, float pitch, bool loop,
 		SoundHandle* outHandle)
 	{
-		return StartSound(filepath, volume, pitch, loop, &position, spatial, outHandle);
+		return StartSound(filepath, volume, pitch, loop, &position, spatial,
+			AudioBus::SoundEffects, outHandle);
+	}
+
+	bool AudioEngine::PlaySoundAtOnBus(const std::string& filepath, const glm::vec3& position,
+		const SpatialParams& spatial, AudioBus bus, float volume, float pitch, bool loop,
+		SoundHandle* outHandle)
+	{
+		return StartSound(filepath, volume, pitch, loop, &position, spatial, bus, outHandle);
+	}
+
+	bool AudioEngine::SetSoundBus(SoundHandle handle, AudioBus bus)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		entry->Bus = bus;
+
+		// Re-mix now so the change is audible immediately rather than next frame.
+		UpdateSpatialization();
+		return true;
+	}
+
+	bool AudioEngine::GetSoundBus(SoundHandle handle, AudioBus& out)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		out = entry->Bus;
+		return true;
+	}
+
+	bool AudioEngine::PlaySoundOnBus(const std::string& filepath, AudioBus bus, float volume,
+		float pitch, bool loop, SoundHandle* outHandle)
+	{
+		return StartSound(filepath, volume, pitch, loop, nullptr, SpatialParams{}, bus, outHandle);
 	}
 
 	bool AudioEngine::StartSound(const std::string& filepath, float volume, float pitch, bool loop,
-		const glm::vec3* position, const SpatialParams& spatial, SoundHandle* outHandle)
+		const glm::vec3* position, const SpatialParams& spatial, AudioBus bus, SoundHandle* outHandle)
 	{
 		if (outHandle)
 			*outHandle = InvalidSound;
@@ -219,26 +365,29 @@ namespace Forge {
 		entry.BaseVolume = (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume);
 		entry.Spatial = spatial;
 		entry.Position = position ? *position : glm::vec3(0.0f);
+		entry.Bus = bus;
 
-		// A spatial sound starts at its computed mix, not its authored volume.
+		// Start at the full mix: bus gain x authored volume x spatial gain.
+		float gain = entry.BaseVolume * ComputeBusGain(bus);
+
 		if (spatial.Enabled)
 		{
 			const SpatialMix mix = ComputeSpatialMix(s_Listener, entry.Position, spatial);
-			ma_sound_set_volume(sound, entry.BaseVolume * mix.Gain);
+			gain *= mix.Gain;
 			ma_sound_set_pan(sound, mix.Pan);
 		}
-		else
-		{
-			ma_sound_set_volume(sound, entry.BaseVolume);
-		}
+
+		ma_sound_set_volume(sound, gain);
 
 		if (outHandle)
 			*outHandle = handle;
 
-		// Fade in from silence so the start is not a discontinuity.
+		// Fade in from silence so the start is not a discontinuity. The target is
+		// the full mix, not the raw authored volume, or the fade would settle at
+		// the wrong level.
 		const ma_uint64 fadeFrames = FadeFrames();
 		if (fadeFrames > 0)
-			ma_sound_set_fade_in_pcm_frames(sound, 0.0f, entry.BaseVolume, fadeFrames);
+			ma_sound_set_fade_in_pcm_frames(sound, 0.0f, gain, fadeFrames);
 
 		return true;
 	}
@@ -388,12 +537,21 @@ namespace Forge {
 		{
 			(void)handle;
 
-			if (!entry.Spatial.Enabled || !entry.Sound)
+			if (!entry.Sound)
 				continue;
 
-			const SpatialMix mix = ComputeSpatialMix(s_Listener, entry.Position, entry.Spatial);
-			ma_sound_set_volume(entry.Sound, entry.BaseVolume * mix.Gain);
-			ma_sound_set_pan(entry.Sound, mix.Pan);
+			// Bus gain applies to every sound, spatial or not, so ducking a bus
+			// reaches its whole contents without touching them individually.
+			float gain = entry.BaseVolume * ComputeBusGain(entry.Bus);
+
+			if (entry.Spatial.Enabled)
+			{
+				const SpatialMix mix = ComputeSpatialMix(s_Listener, entry.Position, entry.Spatial);
+				gain *= mix.Gain;
+				ma_sound_set_pan(entry.Sound, mix.Pan);
+			}
+
+			ma_sound_set_volume(entry.Sound, gain);
 		}
 	}
 

@@ -352,6 +352,36 @@ a second `StopSound` on the same handle returns false, letting callers tell
 (shutdown, leaving playback) and sounds must not outlive the scene that owns
 them.
 
+### Mixing buses
+
+Sounds route through one of five buses — `Master`, `Music`, `SFX`, `Voice`,
+`UI`. A sound's effective volume is `bus volume x its own volume x spatial
+gain`, so ducking an entire category is one call no matter how many sounds it
+holds:
+
+```cpp
+AudioEngine::SetBusVolume(AudioBus::Music, 0.3f);   // duck under dialogue
+```
+
+`Master` multiplies into every other bus, so it is the global limiter.
+
+Bus names parse case-insensitively and accept aliases (`sfx`, `sound`, `ui`), so
+a scene file or script can use the obvious word. An unknown name returns false
+rather than being silently mapped somewhere — a typo that quietly did nothing
+would leave music playing over dialogue.
+
+From Lua:
+
+```lua
+SetBusVolume("Music", 0.3)
+GetBusVolume("Music")
+PlaySound("resources/audio/jump.ogg", 1.0, 1.0, false, "SFX")
+```
+
+`AudioSourceComponent::Bus` assigns an authored source to a bus, and is
+serialized by name. An unrecognised name in a scene file falls back to the
+default rather than failing the load.
+
 ### 3D positional audio
 
 `AudioSourceComponent::Spatial` makes a sound's world position come from its
