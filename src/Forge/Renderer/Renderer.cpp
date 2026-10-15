@@ -38,6 +38,7 @@ namespace Forge {
 	uint32_t Renderer::s_Height = 1080;
 	nvrhi::CommandListHandle Renderer::s_CommandList;
 	Ref<VertexArray> Renderer::s_FullscreenQuad;
+	Ref<Mesh> Renderer::s_DefaultCube;
 	bool Renderer::s_SwapchainNeedsRecreate = false;
 	void* Renderer::s_WindowHandle = nullptr;
 	Ref<PbrRenderer> Renderer::s_PbrRenderer = CreateRef<PbrRenderer>();
@@ -198,6 +199,9 @@ namespace Forge {
 
 	void Renderer::Shutdown()
 	{
+		// Released here rather than at static destruction so the GPU buffers go
+		// away while the Vulkan device is still alive.
+		s_DefaultCube = nullptr;
 	}
 
 	bool Renderer::CaptureSwapchainImage(uint32_t imageIndex, const std::string& path)
@@ -326,19 +330,21 @@ namespace Forge {
 			lightDirection, lightColor, lightIntensity,
 			glm::vec3(0.03f, 0.03f, 0.04f));
 
-		// Draw every entity carrying a mesh.
-		Ref<Mesh> defaultCube;
-		auto getMesh = [&defaultCube](const Ref<Mesh>& mesh) -> Ref<Mesh>
+		// Draw every entity carrying a mesh. Entities without one fall back to a
+		// shared cube that is built once and kept for the lifetime of the
+		// renderer: it owns GPU buffers, and a per-frame cube was being
+		// destroyed while the GPU was still reading it.
+		auto getMesh = [](const Ref<Mesh>& mesh) -> Ref<Mesh>
 		{
 			if (mesh)
 				return mesh;
 
-			if (!defaultCube)
+			if (!s_DefaultCube)
 			{
 				Ref<CpuMesh> cpuCube = Primitives::CreateCube(1.0f);
-				defaultCube = Mesh::CreateFromCpu(cpuCube.get(), Material{});
+				s_DefaultCube = Mesh::CreateFromCpu(cpuCube.get(), Material{});
 			}
-			return defaultCube;
+			return s_DefaultCube;
 		};
 
 		auto meshEntities = scene->GetAllEntitiesWith<MeshComponent, TransformComponent>();

@@ -106,21 +106,32 @@ namespace Forge {
 	{
 		auto device = VulkanRendererAPI::GetStaticDevice();
 
-		// Set 0: camera block, object block, albedo (combined), shadow (combined),
-		// linear sampler (unused in PBR but kept for compatibility), shadow params,
-		// env map (combined), irradiance map (combined).
+		// Set 0: camera block, object block, albedo texture + sampler, shadow map
+		// + sampler, linear sampler, shadow params, env map + sampler, irradiance
+		// map + sampler.
+		//
+		// nvrhi adds `bindingOffsets` to every slot to get the Vulkan binding, and
+		// its defaults are HLSL register spaces (t#, s#, b#, u#) that assume
+		// DXC-generated SPIR-V. These shaders are compiled by glslang and declare
+		// explicit GLSL binding numbers, so the offsets must be zeroed or every
+		// descriptor lands at a binding number the shader never reads.
 		nvrhi::BindingLayoutDesc frameLayoutDesc;
-		frameLayoutDesc.visibility = nvrhi::ShaderType::All;
-		frameLayoutDesc.bindings = {
-			{ 0, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
-			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
-			{ 2, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 3, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 4, nvrhi::ResourceType::Sampler, 0, 1 },
-			{ 5, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
-			{ 6, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 7, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-		};
+	frameLayoutDesc.visibility = nvrhi::ShaderType::All;
+	frameLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
+	frameLayoutDesc.bindings = {
+		{ 0, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		{ 2, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+		{ 3, nvrhi::ResourceType::Sampler, 0, 1 },
+		{ 4, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+		{ 5, nvrhi::ResourceType::Sampler, 0, 1 },
+		{ 6, nvrhi::ResourceType::Sampler, 0, 1 },
+		{ 7, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		{ 8, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+		{ 9, nvrhi::ResourceType::Sampler, 0, 1 },
+		{ 10, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+		{ 11, nvrhi::ResourceType::Sampler, 0, 1 },
+	};
 		m_FrameLayout = device->createBindingLayout(frameLayoutDesc);
 		if (!m_FrameLayout)
 		{
@@ -424,12 +435,14 @@ namespace Forge {
 
 		// The binding set holds the per-frame resources plus this object's block.
 		// The object block is rewritten before each of this object's draws.
-		// Combined samplers (sampler2D, samplerCube) include both texture and sampler.
+		// Textures and samplers occupy separate bindings: the PBR shader declares
+		// `texture2D`/`textureCube` plus a paired `sampler`, because nvrhi cannot
+		// bind a combined image sampler.
 		nvrhi::BindingSetDesc setDesc;
 		setDesc.bindings.push_back(MakeConstantBufferItem(m_CameraBuffer.Get(), 0));
 		setDesc.bindings.push_back(MakeConstantBufferItem(draw.objectBuffer.Get(), 1));
 
-		// Binding 2: combined sampler2D u_AlbedoTexture.
+		// Binding 2: u_AlbedoTexture, binding 3: u_AlbedoSampler.
 		{
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = m_WhiteTexture.Get();
@@ -439,55 +452,61 @@ namespace Forge {
 			item.format = m_WhiteTexture->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			setDesc.bindings.push_back(item);
-			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 2));
+			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 3));
 		}
 
-		// Binding 3: combined sampler2D u_ShadowMap.
+		// Binding 4: u_ShadowMap, binding 5: u_ShadowSampler.
 		{
 			nvrhi::BindingSetItem item{};
 			nvrhi::ITexture* shadowTex = m_ShadowMap ? m_ShadowMap.Get() : m_ShadowTexture.Get();
 			item.resourceHandle = shadowTex;
-			item.slot = 3;
+			item.slot = 4;
 			item.type = nvrhi::ResourceType::Texture_SRV;
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = shadowTex->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			setDesc.bindings.push_back(item);
-			setDesc.bindings.push_back(MakeSamplerItem(m_ShadowSampler.Get(), 3));
+			setDesc.bindings.push_back(MakeSamplerItem(m_ShadowSampler.Get(), 5));
 		}
 
-		// Binding 4: separate sampler (unused in PBR, kept for compatibility).
-		setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 4));
+		// Binding 6: separate sampler (unused in PBR, kept for compatibility).
+		setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 6));
 
-		// Binding 5: ShadowMapParams uniform buffer.
-		setDesc.bindings.push_back(MakeConstantBufferItem(m_ShadowParamsBuffer.Get(), 5));
+		// Binding 7: ShadowMapParams uniform buffer.
+		setDesc.bindings.push_back(MakeConstantBufferItem(m_ShadowParamsBuffer.Get(), 7));
 
-		// Binding 6: combined samplerCube u_EnvMap.
+		// Binding 8: u_EnvMap, binding 9: u_EnvSampler.
 		{
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = m_EnvMapFallback.Get();
-			item.slot = 6;
+			item.slot = 8;
 			item.type = nvrhi::ResourceType::Texture_SRV;
 			item.dimension = nvrhi::TextureDimension::TextureCube;
 			item.format = m_EnvMapFallback->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			setDesc.bindings.push_back(item);
-			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 6));
+			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 9));
 		}
 
-		// Binding 7: combined samplerCube u_IrradianceMap.
+		// Binding 10: u_IrradianceMap, binding 11: u_IrradianceSampler.
 		{
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = m_IrradianceMap ? m_IrradianceMap.Get() : m_EnvMapFallback.Get();
-			item.slot = 7;
+			item.slot = 10;
 			item.type = nvrhi::ResourceType::Texture_SRV;
 			item.dimension = nvrhi::TextureDimension::TextureCube;
 			item.format = m_IrradianceMap ? m_IrradianceMap->getDesc().format : m_EnvMapFallback->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			setDesc.bindings.push_back(item);
-			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 7));
+			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 11));
 		}
 
+		if (const char* skip = getenv("FG_PBR_SKIP"))
+		{
+			size_t n = (size_t)atoi(skip);
+			if (n < setDesc.bindings.size())
+				setDesc.bindings.erase(setDesc.bindings.begin() + n);
+		}
 		draw.bindingSet = device->createBindingSet(setDesc, m_FrameLayout);
 		if (!draw.bindingSet)
 		{
@@ -625,6 +644,7 @@ namespace Forge {
 		// binding 4: ShadowData (per-frame shadow view-projection)
 		nvrhi::BindingLayoutDesc shadowLayoutDesc;
 		shadowLayoutDesc.visibility = nvrhi::ShaderType::All;
+		shadowLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
 		shadowLayoutDesc.bindings = {
 			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 			{ 4, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
@@ -1025,12 +1045,15 @@ namespace Forge {
 		if (!device)
 			return false;
 
-		// IBL layout: binding 0 = sampler2D env map, binding 1 = params uniform buffer.
+		// IBL layout: binding 0 = env map texture, binding 1 = its sampler,
+		// binding 2 = params uniform buffer.
 		nvrhi::BindingLayoutDesc iblLayoutDesc;
 		iblLayoutDesc.visibility = nvrhi::ShaderType::All;
+		iblLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
 		iblLayoutDesc.bindings = {
 			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 1, nvrhi::ResourceType::Sampler, 0, 1 },
+			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 		};
 		m_IBLBindingLayout = device->createBindingLayout(iblLayoutDesc);
 		if (!m_IBLBindingLayout)
@@ -1171,7 +1194,7 @@ namespace Forge {
 		nvrhi::CommandListHandle cmd = device->createCommandList(params);
 		cmd->open();
 
-		// Create IBL binding set (env map + params).
+		// Create IBL binding set (env map + sampler + params).
 		nvrhi::BindingSetDesc iblSetDesc;
 		{
 			nvrhi::BindingSetItem texItem{};
@@ -1183,10 +1206,11 @@ namespace Forge {
 			texItem.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			iblSetDesc.bindings.push_back(texItem);
 		}
+		iblSetDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 1));
 		{
 			nvrhi::BindingSetItem bufItem{};
 			bufItem.resourceHandle = m_IBLParamsBuffer.Get();
-			bufItem.slot = 1;
+			bufItem.slot = 2;
 			bufItem.type = nvrhi::ResourceType::ConstantBuffer;
 			bufItem.range = nvrhi::BufferRange(0, 0);
 			iblSetDesc.bindings.push_back(bufItem);
@@ -1301,10 +1325,11 @@ namespace Forge {
 			texItem.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			iblSetDesc.bindings.push_back(texItem);
 		}
+		iblSetDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 1));
 		{
 			nvrhi::BindingSetItem bufItem{};
 			bufItem.resourceHandle = m_IBLParamsBuffer.Get();
-			bufItem.slot = 1;
+			bufItem.slot = 2;
 			bufItem.type = nvrhi::ResourceType::ConstantBuffer;
 			bufItem.range = nvrhi::BufferRange(0, 0);
 			iblSetDesc.bindings.push_back(bufItem);

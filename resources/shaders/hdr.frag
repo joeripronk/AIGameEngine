@@ -4,10 +4,13 @@
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 oColor;
 
-// HDR buffer (combined sampler).
-layout(binding = 0) uniform sampler2D u_HDRBuffer;
+// HDR buffer. The sampler is a separate descriptor because nvrhi's Vulkan
+// backend cannot bind a combined image sampler.
+layout(binding = 0) uniform texture2D u_HDRBuffer;
 
-layout(binding = 1) uniform HDRParams
+layout(binding = 1) uniform sampler u_HDRSampler;
+
+layout(binding = 2) uniform HDRParams
 {
     float u_Exposure;
 } u_HDR;
@@ -27,7 +30,7 @@ vec3 ACESFilm(vec3 x)
 
 void main()
 {
-    vec3 hdrColor = texture(u_HDRBuffer, vUV).rgb;
+    vec3 hdrColor = texture(sampler2D(u_HDRBuffer, u_HDRSampler), vUV).rgb;
     hdrColor *= u_HDR.u_Exposure;
 
     // ACES tonemap then gamma-correct to sRGB.

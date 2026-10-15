@@ -89,6 +89,13 @@ namespace Forge {
 		// its GPU buffers stay alive and can be uploaded on the first frame.
 		static Ref<class VertexArray> s_FullscreenQuad;
 
+		// Fallback cube drawn for mesh entities that carry no mesh of their own.
+		// Retained for the same reason: it owns GPU vertex and index buffers,
+		// which must outlive the frame that references them. Building it per
+		// RenderScene call destroyed those buffers every frame while the GPU was
+		// still reading them.
+		static Ref<class Mesh> s_DefaultCube;
+
 		// Set when a present reports the swapchain is out of date; the next
 		// AcquireSwapchainImage() recreates it.
 		static bool s_SwapchainNeedsRecreate;

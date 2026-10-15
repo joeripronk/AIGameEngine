@@ -4,10 +4,13 @@
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out float oSSAO;
 
-// Depth texture (combined sampler).
-layout(binding = 0) uniform sampler2D u_DepthSampler;
+// Depth texture. The sampler is a separate descriptor because nvrhi's Vulkan
+// backend cannot bind a combined image sampler.
+layout(binding = 0) uniform texture2D u_DepthSampler;
 
-layout(binding = 1) uniform SSAOParams
+layout(binding = 1) uniform sampler u_DepthLinearSampler;
+
+layout(binding = 2) uniform SSAOParams
 {
     mat4 u_InvViewProjection;
     float u_Intensity;
@@ -52,8 +55,8 @@ vec3 ReconstructViewPosition(vec2 uv, float depth)
 vec3 ReconstructViewNormal(vec2 uv, float depth)
 {
     vec2 texelSize = u_SSAO.u_TexelSize;
-    float depthX = texture(u_DepthSampler, uv + vec2(texelSize.x, 0.0)).r;
-    float depthY = texture(u_DepthSampler, uv + vec2(0.0, texelSize.y)).r;
+    float depthX = texture(sampler2D(u_DepthSampler, u_DepthLinearSampler), uv + vec2(texelSize.x, 0.0)).r;
+    float depthY = texture(sampler2D(u_DepthSampler, u_DepthLinearSampler), uv + vec2(0.0, texelSize.y)).r;
 
     vec3 pos = ReconstructViewPosition(uv, depth);
     vec3 posX = ReconstructViewPosition(uv + vec2(texelSize.x, 0.0), depthX);
@@ -66,7 +69,7 @@ vec3 ReconstructViewNormal(vec2 uv, float depth)
 
 void main()
 {
-    float depth = texture(u_DepthSampler, vUV).r;
+    float depth = texture(sampler2D(u_DepthSampler, u_DepthLinearSampler), vUV).r;
 
     // Skip background (far plane).
     if (depth >= 1.0)
@@ -99,7 +102,7 @@ void main()
         if (sampleUV.x < 0.0 || sampleUV.x > 1.0 || sampleUV.y < 0.0 || sampleUV.y > 1.0)
             continue;
 
-        float sampleDepth = texture(u_DepthSampler, sampleUV).r;
+        float sampleDepth = texture(sampler2D(u_DepthSampler, u_DepthLinearSampler), sampleUV).r;
 
         // Reconstruct the sample's view-space position.
         vec3 sampleViewPos = ReconstructViewPosition(sampleUV, sampleDepth);

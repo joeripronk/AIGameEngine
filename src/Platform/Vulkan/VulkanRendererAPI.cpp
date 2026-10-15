@@ -647,13 +647,20 @@ namespace Forge {
 		}
 
 		// Create binding layout for SSAO:
-		// binding 0: combined sampler2D u_DepthSampler
-		// binding 1: SSAO params (uniform buffer)
+		// binding 0: texture2D u_DepthSampler
+		// binding 1: sampler paired with it
+		// binding 2: SSAO params (uniform buffer)
+		//
+		// The offsets are zeroed because nvrhi's defaults are HLSL register
+		// spaces, which would place every descriptor at a binding number this
+		// glslang-compiled shader never reads.
 		nvrhi::BindingLayoutDesc ssaoLayoutDesc;
 		ssaoLayoutDesc.visibility = nvrhi::ShaderType::All;
+		ssaoLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
 		ssaoLayoutDesc.bindings = {
 			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 1, nvrhi::ResourceType::Sampler, 0, 1 },
+			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 		};
 		s_SSAOBindingLayout = s_Device->createBindingLayout(ssaoLayoutDesc);
 
@@ -704,13 +711,16 @@ namespace Forge {
 		}
 
 		// Create binding layout for HDR:
-		// binding 0: combined sampler2D u_HDRBuffer
-		// binding 1: HDR params (uniform buffer)
+		// binding 0: texture2D u_HDRBuffer
+		// binding 1: sampler paired with it
+		// binding 2: HDR params (uniform buffer)
 		nvrhi::BindingLayoutDesc hdrLayoutDesc;
 		hdrLayoutDesc.visibility = nvrhi::ShaderType::All;
+		hdrLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
 		hdrLayoutDesc.bindings = {
 			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 1, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 1, nvrhi::ResourceType::Sampler, 0, 1 },
+			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 		};
 		s_HDRBindingLayout = s_Device->createBindingLayout(hdrLayoutDesc);
 
@@ -761,15 +771,18 @@ namespace Forge {
 		}
 
 		// Create binding layout for Final:
-		// binding 0: combined sampler2D u_TonemappedBuffer
-		// binding 1: combined sampler2D u_SSAOBuffer
-		// binding 2: Final params (uniform buffer)
+		// binding 0: texture2D u_TonemappedBuffer
+		// binding 1: texture2D u_SSAOBuffer
+		// binding 2: samplers paired with them
+		// binding 3: Final params (uniform buffer)
 		nvrhi::BindingLayoutDesc finalLayoutDesc;
 		finalLayoutDesc.visibility = nvrhi::ShaderType::All;
+		finalLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
 		finalLayoutDesc.bindings = {
 			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
 			{ 1, nvrhi::ResourceType::Texture_SRV, 0, 1 },
-			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 2, nvrhi::ResourceType::Sampler, 0, 1 },
+			{ 3, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
 		};
 		s_FinalBindingLayout = s_Device->createBindingLayout(finalLayoutDesc);
 
@@ -996,7 +1009,9 @@ namespace Forge {
 			return;
 		}
 
-		// Combined sampler2D for depth texture.
+		// Depth texture at binding 0 and its sampler at binding 1. They are
+		// separate descriptors because the shader declares `texture2D` plus a
+		// `sampler`: nvrhi cannot bind a combined image sampler.
 		// Capture the sampler handle BEFORE adding to bindings to prevent
 		// the raw pointer from becoming stale during createBindingSet.
 		nvrhi::SamplerHandle captureSSAOSampler = ssaoSampler;
@@ -1010,17 +1025,17 @@ namespace Forge {
 			item.format = captureDepth->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
 			ssaoSetDesc.bindings.push_back(item);
-			
+
 			nvrhi::BindingSetItem samplerItem{};
 			samplerItem.resourceHandle = captureSSAOSampler.Get();
-			samplerItem.slot = 0;
+			samplerItem.slot = 1;
 			samplerItem.arrayElement = 0;
 			samplerItem.type = nvrhi::ResourceType::Sampler;
 			ssaoSetDesc.bindings.push_back(samplerItem);
 		}
 
 		if (s_SSAOUniformBuffer.Get())
-			ssaoSetDesc.bindings.push_back(MakeConstantBufferItem(s_SSAOUniformBuffer.Get(), 1));
+			ssaoSetDesc.bindings.push_back(MakeConstantBufferItem(s_SSAOUniformBuffer.Get(), 2));
 
 		// Helper function with its own stack frame prevents commandList from
 		// overlapping ssaoSetDesc.bindings.data (the compiler was placing
@@ -1063,7 +1078,7 @@ namespace Forge {
 			commandList->writeBuffer(s_HDRUniformBuffer.Get(), &hdrParams, sizeof(hdrParams), 0);
 		}
 
-		// Create the HDR binding set with combined sampler for HDR buffer.
+		// Create the HDR binding set (HDR texture + sampler + params).
 		nvrhi::BindingSetDesc hdrSetDesc;
 
 		if (!s_HDRBuffer)
@@ -1088,7 +1103,7 @@ namespace Forge {
 			return;
 		}
 
-		// Combined sampler2D for HDR buffer.
+		// HDR texture at binding 0, its sampler at binding 1.
 		{
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = s_HDRBuffer.Get();
@@ -1100,11 +1115,11 @@ namespace Forge {
 			// Inline the sampler binding item to avoid stack variable
 			// reordering corrupting hdrSampler's ptr_ member.
 			hdrSetDesc.bindings.push_back(item);
-			hdrSetDesc.bindings.push_back(MakeSamplerItem(hdrSampler.Get(), 0));
+			hdrSetDesc.bindings.push_back(MakeSamplerItem(hdrSampler.Get(), 1));
 		}
 
 		if (s_HDRUniformBuffer)
-			hdrSetDesc.bindings.push_back(MakeConstantBufferItem(s_HDRUniformBuffer.Get(), 1));
+			hdrSetDesc.bindings.push_back(MakeConstantBufferItem(s_HDRUniformBuffer.Get(), 2));
 
 		// Same helper for HDR pass.
 		// Separate scope forces a distinct stack slot from commandList.
@@ -1170,7 +1185,7 @@ namespace Forge {
 			return;
 		}
 
-		// Combined sampler2D for tonemapped buffer.
+		// Tonemapped texture at binding 0.
 		{
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = s_TonemappedBuffer.Get();
@@ -1179,10 +1194,7 @@ namespace Forge {
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = s_TonemappedBuffer->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			// Inline the sampler binding item to avoid stack variable
-			// reordering corrupting tonemappedSampler's ptr_ member.
 			finalSetDesc.bindings.push_back(item);
-			finalSetDesc.bindings.push_back(MakeSamplerItem(tonemappedSampler.Get(), 0));
 		}
 
 		if (!s_SSAOOutput)
@@ -1207,7 +1219,8 @@ namespace Forge {
 			return;
 		}
 
-		// Combined sampler2D for SSAO buffer.
+		// SSAO texture at binding 1. The shader reads both textures through
+		// the single `u_FinalSampler` at binding 2, so one sampler serves both.
 		{
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = s_SSAOOutput.Get();
@@ -1216,14 +1229,15 @@ namespace Forge {
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = s_SSAOOutput->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			// Inline the SSAO sampler binding item to avoid stack variable
-			// reordering corrupting finalSampler's ptr_ member.
 			finalSetDesc.bindings.push_back(item);
-			finalSetDesc.bindings.push_back(MakeSamplerItem(finalSampler.Get(), 1));
 		}
 
+		// Inline the sampler binding item to avoid stack variable reordering
+		// corrupting finalSampler's ptr_ member.
+		finalSetDesc.bindings.push_back(MakeSamplerItem(finalSampler.Get(), 2));
+
 		if (s_FinalUniformBuffer.Get())
-			finalSetDesc.bindings.push_back(MakeConstantBufferItem(s_FinalUniformBuffer.Get(), 2));
+			finalSetDesc.bindings.push_back(MakeConstantBufferItem(s_FinalUniformBuffer.Get(), 3));
 
 		// Same helper for Final pass.
 		// Separate scope forces a distinct stack slot from commandList.

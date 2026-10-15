@@ -29,26 +29,42 @@ layout(binding = 1) uniform ObjectData
     vec4 u_Emissive;
 } u_Object;
 
-// Set 0, binding 2: material albedo map (combined sampler).
-layout(binding = 2) uniform sampler2D u_AlbedoTexture;
+// Set 0, binding 2: material albedo map.
+// The sampler is a separate descriptor (binding 3) rather than a combined
+// image sampler: nvrhi's Vulkan backend has no
+// VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER path, so a GLSL `sampler2D`
+// could never be bound.
+layout(binding = 2) uniform texture2D u_AlbedoTexture;
 
-// Set 0, binding 3: shadow map (combined sampler).
-layout(binding = 3) uniform sampler2D u_ShadowMap;
+// Set 0, binding 3: sampler paired with the albedo map.
+layout(binding = 3) uniform sampler u_AlbedoSampler;
 
-// Set 0, binding 4: linear sampler for albedo.
-layout(binding = 4) uniform sampler u_LinearSampler;
+// Set 0, binding 4: shadow map.
+layout(binding = 4) uniform texture2D u_ShadowMap;
+
+// Set 0, binding 5: sampler paired with the shadow map (comparison-free PCF).
+layout(binding = 5) uniform sampler u_ShadowSampler;
+
+// Set 0, binding 6: linear sampler kept for compatibility with other shaders.
+layout(binding = 6) uniform sampler u_LinearSampler;
 
 // Shadow map dimensions (used for PCF).
-layout(binding = 5) uniform ShadowMapParams
+layout(binding = 7) uniform ShadowMapParams
 {
     vec2 u_ShadowMapSize;
 } u_Shadow;
 
-// Set 0, binding 6: environment map (cube map for IBL, combined sampler).
-layout(binding = 6) uniform samplerCube u_EnvMap;
+// Set 0, binding 8: environment map (cube map for IBL).
+layout(binding = 8) uniform textureCube u_EnvMap;
 
-// Set 0, binding 7: irradiance map (cube map for diffuse IBL, combined sampler).
-layout(binding = 7) uniform samplerCube u_IrradianceMap;
+// Set 0, binding 9: sampler paired with the environment map.
+layout(binding = 9) uniform sampler u_EnvSampler;
+
+// Set 0, binding 10: irradiance map (cube map for diffuse IBL).
+layout(binding = 10) uniform textureCube u_IrradianceMap;
+
+// Set 0, binding 11: sampler paired with the irradiance map.
+layout(binding = 11) uniform sampler u_IrradianceSampler;
 
 const float PI = 3.14159265359;
 
@@ -102,7 +118,7 @@ float SampleShadow(vec3 worldPosition)
     {
         for (int y = -1; y <= 1; y++)
         {
-            float depth = texture(u_ShadowMap, proj.xy + vec2(float(x), float(y)) * texel).r;
+            float depth = texture(sampler2D(u_ShadowMap, u_ShadowSampler), proj.xy + vec2(float(x), float(y)) * texel).r;
             shadow += (proj.z - bias > depth) ? 0.0 : 1.0;
         }
     }
@@ -116,13 +132,13 @@ vec3 SampleEnvSpecular(vec3 R, float roughness)
     float mipLevel = roughness * (6.0 - 1.0) + 1.0;
     mipLevel = clamp(mipLevel, 1.0, 6.0);
 
-    vec3 envColor = texture(u_EnvMap, R, mipLevel).rgb;
+    vec3 envColor = texture(samplerCube(u_EnvMap, u_EnvSampler), R, mipLevel).rgb;
     return envColor;
 }
 
 void main()
 {
-    vec3 albedo = u_Object.u_Albedo.rgb * texture(u_AlbedoTexture, vUV).rgb;
+    vec3 albedo = u_Object.u_Albedo.rgb * texture(sampler2D(u_AlbedoTexture, u_AlbedoSampler), vUV).rgb;
     float metallic = u_Object.u_MetallicRoughnessAO.x;
     float roughness = clamp(u_Object.u_MetallicRoughnessAO.y, 0.04, 1.0);
     float ao = u_Object.u_MetallicRoughnessAO.z;
@@ -158,7 +174,7 @@ void main()
     vec3 radiance = (diffuse + specular) * u_Camera.u_LightColor.rgb * u_Camera.u_LightColor.a;
 
     // Diffuse IBL: sample irradiance map for ambient diffuse lighting.
-    vec3 irradiance = texture(u_IrradianceMap, N).rgb;
+    vec3 irradiance = texture(samplerCube(u_IrradianceMap, u_IrradianceSampler), N).rgb;
     vec3 diffuseIBL = irradiance * albedo * ao;
 
     vec3 ambient = u_Camera.u_AmbientLight.rgb * albedo * ao;

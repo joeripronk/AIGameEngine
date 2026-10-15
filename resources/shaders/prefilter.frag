@@ -6,10 +6,13 @@
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 oColor;
 
-// 2D equirectangular environment map using combined sampler.
-layout(binding = 0) uniform sampler2D u_EnvMap;
+// 2D equirectangular environment map. The sampler is a separate descriptor
+// because nvrhi's Vulkan backend cannot bind a combined image sampler.
+layout(binding = 0) uniform texture2D u_EnvMap;
 
-layout(binding = 1) uniform PrefilterParams
+layout(binding = 1) uniform sampler u_EnvSampler;
+
+layout(binding = 2) uniform PrefilterParams
 {
     vec3 u_R;
     float u_Roughness;
@@ -49,7 +52,7 @@ void main()
         float NdotL = dot(R, sampleDir);
         if (NdotL > 0.0)
         {
-            vec3 envColor = texture(u_EnvMap, DirToEquirectangularUV(sampleDir)).rgb;
+            vec3 envColor = texture(sampler2D(u_EnvMap, u_EnvSampler), DirToEquirectangularUV(sampleDir)).rgb;
             specular += envColor * NdotL;
             totalWeight += NdotL;
         }
