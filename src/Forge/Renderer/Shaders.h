@@ -245,6 +245,8 @@ namespace Forge::Shaders {
 	uniform sampler2D u_GBuffer1;
 	uniform float u_SSAOIntensity;
 
+	uniform vec3 samplePosArray[32];
+
 	const int SAMPLE_COUNT = 32;
 	const float SAMPLE_RADIUS = 0.5;
 
