@@ -250,6 +250,24 @@ namespace Forge::Shaders {
 	const int SAMPLE_COUNT = 32;
 	const float SAMPLE_RADIUS = 0.5;
 
+	// Hash function for sample position generation
+	int Hash(int x)
+	{
+		x = 2097151 * (x & 0x7FFF) + (x & 0x7FFF);
+		x = (x + (x >> 13)) & 0x7FFFFFFF;
+		return x;
+	}
+
+	vec3 GetSamplePos(int index)
+	{
+		int i = Hash(index);
+		return vec3(
+			float(i % 256) / 128.0 - 1.0,
+			float((i / 256) % 256) / 128.0 - 1.0,
+			float((i / 65536) % 256) / 128.0 - 1.0
+		);
+	}
+
 	void main()
 	{
 		vec3 normal = texture(u_GBuffer1, gl_FragCoord.xy / vec2(textureSize(u_GBuffer1, 0))).rgb;
@@ -270,7 +288,8 @@ namespace Forge::Shaders {
 		float occlusion = 0.0;
 		for (int i = 0; i < SAMPLE_COUNT; i++)
 		{
-			vec3 samplePos = TBN * samplePosArray[i] * SAMPLE_RADIUS;
+			vec3 samplePos = GetSamplePos(i);
+			samplePos = TBN * samplePos * SAMPLE_RADIUS;
 			vec3 sampleViewPos = viewPos + samplePos;
 			float sampleDepth = length(sampleViewPos - viewPos);
 			float rangeCheck = smoothstep(0.0, 1.0, SAMPLE_RADIUS / abs(sampleDepth - viewPos.z));
