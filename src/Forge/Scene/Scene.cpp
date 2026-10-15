@@ -392,6 +392,10 @@ namespace Forge {
 		Physics::Init();
 		Physics::OnSceneStart();
 
+		// Set before the bodies are built, so EnsurePhysicsBody is consistent
+		// whether a body comes from the bulk pass or a later addition.
+		m_PhysicsActive = true;
+
 		m_PhysicsBodies.clear();
 
 		// Bodies are addressed by entity handle for the lifetime of the step;
@@ -521,9 +525,55 @@ namespace Forge {
 		// them. Handlers themselves are kept so they still apply on the next run.
 		s_BodyOwnerLookup.clear();
 		s_CollisionDispatchScene = nullptr;
+		m_PhysicsActive = false;
 
 		Physics::OnSceneStop();
 		Physics::Shutdown();
+	}
+
+	void Scene::EnsurePhysicsBody(Entity entity)
+	{
+		// Outside an active physics world there is nothing to join; OnPhysicsStart
+		// builds every body up front. Keyed on the physics lifecycle rather than
+		// the broader runtime flag, so a caller driving physics directly still
+		// gets correct behaviour.
+		if (!m_PhysicsActive || !entity)
+			return;
+
+		// Already has one, or not physical yet: a rigidbody needs a collider
+		// before it has a shape.
+		if (m_PhysicsBodies.find((entt::entity)entity) != m_PhysicsBodies.end())
+			return;
+
+		auto* rb = m_Registry.try_get<RigidbodyComponent>((entt::entity)entity);
+		auto* transform = m_Registry.try_get<TransformComponent>((entt::entity)entity);
+		if (!rb || !transform)
+			return;
+
+		PhysicsBody* body = nullptr;
+
+		if (auto* box = m_Registry.try_get<BoxColliderComponent>((entt::entity)entity))
+			body = new PhysicsBody(static_cast<uint64_t>(static_cast<entt::entity>(entity)), *rb, *box, Physics::GetGravityY());
+		else if (auto* sphere = m_Registry.try_get<SphereColliderComponent>((entt::entity)entity))
+			body = new PhysicsBody(static_cast<uint64_t>(static_cast<entt::entity>(entity)), *rb, *sphere, Physics::GetGravityY());
+
+		if (!body)
+			return;
+
+		body->Position = transform->Translation;
+
+		rb->RuntimeBody = body;
+		m_PhysicsBodies[(entt::entity)entity] = body;
+		s_BodyOwnerLookup[body->ID] = (entt::entity)entity;
+		Physics::AddBody(body);
+
+		// A scripted entity spawned mid-simulation still expects contacts.
+		if (m_Registry.try_get<ScriptComponent>((entt::entity)entity) && !m_CollisionHandlers.empty())
+		{
+			auto it = m_CollisionHandlers.find(entity.GetUUID());
+			if (it != m_CollisionHandlers.end() && it->second)
+				Physics::SetCollisionCallback(body, &Scene::DispatchBodyCollision);
+		}
 	}
 
 	void Scene::SyncPhysicsBodiesFromTransforms()
@@ -665,19 +715,25 @@ namespace Forge {
 	template<>
 	void Scene::OnComponentAdded<RigidbodyComponent>(Entity entity, RigidbodyComponent& component)
 	{
-		(void)entity; (void)component;
+		(void)component;
+
+		// An entity that acquires a Rigidbody during simulation needs a body
+		// immediately, not at the next OnPhysicsStart.
+		EnsurePhysicsBody(entity);
 	}
 
 	template<>
 	void Scene::OnComponentAdded<BoxColliderComponent>(Entity entity, BoxColliderComponent& component)
 	{
-		(void)entity; (void)component;
+		(void)component;
+		EnsurePhysicsBody(entity);
 	}
 
 	template<>
 	void Scene::OnComponentAdded<SphereColliderComponent>(Entity entity, SphereColliderComponent& component)
 	{
-		(void)entity; (void)component;
+		(void)component;
+		EnsurePhysicsBody(entity);
 	}
 
 	template<>

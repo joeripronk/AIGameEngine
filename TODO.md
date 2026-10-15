@@ -67,11 +67,13 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (182 test cases, 1341 assertions - all passing, order-independent)
+### Tests (200 test cases, 1409 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
       entity order/count, empty fields, out-of-range values, save determinism)
+- [x] ExportTests (game export completeness and failure reporting, prefab authoring,
+      instance identity, position overrides, library caching)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
 - [x] EngineFeatureTests (serializer, runtime format, physics sync, raycast, prefabs, scripting)
 - [x] RendererFeatureTests (cube/plane/sphere primitives, PNG/HDR texture decoding)
@@ -181,3 +183,7 @@
 | `DestroyEntity(invalid)` cleared the selection | ✅ Fixed - only destroying a real entity can invalidate the selection |
 | AssetRegistry test counted assets in a shared dir | ✅ Fixed - it now scans its own scratch directory |
 | Entity iteration order was unspecified | ✅ Fixed - `Scene::GetEntitiesInOrder()` gives authoring order; the serializer writes in that order so save/load is a fixed point |
+| `GameExporter::Export` always returned true | ✅ Fixed - inputs validated up front and every copy checked, so a broken package can no longer report success |
+| `CopyDirectory` swallowed per-file failures | ✅ Fixed - a failed file aborts the whole resource copy |
+| Prefabs spawned during simulation never became physical | ✅ Fixed - `EnsurePhysicsBody` builds a body on component add while physics is active |
+| `Prefab::IsValid()` accepted corrupt files | ✅ Fixed - the file must parse and contain a recognisable entity |

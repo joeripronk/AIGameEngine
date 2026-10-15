@@ -75,3 +75,5 @@ resources/hdris/
 /test_prefabs/
 /test_scripts/
 /test_tools/
+/test_export_fixtures/
+/test_prefab_fixtures/

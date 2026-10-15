@@ -154,6 +154,28 @@ namespace Forge {
 			return value ? value.as<float>() : fallback;
 		}
 
+		// Whether a node carries anything that identifies it as a serialized
+		// entity. Every real entity file has a TransformComponent, because
+		// CreateEntity always adds one.
+		bool IsEntityNode(const YAML::Node& node)
+		{
+			static const char* kEntityComponents[] = {
+				"TransformComponent", "TagComponent", "CameraComponent",
+				"ScriptComponent", "RigidbodyComponent", "BoxColliderComponent",
+				"SphereColliderComponent", "LightComponent",
+				"PBRMaterialComponent", "MeshComponent",
+				"EnvironmentMapComponent"
+			};
+
+			for (const char* component : kEntityComponents)
+			{
+				if (HasNode(node, component))
+					return true;
+			}
+
+			return false;
+		}
+
 		bool GetBool(const YAML::Node& node, const char* key, bool fallback = false)
 		{
 			YAML::Node value = node[key];
@@ -847,6 +869,25 @@ namespace Forge {
 		return true;
 	}
 
+	bool SceneSerializer::IsEntityFile(const std::string& filepath)
+	{
+		if (filepath.empty())
+			return false;
+
+		try
+		{
+			const YAML::Node data = YAML::LoadFile(filepath);
+			if (!data)
+				return false;
+
+			return IsEntityNode(data["Entity"]);
+		}
+		catch (const YAML::Exception&)
+		{
+			return false;
+		}
+	}
+
 	Entity SceneSerializer::DeserializeEntityFromFile(Scene* scene, const std::string& filepath,
 		bool usePositionOverride, const glm::vec3& positionOverride)
 	{
@@ -868,6 +909,14 @@ namespace Forge {
 		if (!entityNode)
 		{
 			FG_CORE_ERROR("Prefab file has no 'Entity' node: {0}", filepath);
+			return {};
+		}
+
+		// A file can parse as YAML and still not be an entity file, so require
+		// the actual entity payload rather than trusting the parse.
+		if (!IsEntityNode(entityNode))
+		{
+			FG_CORE_ERROR("Prefab file has no recognisable entity components: {0}", filepath);
 			return {};
 		}
 

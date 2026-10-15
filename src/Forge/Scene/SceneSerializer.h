@@ -27,6 +27,11 @@ namespace Forge {
 		static Entity DeserializeEntityFromFile(Scene* scene, const std::string& filepath,
 			bool usePositionOverride = false, const glm::vec3& positionOverride = glm::vec3(0.0f));
 
+		// Whether `filepath` parses as a serialized entity file. Used to reject a
+		// corrupted or unrelated file up front instead of failing silently at
+		// instantiation time.
+		static bool IsEntityFile(const std::string& filepath);
+
 	private:
 		Ref<Scene> m_Scene;
 	};

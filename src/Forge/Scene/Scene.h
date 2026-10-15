@@ -103,6 +103,13 @@ namespace Forge {
 		// would silently fail to move the body.
 		void SyncPhysicsBodiesFromTransforms();
 
+		// Creates the PhysicsBody for an entity that has just gained a rigidbody
+		// and a collider, but only while the simulation is running. Bodies are
+		// normally built in bulk by OnPhysicsStart; this covers entities created
+		// or completed during simulation (a prefab spawned from Lua, say), which
+		// would otherwise never become physical until the next play.
+		void EnsurePhysicsBody(Entity entity);
+
 		// Bridges a raw PhysicsBody pair to the owning entities and dispatches to
 		// any registered Scene-level handlers. Static for the callback signature;
 		// the active Scene is tracked in s_CollisionDispatchScene.
@@ -122,6 +129,10 @@ namespace Forge {
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 		bool m_IsRunning = false;
 		bool m_IsPaused = false;
+
+		// True between OnPhysicsStart and OnPhysicsStop. Distinct from m_IsRunning
+		// because physics can be driven directly, without the full runtime.
+		bool m_PhysicsActive = false;
 		int m_StepFrames = 0;
 
 		void* m_PhysicsWorld = nullptr;

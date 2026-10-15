@@ -32,6 +32,11 @@ namespace Forge {
 
 	private:
 		std::string m_FilePath;
+
+		// Whether the file exists and actually parses as an entity file. Computed
+		// once in the constructor, because parsing on every IsValid() call would
+		// make a hot lookup read and parse a file each time.
+		bool m_IsValid = false;
 	};
 
 	// Loads and caches prefabs by name from the project's prefab directory.

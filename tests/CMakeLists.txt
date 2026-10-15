@@ -23,6 +23,7 @@ target_sources(ForgeTests
         src/PhysicsTests.cpp
         src/ScriptingTests.cpp
         src/SerializationTests.cpp
+        src/ExportTests.cpp
 )
 
 target_link_libraries(ForgeTests

@@ -39,21 +39,46 @@ namespace Forge {
 		}
 
 		std::filesystem::create_directories(to, ec);
-		for (auto it = std::filesystem::recursive_directory_iterator(from, ec); it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+		if (ec)
+		{
+			FG_CORE_ERROR("Cannot create {0}: {1}", to, ec.message());
+			return false;
+		}
+
+		// A partially copied resource tree is a broken package, so any failed
+		// file aborts the whole directory copy.
+		for (auto it = std::filesystem::recursive_directory_iterator(from, ec);
+			it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
 		{
 			if (ec)
-				break;
+			{
+				FG_CORE_ERROR("Failed while walking {0}: {1}", from, ec.message());
+				return false;
+			}
 
 			const auto& entry = *it;
-			std::string relative = std::filesystem::relative(entry.path(), from, ec).string();
+			const std::string relative = std::filesystem::relative(entry.path(), from, ec).string();
 			if (ec)
-				continue;
+			{
+				FG_CORE_ERROR("Failed to resolve {0}: {1}", entry.path().string(), ec.message());
+				return false;
+			}
 
-			std::string dest = to + "/" + relative;
+			const std::string dest = to + "/" + relative;
 			if (entry.is_directory(ec))
+			{
 				std::filesystem::create_directories(dest, ec);
+				if (ec)
+				{
+					FG_CORE_ERROR("Cannot create {0}: {1}", dest, ec.message());
+					return false;
+				}
+			}
 			else if (entry.is_regular_file(ec))
-				CopyFile(entry.path().string(), dest);
+			{
+				if (!CopyFile(entry.path().string(), dest))
+					return false;
+			}
 		}
 
 		return true;
@@ -65,26 +90,61 @@ namespace Forge {
 		if (!output.empty() && output.back() != '/' && output.back() != '\\')
 			output += '/';
 
+		// Validate every input before writing anything. An export that half
+		// succeeds is worse than one that fails loudly: the caller has no way to
+		// tell a complete package from a broken one.
 		std::error_code ec;
-		std::filesystem::create_directories(output, ec);
+
+		if (output.empty())
+		{
+			FG_CORE_ERROR("Export failed: no output directory given");
+			return false;
+		}
+
+		if (!options.RuntimeExecutable.empty() && !std::filesystem::is_regular_file(options.RuntimeExecutable, ec))
+		{
+			FG_CORE_ERROR("Export failed: runtime executable not found: {0}", options.RuntimeExecutable);
+			return false;
+		}
+
+		if (!options.ScenePath.empty() && !std::filesystem::is_regular_file(options.ScenePath, ec))
+		{
+			FG_CORE_ERROR("Export failed: scene not found: {0}", options.ScenePath);
+			return false;
+		}
+
+		if (!options.ResourcesDirectory.empty()
+			&& !std::filesystem::is_directory(options.ResourcesDirectory, ec))
+		{
+			FG_CORE_ERROR("Export failed: resources directory not found: {0}", options.ResourcesDirectory);
+			return false;
+		}
+
+		if (!std::filesystem::create_directories(output, ec) && ec)
+		{
+			FG_CORE_ERROR("Export failed: cannot create output directory {0}: {1}", output, ec.message());
+			return false;
+		}
 
 		// 1. Copy the runtime executable.
 		if (!options.RuntimeExecutable.empty())
 		{
-			std::string exeName = std::filesystem::path(options.RuntimeExecutable).filename().string();
-			CopyFile(options.RuntimeExecutable, output + exeName);
+			const std::string exeName = std::filesystem::path(options.RuntimeExecutable).filename().string();
+			if (!CopyFile(options.RuntimeExecutable, output + exeName))
+				return false;
 		}
 
 		// 2. Copy the scene.
 		if (!options.ScenePath.empty())
 		{
-			std::string sceneName = std::filesystem::path(options.ScenePath).filename().string();
-			CopyFile(options.ScenePath, output + sceneName);
+			const std::string sceneName = std::filesystem::path(options.ScenePath).filename().string();
+			if (!CopyFile(options.ScenePath, output + sceneName))
+				return false;
 		}
 
 		// 3. Copy resources (scripts, prefabs, models, textures, HDRIs).
-		if (!options.ResourcesDirectory.empty())
-			CopyDirectory(options.ResourcesDirectory, output + "resources");
+		if (!options.ResourcesDirectory.empty() && !CopyDirectory(options.ResourcesDirectory, output + "resources"))
+			return false;
 
 		FG_CORE_INFO("Exported game '{0}' to {1}", options.GameName, output);
 		return true;

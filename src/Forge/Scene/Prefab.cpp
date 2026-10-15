@@ -11,7 +11,14 @@ namespace Forge {
 
 	Prefab::Prefab(const std::string& filepath)
 		: m_FilePath(filepath)
+		, m_IsValid(!filepath.empty() && std::filesystem::exists(filepath)
+			&& SceneSerializer::IsEntityFile(filepath))
 	{
+		// Existence alone is not validity: a corrupted or unrelated file passes
+		// the exists() check and then yields a silent no-op at Instantiate time.
+		// Callers check IsValid() precisely to be able to trust Instantiate.
+		if (!m_IsValid && !filepath.empty())
+			FG_CORE_WARN("Prefab file is missing or unreadable: {0}", filepath);
 	}
 
 	bool Prefab::CreateFromEntity(Entity entity, const std::string& filepath)
@@ -37,7 +44,7 @@ namespace Forge {
 
 	bool Prefab::IsValid() const
 	{
-		return !m_FilePath.empty() && std::filesystem::exists(m_FilePath);
+		return m_IsValid;
 	}
 
 	std::unordered_map<std::string, Ref<Prefab>> PrefabLibrary::s_Prefabs;
