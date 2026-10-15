@@ -213,3 +213,159 @@ TEST_CASE("Script field access rejects entities without scripts", "[scripting]")
     REQUIRE(Forge::ScriptEngine::GetScriptString(entity, "Anything", text) == false);
     REQUIRE(Forge::ScriptEngine::SetScriptNumber(entity, "Anything", 1.0) == false);
 }
+
+// ---------------------------------------------------------------------------
+// Mutating bindings report failure
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Entity setters report success and failure", "[scripting][setters]")
+{
+    Forge::Log::Init();
+    Forge::Scene scene;
+
+    const char* kScriptDir = FORGE_SOURCE_DIR "/resources/scripts/";
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+
+    auto entity = scene.CreateEntity("Setter");
+    auto& rb = entity.AddComponent<Forge::RigidbodyComponent>();
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    auto& collider = entity.AddComponent<Forge::BoxColliderComponent>();
+    collider.Size = glm::vec3(1.0f);
+    auto& script = entity.AddComponent<Forge::ScriptComponent>();
+    script.ClassName = "SetterReporting";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    bool flag = false;
+
+    // A valid component and field must report true, and must actually apply.
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetFloatOK", flag));
+    REQUIRE(flag == true);
+
+    // Read back inside the script, because the legacy calls below overwrite
+    // Friction later in the same OnCreate.
+    double frictionAfterGoodSet = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "FrictionAfterGoodSet", frictionAfterGoodSet));
+    REQUIRE(frictionAfterGoodSet == Approx(0.5));
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetBoolOK", flag));
+    REQUIRE(flag == true);
+    REQUIRE(rb.FixedRotation == true);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetVector3OK", flag));
+    REQUIRE(flag == true);
+
+    // Also read inside the script: the legacy SetPosition below overwrites it.
+    double translationAfterGoodSet = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "TranslationAfterGoodSet", translationAfterGoodSet));
+    REQUIRE(translationAfterGoodSet == Approx(4.0));   // 1 + 3
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetStringOK", flag));
+    REQUIRE(flag == true);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "RemoveOK", flag));
+    REQUIRE(flag == true);
+    REQUIRE_FALSE(entity.HasComponent<Forge::AudioSourceComponent>());
+
+    // Each mistyped call must report false rather than being discarded. Before
+    // this, every one of these was a silent no-op that looked like it worked.
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetFloatBad", flag));
+    REQUIRE(flag == false);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetBoolBad", flag));
+    REQUIRE(flag == false);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetStringBad", flag));
+    REQUIRE(flag == false);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetVector3Bad", flag));
+    REQUIRE(flag == false);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "RemoveMissing", flag));
+    REQUIRE(flag == false);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "RemoveUnknown", flag));
+    REQUIRE(flag == false);
+
+    // A failed write must not have corrupted anything on the way through: the
+    // final Friction is what the legacy call set, not either of the failures.
+    REQUIRE(collider.Friction == Approx(0.25f));
+    REQUIRE(entity.GetComponent<Forge::TransformComponent>().Translation.x == Approx(4.0f));
+
+    // Scripts written before the bindings reported failure ignore the answer;
+    // they must keep working unchanged.
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "LegacyStillRuns", flag));
+    REQUIRE(flag == true);
+
+    Forge::ScriptEngine::OnRuntimeStop();
+}
+
+TEST_CASE("Script state inspection covers booleans and writes back", "[scripting][inspect]")
+{
+    Forge::Log::Init();
+    Forge::Scene scene;
+
+    const char* kScriptDir = FORGE_SOURCE_DIR "/resources/scripts/";
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+
+    auto entity = scene.CreateEntity("Inspector");
+
+    // The script reads and writes these, and reports failure for anything
+    // missing - so the entity needs them or every assertion below is about an
+    // entity that never had a BoxCollider in the first place.
+    auto& rb = entity.AddComponent<Forge::RigidbodyComponent>();
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    entity.AddComponent<Forge::BoxColliderComponent>().Size = glm::vec3(1.0f);
+
+    auto& script = entity.AddComponent<Forge::ScriptComponent>();
+    script.ClassName = "SetterReporting";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    bool flag = true;
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetFloatOK", flag));
+    REQUIRE(flag == true);
+
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "SetFloatBad", flag));
+    REQUIRE(flag == false);
+
+    // A field that was never set is not a boolean, and must not read back as
+    // false - that would be indistinguishable from a real false, which is the
+    // mistake this API exists to rule out.
+    REQUIRE_FALSE(Forge::ScriptEngine::GetScriptBool(entity, "NoSuchField", flag));
+
+    // A numeric field is not a boolean either, so the same reasoning holds.
+    double numeric = 0.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "FrictionAfterGoodSet", numeric));
+    REQUIRE_FALSE(Forge::ScriptEngine::GetScriptBool(entity, "FrictionAfterGoodSet", flag));
+
+    // Writing back and reading again.
+    REQUIRE(Forge::ScriptEngine::SetScriptBool(entity, "Injected", true));
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "Injected", flag));
+    REQUIRE(flag == true);
+
+    REQUIRE(Forge::ScriptEngine::SetScriptBool(entity, "Injected", false));
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "Injected", flag));
+    REQUIRE(flag == false);
+
+    std::string text;
+    REQUIRE(Forge::ScriptEngine::SetScriptString(entity, "Note", "hello"));
+    REQUIRE(Forge::ScriptEngine::GetScriptString(entity, "Note", text));
+    REQUIRE(text == "hello");
+
+    double number = 0.0;
+    REQUIRE(Forge::ScriptEngine::SetScriptNumber(entity, "Count", 42.0));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Count", number));
+    REQUIRE(number == Approx(42.0));
+
+    // A field set as a string must not read back as a number.
+    REQUIRE_FALSE(Forge::ScriptEngine::GetScriptNumber(entity, "Note", number));
+
+    // An entity with no script at all must report failure rather than reading
+    // some other entity's state.
+    auto bare = scene.CreateEntity("Bare");
+    REQUIRE_FALSE(Forge::ScriptEngine::GetScriptBool(bare, "SetFloatOK", flag));
+    REQUIRE_FALSE(Forge::ScriptEngine::SetScriptBool(bare, "Injected", true));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+}

@@ -67,6 +67,34 @@ namespace Forge {
 			return 1;
 		}
 
+		// Pushes a boolean and returns 1, the usual way a Lua binding finishes.
+		int PushBool(lua_State* L, bool value)
+		{
+			lua_pushboolean(L, value ? 1 : 0);
+			return 1;
+		}
+
+		// Reports a failed component property write: names what was not found,
+		// and pushes false.
+		//
+		// A mistyped component or field used to be discarded without a sound, so
+		// entity:SetFloat("Rigidbody", "Masa", 5) looked exactly like it worked.
+		// Returning a boolean lets a script check; logging names the mistake,
+		// because a silent no-op is the failure mode that costs the longest to
+		// find. AddComponent already reported this way; these setters did not.
+		int PushSetFailure(lua_State* L, const char* function,
+			const std::string& component, const std::string& field)
+		{
+			FG_CORE_ERROR("entity:{0}: no component field '{1}.{2}'", function, component, field);
+			return PushBool(L, false);
+		}
+
+		int PushMutationFailure(lua_State* L, const char* function, const char* reason)
+		{
+			FG_CORE_ERROR("entity:{0}: {1}", function, reason);
+			return PushBool(L, false);
+		}
+
 		const char* SafeString(lua_State* L, int index, const char* fallback = "")
 		{
 			const char* value = lua_tostring(L, index);
@@ -477,10 +505,19 @@ namespace Forge {
 		{
 			Entity* entity = TestEntity(L, 1);
 			if (!entity || !(*entity))
-				return 0;
+				return PushMutationFailure(L, "RemoveComponent", "invalid entity");
 
-			RemoveNamedComponent(*entity, SafeString(L, 2));
-			return 0;
+			const std::string comp = SafeString(L, 2);
+			if (!RemoveNamedComponent(*entity, comp))
+			{
+				// Covers both an unknown name and a name the entity does not
+				// currently carry; the script cannot tell them apart, so the
+				// message says what it could not remove.
+				return PushMutationFailure(L, "RemoveComponent",
+					("entity has no removable component '" + comp + "'").c_str());
+			}
+
+			return PushBool(L, true);
 		}
 
 		int LuaEntity_GetFloat(lua_State* L)
@@ -501,10 +538,15 @@ namespace Forge {
 		{
 			Entity* entity = TestEntity(L, 1);
 			if (!entity || !(*entity))
-				return 0;
+				return PushMutationFailure(L, "SetFloat", "invalid entity");
 
-			SetComponentFloat(*entity, SafeString(L, 2), SafeString(L, 3), (float)luaL_checknumber(L, 4));
-			return 0;
+			const std::string comp = SafeString(L, 2);
+			const std::string field = SafeString(L, 3);
+
+			if (!SetComponentFloat(*entity, comp, field, (float)luaL_checknumber(L, 4)))
+				return PushSetFailure(L, "SetFloat", comp, field);
+
+			return PushBool(L, true);
 		}
 
 		int LuaEntity_GetBool(lua_State* L)
@@ -525,10 +567,15 @@ namespace Forge {
 		{
 			Entity* entity = TestEntity(L, 1);
 			if (!entity || !(*entity))
-				return 0;
+				return PushMutationFailure(L, "SetBool", "invalid entity");
 
-			SetComponentBool(*entity, SafeString(L, 2), SafeString(L, 3), lua_toboolean(L, 4) != 0);
-			return 0;
+			const std::string comp = SafeString(L, 2);
+			const std::string field = SafeString(L, 3);
+
+			if (!SetComponentBool(*entity, comp, field, lua_toboolean(L, 4) != 0))
+				return PushSetFailure(L, "SetBool", comp, field);
+
+			return PushBool(L, true);
 		}
 
 		int LuaEntity_GetString(lua_State* L)
@@ -549,10 +596,15 @@ namespace Forge {
 		{
 			Entity* entity = TestEntity(L, 1);
 			if (!entity || !(*entity))
-				return 0;
+				return PushMutationFailure(L, "SetString", "invalid entity");
 
-			SetComponentString(*entity, SafeString(L, 2), SafeString(L, 3), SafeString(L, 4));
-			return 0;
+			const std::string comp = SafeString(L, 2);
+			const std::string field = SafeString(L, 3);
+
+			if (!SetComponentString(*entity, comp, field, SafeString(L, 4)))
+				return PushSetFailure(L, "SetString", comp, field);
+
+			return PushBool(L, true);
 		}
 
 		int LuaEntity_GetVector3(lua_State* L)
@@ -572,14 +624,20 @@ namespace Forge {
 		{
 			Entity* entity = TestEntity(L, 1);
 			if (!entity || !(*entity))
-				return 0;
+				return PushMutationFailure(L, "SetVector3", "invalid entity");
 
 			glm::vec3 value(
 				(float)luaL_checknumber(L, 4),
 				(float)luaL_checknumber(L, 5),
 				(float)luaL_checknumber(L, 6));
-			SetComponentVector3(*entity, SafeString(L, 2), SafeString(L, 3), value);
-			return 0;
+
+			const std::string comp = SafeString(L, 2);
+			const std::string field = SafeString(L, 3);
+
+			if (!SetComponentVector3(*entity, comp, field, value))
+				return PushSetFailure(L, "SetVector3", comp, field);
+
+			return PushBool(L, true);
 		}
 
 		int LuaEntity_Destroy(lua_State* L)
@@ -589,10 +647,11 @@ namespace Forge {
 				return 0;
 
 			Scene* scene = ScriptEngine::GetActiveScene();
-			if (scene)
-				scene->DestroyEntity(*entity);
+			if (!scene)
+				return PushMutationFailure(L, "Destroy", "no active scene");
 
-			return 0;
+			scene->DestroyEntity(*entity);
+			return PushBool(L, true);
 		}
 
 		int LuaEntity_Duplicate(lua_State* L)
@@ -1319,6 +1378,47 @@ namespace Forge {
 			return false;
 
 		lua_pushnumber(s_LuaState, value);
+		lua_setfield(s_LuaState, -2, field);
+		lua_pop(s_LuaState, 1); // table
+		return true;
+	}
+
+	bool ScriptEngine::GetScriptBool(Entity entity, const char* field, bool& out)
+	{
+		if (!field || !PushEntityScriptTable(entity))
+			return false;
+
+		lua_getfield(s_LuaState, -1, field);
+
+		// Restricted to booleans on purpose. lua_toboolean treats nil and 0 as
+		// false, so accepting anything would make a missing field
+		// indistinguishable from a real false - exactly the "typo quietly did
+		// nothing" failure this inspection API exists to rule out.
+		const bool ok = lua_isboolean(s_LuaState, -1) != 0;
+		if (ok)
+			out = lua_toboolean(s_LuaState, -1) != 0;
+
+		lua_pop(s_LuaState, 2); // value, table
+		return ok;
+	}
+
+	bool ScriptEngine::SetScriptBool(Entity entity, const char* field, bool value)
+	{
+		if (!field || !PushEntityScriptTable(entity))
+			return false;
+
+		lua_pushboolean(s_LuaState, value ? 1 : 0);
+		lua_setfield(s_LuaState, -2, field);
+		lua_pop(s_LuaState, 1); // table
+		return true;
+	}
+
+	bool ScriptEngine::SetScriptString(Entity entity, const char* field, const std::string& value)
+	{
+		if (!field || !PushEntityScriptTable(entity))
+			return false;
+
+		lua_pushlstring(s_LuaState, value.c_str(), value.size());
 		lua_setfield(s_LuaState, -2, field);
 		lua_pop(s_LuaState, 1); // table
 		return true;

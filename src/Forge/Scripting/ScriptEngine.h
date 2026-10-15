@@ -86,6 +86,13 @@ namespace Forge {
 		// script's inputs the same way Lua would.
 		[[nodiscard]] static bool SetScriptNumber(Entity entity, const char* field, double value);
 
+		// Booleans and strings are handled explicitly rather than through
+		// lua_toboolean, which would make a missing field indistinguishable
+		// from a real false - the failure mode this API exists to rule out.
+		[[nodiscard]] static bool GetScriptBool(Entity entity, const char* field, bool& out);
+		[[nodiscard]] static bool SetScriptBool(Entity entity, const char* field, bool value);
+		[[nodiscard]] static bool SetScriptString(Entity entity, const char* field, const std::string& value);
+
 	private:
 		// Pushes the entity's script table onto the stack. Returns false (leaving
 		// the stack untouched) when there is no script for that entity.

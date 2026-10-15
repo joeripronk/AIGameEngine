@@ -649,8 +649,39 @@ ScriptEngine::GetScriptNumber(entity, "Hits", hits);
 std::string name;
 ScriptEngine::GetScriptString(entity, "LastHitBy", name);
 
+bool looping = false;
+ScriptEngine::GetScriptBool(entity, "Looping", looping);
+
 ScriptEngine::SetScriptNumber(entity, "Hits", 0.0);   // reset
+ScriptEngine::SetScriptBool(entity, "Looping", false);
+ScriptEngine::SetScriptString(entity, "LastHitBy", "");
 ```
+
+`GetScriptBool` checks `lua_isboolean` rather than calling `lua_toboolean`.
+That distinction is the whole point: `lua_toboolean` maps both `nil` and `0` to
+false, so a typo'd field name would read back as a legitimate `false` and the
+caller could not tell the difference.
+
+### Mutating a component reports whether it worked
+
+Every binding that **changes** something returns a boolean and logs the failure.
+A setter used to discard the result, so
+
+```lua
+entity:SetFloat("Rigidbody", "Masa", 5)   -- typo: no "Masa"
+```
+
+did nothing at all and looked exactly like it had worked. A silent no-op is the
+failure mode that costs the longest to find, so `SetFloat`, `SetBool`,
+`SetString`, `SetVector3`, `RemoveComponent` and `Destroy` all return `true`
+or `false`, and name the component field they could not find:
+
+```
+entity:SetFloat: no component field 'BoxCollider.Frikshun'
+```
+
+Scripts written before this ignore the answer and keep working unchanged.
+Getters return `nil` on an unknown field, which Lua already handles naturally.
 
 ### Available API
 
