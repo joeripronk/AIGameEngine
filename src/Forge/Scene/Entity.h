@@ -101,4 +101,19 @@ namespace Forge {
 		(void)entity; (void)component;
 	}
 
+	// Same reasoning as OnComponentRemoved above: the definition has to be
+	// visible wherever AddComponent<T> is instantiated, and it needs a complete
+	// Entity, which Scene.h only forward-declares.
+	//
+	// This one previously carried a static_assert to force every component to be
+	// considered. With the definition in a .cpp that assert could not fire from
+	// another translation unit, so a missing hook surfaced as an undefined
+	// reference instead. Scene.h now declares a hook for every component, so the
+	// default is genuinely only reached by a component nobody has hooked.
+	template<typename T>
+	void Scene::OnComponentAdded(Entity entity, T& component)
+	{
+		(void)entity; (void)component;
+	}
+
 }

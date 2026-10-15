@@ -60,6 +60,23 @@ namespace Forge {
 
 	void Scene::DestroyEntity(Entity& entity)
 	{
+		// A native script holds a reference to its entity and owns a live
+		// instance. Destroying the instance first lets it observe OnDestroy while
+		// the handle is still valid; erasing the component first would hand it a
+		// dangling reference.
+		if (auto* nsc = m_Registry.try_get<NativeScriptComponent>((entt::entity)entity))
+		{
+			if (nsc->Instance)
+			{
+				nsc->Instance->OnDestroy();
+
+				if (nsc->DestroyScript)
+					nsc->DestroyScript(nsc);
+
+				nsc->Instance = nullptr;
+			}
+		}
+
 		// If the entity owns a physics body, release it first.
 		ReleasePhysicsBody(entity);
 
@@ -67,6 +84,27 @@ namespace Forge {
 		m_Registry.destroy(entity);
 		// Invalidate the entity handle so it evaluates to false
 		entity.m_EntityHandle = entt::null;
+	}
+
+	void Scene::DestroyNativeScriptInstances()
+	{
+		for (auto e : m_Registry.view<NativeScriptComponent>())
+		{
+			auto* nscPtr = m_Registry.try_get<NativeScriptComponent>(e);
+			if (!nscPtr || !nscPtr->Instance)
+				continue;
+
+			auto& nsc = *nscPtr;
+
+			nsc.Instance->OnDestroy();
+
+			if (nsc.DestroyScript)
+				nsc.DestroyScript(&nsc);
+
+			// Cleared, not just destroyed: the component survives a stop/start
+			// cycle, and a stale Instance would be dereferenced on the next run.
+			nsc.Instance = nullptr;
+		}
 	}
 
 	void Scene::ReleasePhysicsBody(Entity entity)
@@ -106,6 +144,10 @@ namespace Forge {
 		OnPhysicsStop();
 
 		ScriptEngine::OnRuntimeStop();
+
+		// Native instances are destroyed after the Lua ones so a native script
+		// can still see a stopped-but-intact scene on the way out.
+		DestroyNativeScriptInstances();
 	}
 
 	void Scene::OnSimulationStart()
@@ -136,14 +178,29 @@ namespace Forge {
 					ScriptEngine::OnUpdateEntity(entity, ts);
 				}
 
-				const auto& nscView = m_Registry.view<NativeScriptComponent>();
+				const auto nscView = m_Registry.view<NativeScriptComponent>();
 				for (auto e : nscView)
 				{
 					auto& nsc = std::get<0>(nscView.get(e));
+
 					if (!nsc.Instance)
 					{
+						// An unbound component has no factory, and calling through a
+						// null function pointer would jump to nothing. An unbound
+						// native script is inert rather than fatal, matching an
+						// AudioSource with no clip.
+						if (!nsc.InstantiateScript)
+							continue;
+
 						nsc.Instance = nsc.InstantiateScript();
-						nsc.Instance->SetEntity(nullptr); // TODO: Fix entity pointer lifecycle
+						if (!nsc.Instance)
+							continue;
+
+						// Copied into the instance rather than pointed at: the wrapper
+						// built here is a temporary of this loop, so a pointer to it
+						// would dangle before the next update.
+						Entity nscOwner = { e, this };
+						nsc.Instance->SetEntity(nscOwner);
 						nsc.Instance->OnCreate();
 					}
 
@@ -821,12 +878,6 @@ namespace Forge {
 
 #endif // FG_NO_VULKAN_RUNTIME
 
-	template<typename T>
-	void Scene::OnComponentAdded(Entity entity, T& component)
-	{
-		static_assert(sizeof(T) == 0);
-	}
-
 	template<>
 	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
 	{
@@ -904,6 +955,17 @@ namespace Forge {
 	{
 		(void)component;
 		ReleasePhysicsBody(entity);
+	}
+
+	template<>
+	void Scene::OnComponentAdded<NativeScriptComponent>(Entity entity, NativeScriptComponent& component)
+	{
+		// Nothing to do at add time: the instance is created on the first update,
+		// once physics and the rest of the scene are in a consistent state. The
+		// hook exists because AddComponent is instantiated from every translation
+		// unit that touches the component, and without a declaration the primary
+		// template had no visible definition - a link error, not a no-op.
+		(void)entity; (void)component;
 	}
 
 	template<>

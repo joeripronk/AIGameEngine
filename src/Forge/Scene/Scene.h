@@ -133,6 +133,11 @@ namespace Forge {
 		// and when a physics-bearing component is removed.
 		void ReleasePhysicsBody(Entity entity);
 
+		// Destroys every live native script instance, calling OnDestroy first.
+		// Called on runtime stop so instances do not survive the session, and
+		// from DestroyEntity for the entity being destroyed.
+		void DestroyNativeScriptInstances();
+
 		// Bridges a raw PhysicsBody pair to the owning entities and dispatches to
 		// any registered Scene-level handlers. Static for the callback signature;
 		// the active Scene is tracked in s_CollisionDispatchScene.
@@ -198,5 +203,51 @@ namespace Forge {
 
 	template<>
 	void Scene::OnComponentRemoved(Entity entity, SphereColliderComponent& component);
+
+	// Addition hooks. Every component is declared, not just the ones that need
+	// something, because AddComponent<T> is instantiated from every translation
+	// unit that touches a component. A component with no declaration resolved to
+	// the primary template, whose definition lives in a .cpp - so it produced an
+	// undefined reference at link time instead of a diagnostic at the point of
+	// use. NativeScriptComponent was missing one, making the documented native
+	// scripting path unusable.
+	template<>
+	void Scene::OnComponentAdded(Entity entity, IDComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, TagComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, TransformComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, CameraComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, ScriptComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, NativeScriptComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, RigidbodyComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, BoxColliderComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, SphereColliderComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, MeshComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, PBRMaterialComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, LightComponent& component);
+
+	template<>
+	void Scene::OnComponentAdded(Entity entity, AudioSourceComponent& component);
 
 }

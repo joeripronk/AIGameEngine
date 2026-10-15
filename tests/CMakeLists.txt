@@ -27,6 +27,7 @@ target_sources(ForgeTests
         src/AudioTests.cpp
         src/ReverbTests.cpp
         src/BuildConfigTests.cpp
+        src/NativeScriptTests.cpp
 )
 
 target_link_libraries(ForgeTests
