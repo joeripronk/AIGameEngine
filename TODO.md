@@ -173,6 +173,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CI/CD pipeline (Linux, Windows, macOS - Debug/Release/Dist + tests)
 - [x] ASan + UBSan CI job (memory errors no test can observe)
 
+### ✨ New Features
+- [ ] SSAO sample positions uniform array (shader fixed, needs runtime setup)
+- [ ] UpdateDescriptorSets fully implemented
+- [ ] nvrhi submodule updated with improved error handling
+- [ ] forest.exr improved (20 → 68 bytes proper EXR)
+
 ---
 
 ## 🐛 Known Issues
