@@ -1330,3 +1330,122 @@ TEST_CASE("The Scene reclaims a finished one-shot", "[audio][loop][scene]")
 	scene.OnRuntimeStop();
 	Forge::AudioEngine::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Volume is a single source of truth
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Effective gain composes authored volume with the bus", "[audio][volume]")
+{
+	Forge::Log::Init();
+	using Forge::AudioEngine;
+	using Forge::AudioBus;
+
+	// Full volume on a full bus is unity.
+	REQUIRE(AudioEngine::ComputeEffectiveGain(1.0f, AudioBus::Master) == Approx(1.0f));
+
+	// Half the authored volume is half the mix.
+	REQUIRE(AudioEngine::ComputeEffectiveGain(0.5f, AudioBus::Master) == Approx(0.5f));
+
+	// A ducked bus multiplies through rather than replacing the author's intent,
+	// which is what lets one call reach a whole category of sounds.
+	REQUIRE(AudioEngine::SetBusVolume(AudioBus::Music, 0.25f));
+	REQUIRE(AudioEngine::ComputeEffectiveGain(1.0f, AudioBus::Music) == Approx(0.25f));
+	REQUIRE(AudioEngine::ComputeEffectiveGain(0.5f, AudioBus::Music) == Approx(0.125f));
+
+	// Master ducks every other bus, so it multiplies in on top of that.
+	REQUIRE(AudioEngine::SetBusVolume(AudioBus::Master, 0.5f));
+	REQUIRE(AudioEngine::ComputeEffectiveGain(1.0f, AudioBus::Music) == Approx(0.125f));
+	REQUIRE(AudioEngine::ComputeEffectiveGain(1.0f, AudioBus::SoundEffects) == Approx(0.5f));
+
+	REQUIRE(AudioEngine::SetBusVolume(AudioBus::Master, 1.0f));
+	REQUIRE(AudioEngine::SetBusVolume(AudioBus::Music, 1.0f));
+}
+
+TEST_CASE("SetSoundVolume survives the next spatialisation update", "[audio][volume]")
+{
+	Forge::Log::Init();
+	using Forge::AudioEngine;
+	using Forge::AudioBus;
+
+	REQUIRE(AudioEngine::Init());
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "volume.wav", 48000, 2.0);
+
+	AudioEngine::SoundHandle handle = AudioEngine::InvalidSound;
+	REQUIRE(AudioEngine::PlaySound(wav, 1.0f, 1.0f, true, &handle));
+
+	REQUIRE(AudioEngine::SetSoundVolume(handle, 0.25f));
+
+	// Applied immediately, not deferred to the next frame.
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(0.25f));
+
+	// The regression this pins: spatialisation recomputes gain every frame from
+	// the authored volume. A setter that wrote only to the ma_sound was silently
+	// reverted here, and lost the bus gain with it.
+	AudioEngine::Update();
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(0.25f));
+
+	AudioEngine::Update();
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(0.25f));
+
+	// A bus change must also compose with it rather than replace it.
+	REQUIRE(AudioEngine::SetBusVolume(AudioBus::SoundEffects, 0.5f));
+	AudioEngine::Update();
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(0.125f));
+	REQUIRE(AudioEngine::SetBusVolume(AudioBus::SoundEffects, 1.0f));
+
+	// Out-of-range requests clamp instead of passing through to the mixer.
+	REQUIRE(AudioEngine::SetSoundVolume(handle, 5.0f));
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(1.0f));
+
+	REQUIRE(AudioEngine::SetSoundVolume(handle, -1.0f));
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(0.0f));
+
+	// An unknown handle is still reported rather than silently accepted.
+	REQUIRE(AudioEngine::SetSoundVolume(AudioEngine::InvalidSound, 0.5f) == false);
+	REQUIRE(AudioEngine::GetSoundVolume(AudioEngine::InvalidSound) == Approx(-1.0f));
+
+	AudioEngine::StopAllSounds();
+	AudioEngine::Shutdown();
+}
+
+TEST_CASE("Volume changes reach a spatial sound with its attenuation", "[audio][volume]")
+{
+	Forge::Log::Init();
+	using Forge::AudioEngine;
+	using Forge::AudioBus;
+
+	REQUIRE(AudioEngine::Init());
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "volume_spatial.wav", 48000, 2.0);
+
+	// A source far enough away to be attenuated, so its mix is strictly below
+	// the authored volume.
+	AudioEngine::SpatialParams spatial;
+	spatial.Enabled = true;
+	spatial.MinDistance = 1.0f;
+	spatial.MaxDistance = 20.0f;
+	spatial.Rolloff = 1.0f;
+
+	AudioEngine::SoundHandle handle = AudioEngine::InvalidSound;
+	const glm::vec3 position(10.0f, 0.0f, 0.0f);
+	REQUIRE(AudioEngine::PlaySoundAtOnBus(wav, position, spatial, AudioBus::SoundEffects,
+		1.0f, 1.0f, false, &handle));
+
+	const float attenuated = AudioEngine::GetSoundVolume(handle);
+	REQUIRE(attenuated < 1.0f);
+	REQUIRE(attenuated > 0.0f);
+
+	// Halving the authored volume must halve the whole mix, attenuation included.
+	REQUIRE(AudioEngine::SetSoundVolume(handle, 0.5f));
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(attenuated * 0.5f));
+
+	// And it must stay put across a recompute, which is where the old setter
+	// lost both the authored change and the spatial gain.
+	AudioEngine::Update();
+	REQUIRE(AudioEngine::GetSoundVolume(handle) == Approx(attenuated * 0.5f));
+
+	AudioEngine::StopAllSounds();
+	AudioEngine::Shutdown();
+}

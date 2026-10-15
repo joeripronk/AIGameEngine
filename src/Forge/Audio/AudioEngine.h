@@ -260,6 +260,18 @@ namespace Forge {
 		[[nodiscard]] static bool SetSoundVolume(SoundHandle handle, float volume);
 		[[nodiscard]] static bool SetSoundPitch(SoundHandle handle, float pitch);
 
+		// The gain a sound is currently mixed at, before spatialisation.
+		//
+		// This is the composition every path agrees on: the author's volume
+		// times the bus gain. Both SetSoundVolume and the per-frame spatial
+		// update go through it, so the two cannot disagree.
+		[[nodiscard]] static float ComputeEffectiveGain(float baseVolume, AudioBus bus);
+
+		// Reads back the volume a handle is actually mixed at. Mostly useful to
+		// verify that a volume change survived the next frame, since
+		// spatialisation recomputes gain every frame.
+		[[nodiscard]] static float GetSoundVolume(SoundHandle handle);
+
 		static bool IsSoundPlaying(SoundHandle handle);
 		static bool IsValidSound(SoundHandle handle);
 
@@ -293,8 +305,15 @@ namespace Forge {
 
 			// Authored volume, kept separate from the spatialised volume so
 			// spatialisation can be recomputed each frame without compounding
-			// attenuation or losing the author's intent.
+			// attenuation or losing the author's intent. This is the single
+			// source of truth: the per-frame recompute reads it, so a setter
+			// that skipped it would be reverted on the next frame.
 			float BaseVolume = 1.0f;
+
+			// The gain last handed to miniaudio. Tracked so the effective mix can
+			// be read back, which is what makes a volume change verifiable across
+			// a frame boundary rather than merely assumed to have taken effect.
+			float AppliedVolume = 1.0f;
 
 			SpatialParams Spatial;
 			glm::vec3 Position = { 0.0f, 0.0f, 0.0f };

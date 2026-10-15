@@ -348,6 +348,27 @@ the handle stays valid and `IsSoundPlaying` stays true until the fade finishes;
 a second `StopSound` on the same handle returns false, letting callers tell
 "stopped" from "stopping".
 
+### Volume has one source of truth
+
+Spatialisation recomputes gain every frame as
+`authored volume x bus gain x spatial gain`. That makes the **authored volume
+the single source of truth**: `SetSoundVolume` has to write it, not just the
+mixer.
+
+A setter that writes only the mixer looks correct until the next frame reverts
+it, and silently discards the bus and spatial gain along the way — a change
+that appears to work and then does not. So both paths compose gain through one
+function:
+
+```cpp
+AudioEngine::ComputeEffectiveGain(baseVolume, bus);   // pure, unit-tested
+AudioEngine::GetSoundVolume(handle);                   // reads back the mix
+```
+
+`GetSoundVolume` exists so the claim is verifiable rather than assumed: a
+volume change can be asserted to survive a frame boundary, and to compose with
+attenuation rather than replace it.
+
 `StopAllSounds` releases outright instead of fading, because it is teardown
 (shutdown, leaving playback) and sounds must not outlive the scene that owns
 them.

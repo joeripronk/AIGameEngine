@@ -405,6 +405,7 @@ namespace Forge {
 		}
 
 		ma_sound_set_volume(sound, gain);
+		entry.AppliedVolume = gain;
 
 		if (outHandle)
 			*outHandle = handle;
@@ -558,6 +559,11 @@ namespace Forge {
 		return mix;
 	}
 
+	float AudioEngine::ComputeEffectiveGain(float baseVolume, AudioBus bus)
+	{
+		return baseVolume * ComputeBusGain(bus);
+	}
+
 	void AudioEngine::UpdateSpatialization()
 	{
 		for (auto& [handle, entry] : s_Sounds)
@@ -569,7 +575,7 @@ namespace Forge {
 
 			// Bus gain applies to every sound, spatial or not, so ducking a bus
 			// reaches its whole contents without touching them individually.
-			float gain = entry.BaseVolume * ComputeBusGain(entry.Bus);
+			float gain = ComputeEffectiveGain(entry.BaseVolume, entry.Bus);
 
 			if (entry.Spatial.Enabled)
 			{
@@ -579,6 +585,7 @@ namespace Forge {
 			}
 
 			ma_sound_set_volume(entry.Sound, gain);
+			entry.AppliedVolume = gain;
 		}
 	}
 
@@ -615,8 +622,37 @@ namespace Forge {
 		if (!entry)
 			return false;
 
-		ma_sound_set_volume(entry->Sound, (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume));
+		// The authored volume is the single source of truth, and the per-frame
+		// spatialisation update recomputes from it. Writing only to the ma_sound
+		// here would look correct until the next Update() reverted it, silently
+		// discarding the caller's change - and along with it the bus and spatial
+		// gain, which the direct write had also thrown away.
+		entry->BaseVolume = (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume);
+
+		if (!entry->Sound)
+			return true;
+
+		// Apply immediately rather than waiting a frame, and via the same
+		// composition the spatial update uses so the two agree exactly.
+		float gain = ComputeEffectiveGain(entry->BaseVolume, entry->Bus);
+		if (entry->Spatial.Enabled)
+		{
+			const SpatialMix mix = ComputeSpatialMix(s_Listener, entry->Position, entry->Spatial);
+			gain *= mix.Gain;
+		}
+
+		ma_sound_set_volume(entry->Sound, gain);
+		entry->AppliedVolume = gain;
 		return true;
+	}
+
+	float AudioEngine::GetSoundVolume(SoundHandle handle)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return -1.0f;
+
+		return entry->AppliedVolume;
 	}
 
 	bool AudioEngine::SetSoundPitch(SoundHandle handle, float pitch)

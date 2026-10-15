@@ -203,3 +203,4 @@
 | Editor UI ignored scene-open failures | ✅ Fixed - opening a scene now reports success or failure |
 | Screenshot capture failure was silent | ✅ Fixed - `FG_CAPTURE_PATH` capture failures are logged |
 | `AudioEngine` was never called by either app | ✅ Fixed - `AudioSourceComponent` + Scene lifecycle + Lua `PlaySound`/`StopSound` |
+| `SetSoundVolume` was reverted by the next frame | ✅ Fixed - the authored volume is the single source of truth; both the setter and the per-frame spatial recompute compose gain through `ComputeEffectiveGain` |
