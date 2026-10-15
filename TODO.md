@@ -67,9 +67,11 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (204 test cases, 1424 assertions - all passing, order-independent)
+### Tests (224 test cases, 1508 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
+- [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
+      AudioSourceComponent round-trip, Scene lifecycle, Lua audio API)
 - [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
       entity order/count, empty fields, out-of-range values, save determinism)
 - [x] ExportTests (game export completeness and failure reporting, prefab authoring,
@@ -141,7 +143,8 @@
 - [x] SerializeRuntime/DeserializeRuntime (binary format)
 - [x] Camera viewport resize handling (CameraComponent::UpdateProjection)
 - [x] Mesh loading from file (CPU assimp path; GPU path pending)
-- [x] Audio engine (miniaudio ma_engine mixer, WAV/MP3/FLAC decode + playback)
+- [x] Audio engine (per-sound handles, WAV/MP3/FLAC decode + playback)
+- [x] AudioSourceComponent + Scene playback lifecycle + Lua audio API
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter
@@ -192,4 +195,4 @@
 | 11 call sites discarded a fallible result | ✅ Fixed - fallible APIs are now `[[nodiscard]]`, so the compiler enforces the convention |
 | Editor UI ignored scene-open failures | ✅ Fixed - opening a scene now reports success or failure |
 | Screenshot capture failure was silent | ✅ Fixed - `FG_CAPTURE_PATH` capture failures are logged |
-| `AudioEngine` is never called by either app | ⚠️ Built and tested but not wired into the editor or runtime |
+| `AudioEngine` was never called by either app | ✅ Fixed - `AudioSourceComponent` + Scene lifecycle + Lua `PlaySound`/`StopSound` |

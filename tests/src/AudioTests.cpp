@@ -1,0 +1,502 @@
+// Audio: engine handles, the AudioSourceComponent, and graceful degradation.
+//
+// A machine with no sound card (CI, containers, headless) must still run the
+// game, so these tests are written to pass whether or not an output device
+// exists. What is asserted unconditionally is the behaviour that does not
+// depend on one: decoding, handle lifetime rules, serialization, and the
+// never-fatal contract.
+
+#include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
+using Catch::Approx;
+
+#include <cstdint>
+#include <cstring>
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include "Forge/Core/Base.h"
+#include "Forge/Core/Log.h"
+#include "Forge/Audio/AudioEngine.h"
+#include "Forge/Scene/Scene.h"
+#include "Forge/Scene/Entity.h"
+#include "Forge/Scene/Components.h"
+#include "Forge/Scene/SceneSerializer.h"
+#include "Forge/Scripting/ScriptEngine.h"
+
+namespace {
+
+	namespace fs = std::filesystem;
+
+	std::string AudioFixtureDir()
+	{
+		std::error_code ec;
+		fs::create_directories("test_audio", ec);
+		return "test_audio/";
+	}
+
+	// Writes a real 16-bit PCM mono WAV containing a constant-amplitude sine, so
+	// decoding is exercised against actual bytes rather than a stub file.
+	std::string WriteSineWav(const std::string& path, int sampleRate = 48000,
+		double seconds = 0.25, double frequency = 440.0, double amplitude = 0.5)
+	{
+		const auto frames = static_cast<uint32_t>(sampleRate * seconds);
+		const uint16_t channels = 1;
+		const uint16_t bitsPerSample = 16;
+		const uint32_t byteRate = sampleRate * channels * bitsPerSample / 8;
+		const uint16_t blockAlign = channels * bitsPerSample / 8;
+		const uint32_t dataSize = frames * blockAlign;
+
+		std::ofstream out(path, std::ios::binary);
+		out.write("RIFF", 4);
+		const uint32_t riffSize = 36 + dataSize;
+		out.write(reinterpret_cast<const char*>(&riffSize), 4);
+		out.write("WAVE", 4);
+
+		out.write("fmt ", 4);
+		const uint32_t subchunk1Size = 16;
+		const uint16_t audioFormat = 1; // PCM
+		out.write(reinterpret_cast<const char*>(&subchunk1Size), 4);
+		out.write(reinterpret_cast<const char*>(&audioFormat), 2);
+		out.write(reinterpret_cast<const char*>(&channels), 2);
+		out.write(reinterpret_cast<const char*>(&sampleRate), 4);
+		out.write(reinterpret_cast<const char*>(&byteRate), 4);
+		out.write(reinterpret_cast<const char*>(&blockAlign), 2);
+		out.write(reinterpret_cast<const char*>(&bitsPerSample), 2);
+
+		out.write("data", 4);
+		out.write(reinterpret_cast<const char*>(&dataSize), 4);
+
+		for (uint32_t i = 0; i < frames; i++)
+		{
+			const double t = static_cast<double>(i) / sampleRate;
+			const double value = amplitude * std::sin(2.0 * 3.14159265358979 * frequency * t);
+			const auto sample = static_cast<int16_t>(value * 32767.0);
+			out.write(reinterpret_cast<const char*>(&sample), 2);
+		}
+
+		out.close();
+		return path;
+	}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// AudioBuffer: decoding is device independent
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AudioEngine decodes a WAV file into PCM", "[audio]")
+{
+	Forge::Log::Init();
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone.wav");
+
+	// Decoding must not require an output device, which is what makes it
+	// testable in CI at all.
+	auto buffer = Forge::AudioEngine::LoadAudioBuffer(wav);
+	REQUIRE(buffer);
+	REQUIRE(buffer->GetSampleRate() == 48000);
+	REQUIRE(buffer->GetChannels() == 2);
+	REQUIRE(buffer->GetFrameCount() > 0);
+	REQUIRE(buffer->GetSamples() != nullptr);
+	REQUIRE(buffer->GetDuration() == Approx(0.25f).margin(0.05f));
+}
+
+TEST_CASE("AudioBuffer reports its source path", "[audio]")
+{
+	Forge::Log::Init();
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_path.wav");
+
+	auto buffer = Forge::AudioEngine::LoadAudioBuffer(wav);
+	REQUIRE(buffer);
+	REQUIRE(buffer->GetSourcePath() == wav);
+}
+
+TEST_CASE("Decoded samples carry real signal, not silence", "[audio]")
+{
+	Forge::Log::Init();
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_signal.wav");
+
+	auto buffer = Forge::AudioEngine::LoadAudioBuffer(wav);
+	REQUIRE(buffer);
+
+	// A decoder that returned zeros would pass a "frame count > 0" check while
+	// producing silence, so assert the samples actually vary.
+	float peak = 0.0f;
+	const float* samples = buffer->GetSamples();
+	REQUIRE(samples != nullptr);
+	for (uint64_t i = 0; i < buffer->GetFrameCount() * buffer->GetChannels(); i++)
+		peak = std::max(peak, std::abs(samples[i]));
+
+	REQUIRE(peak > 0.1f);
+	REQUIRE(peak <= 1.0f);
+}
+
+TEST_CASE("Loading a missing audio file fails cleanly", "[audio]")
+{
+	Forge::Log::Init();
+	REQUIRE(Forge::AudioEngine::LoadAudioBuffer("test_audio/definitely_not_here.wav") == nullptr);
+}
+
+TEST_CASE("Loading a non-audio file fails cleanly", "[audio]")
+{
+	Forge::Log::Init();
+
+	std::error_code ec;
+	fs::create_directories("test_audio", ec);
+	{
+		std::ofstream out("test_audio/not_audio.wav", std::ios::binary);
+		out << "this is plain text, not a wav file";
+	}
+
+	REQUIRE(Forge::AudioEngine::LoadAudioBuffer("test_audio/not_audio.wav") == nullptr);
+}
+
+// ---------------------------------------------------------------------------
+// Sound handles
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Sound handles are invalid before anything plays", "[audio]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	REQUIRE(Forge::AudioEngine::InvalidSound == 0);
+	REQUIRE(Forge::AudioEngine::IsValidSound(Forge::AudioEngine::InvalidSound) == false);
+	REQUIRE(Forge::AudioEngine::IsValidSound(12345) == false);
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 0);
+}
+
+TEST_CASE("Sound handle operations fail safely when uninitialized", "[audio]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	// Audio is optional, so every call must be safe on a machine with no
+	// device rather than crashing or corrupting state.
+	REQUIRE(Forge::AudioEngine::StopSound(1) == false);
+	REQUIRE(Forge::AudioEngine::SetSoundVolume(1, 0.5f) == false);
+	REQUIRE(Forge::AudioEngine::SetSoundPitch(1, 2.0f) == false);
+	REQUIRE(Forge::AudioEngine::IsSoundPlaying(1) == false);
+	Forge::AudioEngine::StopAllSounds();
+}
+
+TEST_CASE("Playing with no path or no device reports failure", "[audio]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	Forge::AudioEngine::SoundHandle handle = Forge::AudioEngine::InvalidSound;
+	REQUIRE(Forge::AudioEngine::PlaySound("", 1.0f, 1.0f, false, &handle) == false);
+	REQUIRE(handle == Forge::AudioEngine::InvalidSound);
+
+	// If a device happens to exist this may succeed; either way the handle must
+	// be left in a coherent state.
+	// May or may not start depending on whether a device exists; the handle must
+	// be coherent either way.
+	const bool started = Forge::AudioEngine::PlaySound("test_audio/tone.wav", 1.0f, 1.0f, false, &handle);
+	if (!started)
+		REQUIRE(handle == Forge::AudioEngine::InvalidSound);
+	else
+		REQUIRE(Forge::AudioEngine::IsValidSound(handle));
+
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("Sounds are tracked individually and released on stop", "[audio]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		// No output device here; the handle bookkeeping is exercised by the
+		// uninitialized tests above.
+		SUCCEED("No audio device; per-sound handles require one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_handles.wav", 48000, 1.0);
+
+	Forge::AudioEngine::SoundHandle first = Forge::AudioEngine::InvalidSound;
+	Forge::AudioEngine::SoundHandle second = Forge::AudioEngine::InvalidSound;
+
+	REQUIRE(Forge::AudioEngine::PlaySound(wav, 1.0f, 1.0f, true, &first));
+	REQUIRE(Forge::AudioEngine::PlaySound(wav, 1.0f, 1.0f, true, &second));
+
+	REQUIRE(first != Forge::AudioEngine::InvalidSound);
+	REQUIRE(second != Forge::AudioEngine::InvalidSound);
+	REQUIRE(first != second);
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 2);
+
+	// Stopping one sound must leave the other playing. The old fire-and-forget
+	// implementation stopped the entire engine here, silencing everything.
+	REQUIRE(Forge::AudioEngine::StopSound(first));
+	REQUIRE(Forge::AudioEngine::IsValidSound(first) == false);
+	REQUIRE(Forge::AudioEngine::IsValidSound(second) == true);
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 1);
+
+	// A second stop of the same handle fails, which is how a double-stop is
+	// detected rather than silently succeeding.
+	REQUIRE(Forge::AudioEngine::StopSound(first) == false);
+
+	Forge::AudioEngine::StopAllSounds();
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 0);
+
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("Stopping all sounds releases every handle", "[audio]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; handle release requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_all.wav", 48000, 1.0);
+
+	std::vector<Forge::AudioEngine::SoundHandle> handles;
+	for (int i = 0; i < 4; i++)
+	{
+		Forge::AudioEngine::SoundHandle handle = Forge::AudioEngine::InvalidSound;
+		REQUIRE(Forge::AudioEngine::PlaySound(wav, 1.0f, 1.0f, true, &handle));
+		handles.push_back(handle);
+	}
+
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 4);
+
+	Forge::AudioEngine::StopAllSounds();
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 0);
+
+
+	for (Forge::AudioEngine::SoundHandle handle : handles)
+		REQUIRE(Forge::AudioEngine::IsValidSound(handle) == false);
+
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("Master volume is clamped and reported", "[audio]")
+{
+	Forge::Log::Init();
+
+	Forge::AudioEngine::SetMasterVolume(0.5f);
+	REQUIRE(Forge::AudioEngine::GetMasterVolume() == Approx(0.5f));
+
+	// Out-of-range values are clamped rather than stored raw.
+	Forge::AudioEngine::SetMasterVolume(5.0f);
+	REQUIRE(Forge::AudioEngine::GetMasterVolume() == Approx(1.0f));
+
+	Forge::AudioEngine::SetMasterVolume(-1.0f);
+	REQUIRE(Forge::AudioEngine::GetMasterVolume() == Approx(0.0f));
+
+	Forge::AudioEngine::SetMasterVolume(1.0f);
+}
+
+TEST_CASE("Shutdown is safe when never initialized", "[audio]")
+{
+	Forge::Log::Init();
+	REQUIRE_NOTHROW(Forge::AudioEngine::Shutdown());
+	REQUIRE_NOTHROW(Forge::AudioEngine::Shutdown());
+	REQUIRE(Forge::AudioEngine::IsInitialized() == false);
+}
+
+// ---------------------------------------------------------------------------
+// AudioSourceComponent
+// ---------------------------------------------------------------------------
+
+TEST_CASE("AudioSourceComponent defaults", "[audio][component]")
+{
+	Forge::Scene scene;
+	auto entity = scene.CreateEntity("Speaker");
+	auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+
+	REQUIRE(audio.SourcePath.empty());
+	REQUIRE(audio.Volume == Approx(1.0f));
+	REQUIRE(audio.Pitch == Approx(1.0f));
+	REQUIRE(audio.Loop == false);
+	REQUIRE(audio.PlayOnStart == true);
+	REQUIRE(audio.SoundHandle == Forge::AudioEngine::InvalidSound);
+	REQUIRE(audio.Finished == false);
+}
+
+TEST_CASE("AudioSourceComponent round-trips every authored field", "[audio][serialization]")
+{
+	std::error_code ec;
+	fs::create_directories("test_audio", ec);
+
+	auto scene = Forge::CreateRef<Forge::Scene>();
+	auto entity = scene->CreateEntity("Music");
+
+	auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = "resources/audio/theme.ogg";
+	audio.Volume = 0.35f;
+	audio.Pitch = 1.75f;
+	audio.Loop = true;
+	audio.PlayOnStart = false;
+	audio.SoundHandle = 999;      // runtime state that must not be written
+	audio.Finished = true;         // likewise
+
+	const std::string path = "test_audio/audio_source.forge";
+	Forge::SceneSerializer serializer(scene);
+	REQUIRE(serializer.Serialize(path));
+
+	auto reloaded = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer reader(reloaded);
+	REQUIRE(reader.Deserialize(path));
+
+	auto restored = reloaded->FindEntityByName("Music");
+	REQUIRE(restored);
+
+	const auto& r = restored.GetComponent<Forge::AudioSourceComponent>();
+	REQUIRE(r.SourcePath == "resources/audio/theme.ogg");
+	REQUIRE(r.Volume == Approx(0.35f));
+	REQUIRE(r.Pitch == Approx(1.75f));
+	REQUIRE(r.Loop == true);
+	REQUIRE(r.PlayOnStart == false);
+
+	// Per-session state must not survive a round-trip; a stale handle would
+	// make the source believe a sound is already playing.
+	REQUIRE(r.SoundHandle == Forge::AudioEngine::InvalidSound);
+	REQUIRE(r.Finished == false);
+}
+
+// ---------------------------------------------------------------------------
+// Scene integration
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A scene with audio sources starts and stops cleanly", "[audio][scene]")
+{
+	Forge::Log::Init();
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_scene.wav", 48000, 1.0);
+
+	Forge::Scene scene;
+	auto source = scene.CreateEntity("Music");
+	auto& audio = source.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = wav;
+	audio.Loop = true;
+
+	// Audio is optional, so this must not throw regardless of whether a device
+	// exists.
+	REQUIRE_NOTHROW(scene.OnRuntimeStart());
+
+	if (Forge::AudioEngine::IsInitialized())
+		REQUIRE(audio.SoundHandle != Forge::AudioEngine::InvalidSound);
+
+	REQUIRE_NOTHROW(scene.OnUpdateRuntime(Forge::Timestep(0.016f)));
+
+	// Stopping must release the handle so the sound does not outlive playback.
+	REQUIRE_NOTHROW(scene.OnRuntimeStop());
+	REQUIRE(audio.SoundHandle == Forge::AudioEngine::InvalidSound);
+}
+
+TEST_CASE("An audio source with no path is inert, not an error", "[audio][scene]")
+{
+	Forge::Log::Init();
+
+	Forge::Scene scene;
+	auto source = scene.CreateEntity("Empty");
+	auto& audio = source.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = "";   // deliberately unfinished
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStart());
+	REQUIRE(audio.SoundHandle == Forge::AudioEngine::InvalidSound);
+	REQUIRE_NOTHROW(scene.OnRuntimeStop());
+}
+
+TEST_CASE("PlayOnStart false does not start the source", "[audio][scene]")
+{
+	Forge::Log::Init();
+	Forge::AudioEngine::Shutdown();
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_manual.wav", 48000, 1.0);
+
+	Forge::Scene scene;
+	auto source = scene.CreateEntity("Manual");
+	auto& audio = source.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = wav;
+	audio.PlayOnStart = false;
+
+	scene.OnRuntimeStart();
+	REQUIRE(audio.SoundHandle == Forge::AudioEngine::InvalidSound);
+
+	scene.OnRuntimeStop();
+}
+
+TEST_CASE("A source pointing at a missing file does not break the scene", "[audio][scene]")
+{
+	Forge::Log::Init();
+
+	Forge::Scene scene;
+
+	auto broken = scene.CreateEntity("Broken");
+	broken.AddComponent<Forge::AudioSourceComponent>().SourcePath = "test_audio/no_such_clip.wav";
+
+	// A good source alongside the broken one, to prove one failure does not
+	// abort the rest.
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_alongside.wav", 48000, 1.0);
+	auto good = scene.CreateEntity("Good");
+	auto& goodAudio = good.AddComponent<Forge::AudioSourceComponent>();
+	goodAudio.SourcePath = wav;
+	goodAudio.PlayOnStart = true;
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStart());
+	REQUIRE_NOTHROW(scene.OnUpdateRuntime(Forge::Timestep(0.016f)));
+	REQUIRE_NOTHROW(scene.OnRuntimeStop());
+}
+
+// ---------------------------------------------------------------------------
+// Lua
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Lua PlaySound is callable and returns a boolean", "[scripting][audio]")
+{
+	Forge::Log::Init();
+	Forge::ScriptEngine::Init();
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_lua.wav", 48000, 1.0);
+
+	std::string error;
+	const std::string code =
+		"local ok, handle = PlaySound('" + wav + "', 1.0, 1.0, false)\n"
+		"assert(type(ok) == 'boolean')\n"
+		"assert(PlaySound('', 1.0, 1.0, false) == false)\n"
+		"return true";
+
+	// Must execute without error even with no audio device: the contract is that
+	// it reports failure rather than raising.
+	REQUIRE(Forge::ScriptEngine::ExecuteString(code, &error));
+
+	Forge::ScriptEngine::Shutdown();
+}
+
+TEST_CASE("Lua entity PlaySound and StopSound are callable", "[scripting][audio]")
+{
+	Forge::Log::Init();
+	Forge::ScriptEngine::Init();
+	Forge::ScriptEngine::SetScriptDirectory(std::string(FORGE_SOURCE_DIR) + "/resources/scripts/");
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_lua_entity.wav", 48000, 1.0);
+
+	Forge::Scene scene;
+	auto entity = scene.CreateEntity("Speaker");
+	entity.AddComponent<Forge::ScriptComponent>().ClassName = "Mover";
+
+	Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+	std::string error;
+	const std::string code =
+		"local speaker = Scene:GetEntityByName('Speaker')\n"
+		"assert(speaker ~= nil)\n"
+		"assert(speaker:PlaySound('" + wav + "', 0.5, 1.0, false) ~= nil)\n"
+		"assert(speaker:HasComponent('Audio'))\n"
+		"assert(type(speaker:StopSound()) == 'boolean')\n"
+		"return true";
+
+	REQUIRE(Forge::ScriptEngine::ExecuteString(code, &error));
+
+	Forge::ScriptEngine::OnRuntimeStop();
+	Forge::ScriptEngine::Shutdown();
+}

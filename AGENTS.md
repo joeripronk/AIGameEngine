@@ -307,6 +307,37 @@ editor.Stop();
 - **Final Shader**: Final composite with SSAO overlay
 - **Shadow Shader**: Shadow map rendering
 
+## Audio System
+
+Audio is **optional**. A machine with no output device still runs the game: the
+engine logs a warning and every playback call returns false.
+
+- Decoding (`AudioEngine::LoadAudioBuffer`) is device independent, so it works
+  headless and is testable in CI.
+- Every playing sound has a stable handle, so one sound can be stopped, pitched
+  or re-volumed without touching any other.
+- `AudioSourceComponent` plays a clip, and the Scene starts, updates and stops
+  sources around playback. Authored fields are serialized; `SoundHandle` and
+  `Finished` are per-session and never written to disk.
+- A finished one-shot releases its handle rather than holding it for the session.
+- Adding the component mid-simulation starts playback, so a script that attaches
+  a source at runtime is actually heard.
+
+```cpp
+AudioEngine::SoundHandle sound = AudioEngine::InvalidSound;
+AudioEngine::PlaySound("resources/audio/jump.ogg", 1.0f, 1.0f, false, &sound);
+AudioEngine::SetSoundVolume(sound, 0.5f);
+AudioEngine::StopSound(sound);      // only this sound
+```
+
+From Lua:
+
+```lua
+local ok, handle = PlaySound("resources/audio/jump.ogg", 1.0, 1.0, false)
+entity:PlaySound("resources/audio/jump.ogg", 0.8, 1.0, false)  -- AudioSourceComponent
+entity:StopSound()
+```
+
 ## Scripting System
 
 ### Lua Integration
@@ -378,8 +409,11 @@ ScriptEngine::SetScriptNumber(entity, "Hits", 0.0);   // reset
 
 ### Available API
 
-- Globals: `GetTime()`, `Log(msg)`, `SpawnPrefab(name, x, y, z)`, `Scene`
-- Entity: `GetName/SetName`, `Get/SetPosition`, `Get/SetRotation`,
+- Globals: `GetTime()`, `Log(msg)`, `SpawnPrefab(name, x, y, z)`,
+  `PlaySound(path, volume, pitch, loop)` -> `ok, handle`,
+  `StopSound(handle)`, `Scene`
+- Entity: `PlaySound(path, volume, pitch, loop)`, `StopSound`,
+  `GetName/SetName`, `Get/SetPosition`, `Get/SetRotation`,
   `Get/SetScale`, `HasComponent`, `AddComponent`, `RemoveComponent`,
   `Get/SetFloat`, `Get/SetBool`, `Get/SetString`, `Get/SetVector3`,
   `Duplicate`, `Destroy`
@@ -388,7 +422,7 @@ ScriptEngine::SetScriptNumber(entity, "Hits", 0.0);   // reset
   (both `Scene:Method(...)` and `Scene.Method(...)` work)
 
 Component type names: `Camera`, `Script`, `Rigidbody`, `BoxCollider`,
-`SphereCollider`, `Light`, `PBRMaterial`, `Mesh`, `Transform`.
+`SphereCollider`, `Light`, `PBRMaterial`, `Mesh`, `Transform`, `Audio`.
 
 ### Native Scripting
 

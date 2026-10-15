@@ -164,7 +164,7 @@ namespace Forge {
 				"ScriptComponent", "RigidbodyComponent", "BoxColliderComponent",
 				"SphereColliderComponent", "LightComponent",
 				"PBRMaterialComponent", "MeshComponent",
-				"EnvironmentMapComponent"
+				"EnvironmentMapComponent", "AudioSourceComponent"
 			};
 
 			for (const char* component : kEntityComponents)
@@ -335,6 +335,21 @@ namespace Forge {
 			out << YAML::EndMap;
 		}
 
+		if (entity.HasComponent<AudioSourceComponent>())
+		{
+			// Only authored fields: SoundHandle and Finished are per-session state
+			// and would be meaningless (and wrong) if written to disk.
+			auto& audio = entity.GetComponent<AudioSourceComponent>();
+			out << YAML::Key << "AudioSourceComponent";
+			out << YAML::BeginMap;
+			out << YAML::Key << "SourcePath" << YAML::Value << audio.SourcePath;
+			out << YAML::Key << "Volume" << YAML::Value << audio.Volume;
+			out << YAML::Key << "Pitch" << YAML::Value << audio.Pitch;
+			out << YAML::Key << "Loop" << YAML::Value << audio.Loop;
+			out << YAML::Key << "PlayOnStart" << YAML::Value << audio.PlayOnStart;
+			out << YAML::EndMap;
+		}
+
 		out << YAML::EndMap; // Entity
 	}
 
@@ -476,6 +491,17 @@ namespace Forge {
 		{
 			deserializedEntity.AddComponent<EnvironmentMapComponent>().Path =
 				GetString(entityNode["EnvironmentMapComponent"], "Path");
+		}
+
+		if (HasNode(entityNode, "AudioSourceComponent"))
+		{
+			auto audioNode = entityNode["AudioSourceComponent"];
+			auto& audio = deserializedEntity.AddComponent<AudioSourceComponent>();
+			audio.SourcePath = GetString(audioNode, "SourcePath");
+			audio.Volume = GetFloat(audioNode, "Volume", audio.Volume);
+			audio.Pitch = GetFloat(audioNode, "Pitch", audio.Pitch);
+			audio.Loop = GetBool(audioNode, "Loop", audio.Loop);
+			audio.PlayOnStart = GetBool(audioNode, "PlayOnStart", audio.PlayOnStart);
 		}
 	}
 

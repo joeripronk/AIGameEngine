@@ -97,6 +97,20 @@ namespace Forge {
 	private:
 		void SyncPhysicsTransforms();
 
+		// --- Audio ---
+		//
+		// Audio is optional: if no output device is available the sources are
+		// simply inert and nothing else about the simulation changes.
+
+		// Starts every AudioSourceComponent whose PlayOnStart is set.
+		void StartAudioSources();
+
+		// Releases finished one-shot sounds and tracks looping ones.
+		void UpdateAudioSources();
+
+		// Stops every sound this scene started.
+		void StopAudioSources();
+
 		// Copies TransformComponent translations into the matching physics bodies
 		// before the step. Physics otherwise only writes body -> transform, so
 		// without this a script or the editor that moves an entity during play

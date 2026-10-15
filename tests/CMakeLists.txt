@@ -24,6 +24,7 @@ target_sources(ForgeTests
         src/ScriptingTests.cpp
         src/SerializationTests.cpp
         src/ExportTests.cpp
+        src/AudioTests.cpp
 )
 
 target_link_libraries(ForgeTests

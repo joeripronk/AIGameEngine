@@ -1,5 +1,6 @@
 #include "fgpch.h"
 #include "Forge/Scripting/ScriptEngine.h"
+#include "Forge/Audio/AudioEngine.h"
 
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
@@ -203,6 +204,12 @@ namespace Forge {
 
 		bool SetComponentFloat(Entity& entity, const std::string& comp, const std::string& field, float value)
 		{
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>())
+			{
+				auto& c = entity.GetComponent<AudioSourceComponent>();
+				if (field == "Volume") { c.Volume = value; return true; }
+				if (field == "Pitch") { c.Pitch = value; return true; }
+			}
 			if (comp == "SphereCollider" && entity.HasComponent<SphereColliderComponent>())
 			{
 				auto& c = entity.GetComponent<SphereColliderComponent>();
@@ -244,12 +251,16 @@ namespace Forge {
 		{
 			if (comp == "Camera" && entity.HasComponent<CameraComponent>() && field == "Primary") { out = entity.GetComponent<CameraComponent>().Primary; return true; }
 			if (comp == "Rigidbody" && entity.HasComponent<RigidbodyComponent>() && field == "FixedRotation") { out = entity.GetComponent<RigidbodyComponent>().FixedRotation; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "Loop") { out = entity.GetComponent<AudioSourceComponent>().Loop; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "PlayOnStart") { out = entity.GetComponent<AudioSourceComponent>().PlayOnStart; return true; }
 			return false;
 		}
 
 		bool SetComponentBool(Entity& entity, const std::string& comp, const std::string& field, bool value)
 		{
 			if (comp == "Camera" && entity.HasComponent<CameraComponent>() && field == "Primary") { entity.GetComponent<CameraComponent>().Primary = value; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "Loop") { entity.GetComponent<AudioSourceComponent>().Loop = value; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "PlayOnStart") { entity.GetComponent<AudioSourceComponent>().PlayOnStart = value; return true; }
 			if (comp == "Rigidbody" && entity.HasComponent<RigidbodyComponent>() && field == "FixedRotation") { entity.GetComponent<RigidbodyComponent>().FixedRotation = value; return true; }
 			return false;
 		}
@@ -258,6 +269,8 @@ namespace Forge {
 		{
 			if (comp == "Script" && entity.HasComponent<ScriptComponent>() && field == "ClassName") { out = entity.GetComponent<ScriptComponent>().ClassName; return true; }
 			if (comp == "Mesh" && entity.HasComponent<MeshComponent>() && field == "ModelPath") { out = entity.GetComponent<MeshComponent>().ModelPath; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "Volume") { out = entity.GetComponent<AudioSourceComponent>().Volume; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "Pitch") { out = entity.GetComponent<AudioSourceComponent>().Pitch; return true; }
 			if (comp == "Tag" && field == "Tag") { out = entity.GetComponent<TagComponent>().Tag; return true; }
 			return false;
 		}
@@ -265,6 +278,7 @@ namespace Forge {
 		bool SetComponentString(Entity& entity, const std::string& comp, const std::string& field, const std::string& value)
 		{
 			if (comp == "Script" && entity.HasComponent<ScriptComponent>() && field == "ClassName") { entity.GetComponent<ScriptComponent>().ClassName = value; return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>() && field == "SourcePath") { entity.GetComponent<AudioSourceComponent>().SourcePath = value; return true; }
 			if (comp == "Mesh" && entity.HasComponent<MeshComponent>() && field == "ModelPath") { entity.GetComponent<MeshComponent>().ModelPath = value; return true; }
 			if (comp == "Tag" && field == "Tag") { entity.GetComponent<TagComponent>().Tag = value; return true; }
 			return false;
@@ -281,6 +295,7 @@ namespace Forge {
 			if (comp == "Light") return entity.HasComponent<LightComponent>();
 			if (comp == "PBRMaterial") return entity.HasComponent<PBRMaterialComponent>();
 			if (comp == "Mesh") return entity.HasComponent<MeshComponent>();
+			if (comp == "Audio") return entity.HasComponent<AudioSourceComponent>();
 			return false;
 		}
 
@@ -296,6 +311,7 @@ namespace Forge {
 			if (comp == "Light" && !entity.HasComponent<LightComponent>()) { entity.AddComponent<LightComponent>(); return true; }
 			if (comp == "PBRMaterial" && !entity.HasComponent<PBRMaterialComponent>()) { entity.AddComponent<PBRMaterialComponent>(); return true; }
 			if (comp == "Mesh" && !entity.HasComponent<MeshComponent>()) { entity.AddComponent<MeshComponent>(); return true; }
+			if (comp == "Audio" && !entity.HasComponent<AudioSourceComponent>()) { entity.AddComponent<AudioSourceComponent>(); return true; }
 			return false;
 		}
 
@@ -309,6 +325,7 @@ namespace Forge {
 			if (comp == "Light" && entity.HasComponent<LightComponent>()) { entity.RemoveComponent<LightComponent>(); return true; }
 			if (comp == "PBRMaterial" && entity.HasComponent<PBRMaterialComponent>()) { entity.RemoveComponent<PBRMaterialComponent>(); return true; }
 			if (comp == "Mesh" && entity.HasComponent<MeshComponent>()) { entity.RemoveComponent<MeshComponent>(); return true; }
+			if (comp == "Audio" && entity.HasComponent<AudioSourceComponent>()) { entity.RemoveComponent<AudioSourceComponent>(); return true; }
 			return false;
 		}
 
@@ -652,8 +669,117 @@ namespace Forge {
 			else if (comp == "Light") pushIf(scene->GetAllEntitiesWith<LightComponent>());
 			else if (comp == "PBRMaterial") pushIf(scene->GetAllEntitiesWith<PBRMaterialComponent>());
 			else if (comp == "Mesh") pushIf(scene->GetAllEntitiesWith<MeshComponent>());
+			else if (comp == "Audio") pushIf(scene->GetAllEntitiesWith<AudioSourceComponent>());
 			else if (comp == "Tag") pushIf(scene->GetAllEntitiesWith<TagComponent>());
 
+			return 1;
+		}
+
+		// PlaySound(path, volume, pitch, loop) -> boolean
+		//
+		// Returns false when no audio device is available or the path is bad, so
+		// a script can branch on it rather than assuming success.
+		int LuaPlaySound(lua_State* L)
+		{
+			const std::string path = SafeString(L, 1);
+			if (path.empty())
+			{
+				lua_pushboolean(L, 0);
+				return 1;
+			}
+
+			const float volume = (float)luaL_optnumber(L, 2, 1.0);
+			const float pitch = (float)luaL_optnumber(L, 3, 1.0);
+			const bool loop = lua_toboolean(L, 4) != 0;
+
+			AudioEngine::SoundHandle handle = AudioEngine::InvalidSound;
+			const bool started = AudioEngine::PlaySound(path, volume, pitch, loop, &handle);
+
+			lua_pushboolean(L, started ? 1 : 0);
+			// Second return value is the handle, for StopSound.
+			lua_pushnumber(L, (lua_Number)handle);
+			return 2;
+		}
+
+		// StopSound(handle) -> boolean
+		int LuaStopSound(lua_State* L)
+		{
+			const lua_Number raw = luaL_optnumber(L, 1, 0.0);
+			const AudioEngine::SoundHandle handle = (AudioEngine::SoundHandle)raw;
+
+			lua_pushboolean(L, AudioEngine::StopSound(handle) ? 1 : 0);
+			return 1;
+		}
+
+		// PlaySound attaches to an AudioSourceComponent instead of playing
+		// fire-and-forget, so the scene can reclaim it when it finishes.
+		int LuaEntity_PlaySound(lua_State* L)
+		{
+			Entity* entity = TestEntity(L, 1);
+			const std::string path = SafeString(L, 2);
+			if (!entity || !*entity)
+				return PushNilEntity(L);
+
+			const float volume = (float)luaL_optnumber(L, 3, 1.0);
+			const float pitch = (float)luaL_optnumber(L, 4, 1.0);
+			const bool loop = lua_toboolean(L, 5) != 0;
+
+			if (!entity->HasComponent<AudioSourceComponent>())
+			{
+				auto& audio = entity->AddComponent<AudioSourceComponent>();
+				audio.SourcePath = path;
+				audio.Volume = volume;
+				audio.Pitch = pitch;
+				audio.Loop = loop;
+
+				// Adding it while simulating starts playback immediately.
+				if (!AudioEngine::IsSoundPlaying(audio.SoundHandle))
+				{
+					AudioEngine::SoundHandle handle = AudioEngine::InvalidSound;
+					if (AudioEngine::PlaySound(path, volume, pitch, loop, &handle))
+						audio.SoundHandle = handle;
+				}
+
+				return PushEntity(L, *entity);
+			}
+
+			auto& audio = entity->GetComponent<AudioSourceComponent>();
+			audio.SourcePath = path;
+			audio.Volume = volume;
+			audio.Pitch = pitch;
+			audio.Loop = loop;
+
+			if (audio.SoundHandle != AudioEngine::InvalidSound)
+				(void)AudioEngine::StopSound(audio.SoundHandle);
+
+			AudioEngine::SoundHandle handle = AudioEngine::InvalidSound;
+			if (AudioEngine::PlaySound(path, volume, pitch, loop, &handle))
+				audio.SoundHandle = handle;
+
+			return PushEntity(L, *entity);
+		}
+
+		int LuaEntity_StopSound(lua_State* L)
+		{
+			Entity* entity = TestEntity(L, 1);
+			if (!entity || !*entity)
+			{
+				lua_pushboolean(L, 0);
+				return 1;
+			}
+
+			if (!entity->HasComponent<AudioSourceComponent>())
+			{
+				lua_pushboolean(L, 0);
+				return 1;
+			}
+
+			auto& audio = entity->GetComponent<AudioSourceComponent>();
+			const bool stopped = AudioEngine::StopSound(audio.SoundHandle);
+			audio.SoundHandle = AudioEngine::InvalidSound;
+			audio.Finished = true;
+
+			lua_pushboolean(L, stopped ? 1 : 0);
 			return 1;
 		}
 
@@ -734,6 +860,8 @@ namespace Forge {
 		lua_register(L, "GetTime", LuaGetTime);
 		lua_register(L, "Log", LuaLog);
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
+		lua_register(L, "PlaySound", LuaPlaySound);
+		lua_register(L, "StopSound", LuaStopSound);
 
 		// Entity metatable
 		luaL_newmetatable(L, kEntityMeta);
@@ -761,6 +889,8 @@ namespace Forge {
 			{ "SetVector3", LuaEntity_SetVector3 },
 			{ "Destroy", LuaEntity_Destroy },
 			{ "Duplicate", LuaEntity_Duplicate },
+			{ "PlaySound", LuaEntity_PlaySound },
+			{ "StopSound", LuaEntity_StopSound },
 			{ nullptr, nullptr }
 		};
 		luaL_setfuncs(L, entityMethods, 0);

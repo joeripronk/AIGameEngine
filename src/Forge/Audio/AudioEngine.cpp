@@ -8,6 +8,8 @@ namespace Forge {
 
 	ma_engine* AudioEngine::s_Engine = nullptr;
 	float AudioEngine::s_MasterVolume = 1.0f;
+	std::unordered_map<AudioEngine::SoundHandle, AudioEngine::PlayingSound> AudioEngine::s_Sounds;
+	AudioEngine::SoundHandle AudioEngine::s_NextHandle = 1; // 0 is InvalidSound
 
 	// --- AudioBuffer ------------------------------------------------------
 
@@ -45,7 +47,9 @@ namespace Forge {
 		ma_result result = ma_engine_init(&config, engine);
 		if (result != MA_SUCCESS)
 		{
-			FG_CORE_ERROR("AudioEngine: ma_engine_init failed ({0})", (int)result);
+			// The common case: no output device (CI, container, headless).
+			// Audio is optional, so this is a warning rather than an error.
+			FG_CORE_WARN("AudioEngine: no output device ({0}); running without audio", (int)result);
 			delete engine;
 			s_Engine = nullptr;
 			return false;
@@ -59,6 +63,9 @@ namespace Forge {
 
 	void AudioEngine::Shutdown()
 	{
+		// Release sounds before the engine they are attached to.
+		StopAllSounds();
+
 		if (!s_Engine)
 			return;
 
@@ -89,16 +96,24 @@ namespace Forge {
 		ma_uint64 frameCount = 0;
 		ma_decoder_get_length_in_pcm_frames(&decoder, &frameCount);
 
-		auto buffer = CreateRef<AudioBuffer>();
-		buffer->m_SourcePath = filepath;
-		buffer->m_Samples = new (std::nothrow) float[(size_t)frameCount * 2];
-
-		if (!buffer->m_Samples || frameCount == 0)
+		if (frameCount == 0)
 		{
 			ma_decoder_uninit(&decoder);
-			FG_CORE_ERROR("AudioEngine: empty/invalid audio '{0}'", filepath);
+			FG_CORE_ERROR("AudioEngine: '{0}' contains no audio frames", filepath);
 			return nullptr;
 		}
+
+		auto buffer = CreateRef<AudioBuffer>();
+		buffer->m_Samples = new (std::nothrow) float[(size_t)frameCount * 2];
+
+		if (!buffer->m_Samples)
+		{
+			ma_decoder_uninit(&decoder);
+			FG_CORE_ERROR("AudioEngine: out of memory decoding '{0}'", filepath);
+			return nullptr;
+		}
+
+		buffer->m_SourcePath = filepath;
 
 		ma_uint64 framesRead = 0;
 		result = ma_decoder_read_pcm_frames(&decoder, buffer->m_Samples, frameCount, &framesRead);
@@ -116,32 +131,190 @@ namespace Forge {
 		return buffer;
 	}
 
-	bool AudioEngine::PlayAudioBuffer(const Ref<AudioBuffer>& buffer)
+	AudioEngine::PlayingSound* AudioEngine::Find(SoundHandle handle)
 	{
-		if (!s_Engine || !buffer || buffer->GetSourcePath().empty())
+		if (handle == InvalidSound)
+			return nullptr;
+
+		auto it = s_Sounds.find(handle);
+		return it == s_Sounds.end() ? nullptr : &it->second;
+	}
+
+	bool AudioEngine::PlaySound(const std::string& filepath, float volume, float pitch, bool loop,
+		SoundHandle* outHandle)
+	{
+		if (outHandle)
+			*outHandle = InvalidSound;
+
+		if (!s_Engine)
 			return false;
 
-		ma_engine_set_volume(s_Engine, s_MasterVolume);
-		// Fire-and-forget playback; the engine streams/decodes the file itself.
-		ma_result result = ma_engine_play_sound(s_Engine, buffer->GetSourcePath().c_str(), nullptr);
-		if (result != MA_SUCCESS)
+		if (filepath.empty())
 		{
-			// Expected when no output device exists (headless / CI).
-			FG_CORE_TRACE("AudioEngine: playback unavailable ({0})", (int)result);
+			FG_CORE_WARN("AudioEngine: cannot play a sound with no path");
 			return false;
 		}
+
+		auto* sound = new (std::nothrow) ma_sound();
+		if (!sound)
+		{
+			FG_CORE_ERROR("AudioEngine: out of memory allocating sound for '{0}'", filepath);
+			return false;
+		}
+
+		ma_sound_config config = ma_sound_config_init();
+		config.pFilePath = filepath.c_str();
+		config.channelsIn = 0;   // use the engine's channel count
+		config.channelsOut = 0;  // use the engine's channel count
+		config.isLooping = loop ? 1 : 0;
+
+		// The resource manager loads asynchronously, so this returns promptly and
+		// the sound begins once the first pages are decoded.
+		ma_result result = ma_sound_init_ex(s_Engine, &config, sound);
+		if (result != MA_SUCCESS)
+		{
+			FG_CORE_WARN("AudioEngine: failed to start '{0}' ({1})", filepath, (int)result);
+			delete sound;
+			return false;
+		}
+
+		result = ma_sound_start(sound);
+		if (result != MA_SUCCESS)
+		{
+			FG_CORE_WARN("AudioEngine: failed to play '{0}' ({1})", filepath, (int)result);
+			ma_sound_uninit(sound);
+			delete sound;
+			return false;
+		}
+
+		ma_sound_set_volume(sound, (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume));
+		ma_sound_set_pitch(sound, (pitch <= 0.0f) ? 1.0f : pitch);
+		ma_sound_set_looping(sound, loop ? 1 : 0);
+
+		const SoundHandle handle = s_NextHandle++;
+		PlayingSound& entry = s_Sounds[handle];
+		entry.Sound = sound;
+		entry.SourcePath = filepath;
+
+		if (outHandle)
+			*outHandle = handle;
 
 		return true;
 	}
 
+	bool AudioEngine::StopSound(SoundHandle handle)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		ma_sound_stop(entry->Sound);
+		ma_sound_uninit(entry->Sound);
+		delete entry->Sound;
+
+		// Erasing the entry invalidates the handle, which is what lets callers
+		// detect a double stop instead of silently succeeding twice.
+		s_Sounds.erase(handle);
+		return true;
+	}
+
+	bool AudioEngine::SetSoundVolume(SoundHandle handle, float volume)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		ma_sound_set_volume(entry->Sound, (volume < 0.0f) ? 0.0f : ((volume > 1.0f) ? 1.0f : volume));
+		return true;
+	}
+
+	bool AudioEngine::SetSoundPitch(SoundHandle handle, float pitch)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		// A pitch of zero would stall the stream; treat it as "leave it alone".
+		if (pitch <= 0.0f)
+			return false;
+
+		ma_sound_set_pitch(entry->Sound, pitch);
+		return true;
+	}
+
+	bool AudioEngine::IsSoundPlaying(SoundHandle handle)
+	{
+		PlayingSound* entry = Find(handle);
+		if (!entry)
+			return false;
+
+		return ma_sound_is_playing(entry->Sound) != 0;
+	}
+
+	bool AudioEngine::IsValidSound(SoundHandle handle)
+	{
+		return Find(handle) != nullptr;
+	}
+
+	void AudioEngine::StopAllSounds()
+	{
+		// Copied handles first: StopSound mutates s_Sounds.
+		std::vector<SoundHandle> handles;
+		handles.reserve(s_Sounds.size());
+		for (const auto& [handle, entry] : s_Sounds)
+		{
+			(void)entry;
+			handles.push_back(handle);
+		}
+
+		for (SoundHandle handle : handles)
+		{
+			// Every handle came from s_Sounds, so this cannot fail; the cast
+			// records that the result is intentionally discarded.
+			(void)StopSound(handle);
+		}
+	}
+
+	uint32_t AudioEngine::GetActiveSoundCount()
+	{
+		return static_cast<uint32_t>(s_Sounds.size());
+	}
+
+	bool AudioEngine::PlayAudioBuffer(const Ref<AudioBuffer>& buffer)
+	{
+		if (!buffer)
+			return false;
+
+		return PlaySound(buffer->GetSourcePath(), 1.0f, 1.0f, false, nullptr);
+	}
+
 	bool AudioEngine::StopAudioBuffer(const Ref<AudioBuffer>& buffer)
 	{
-		// Without a dedicated sound handle we cannot stop an individual
-		// fire-and-forget play; stopping the whole engine is the safe action.
+		(void)buffer;
+
+		// A decoded buffer carries no handle of its own, so there is nothing
+		// individual to stop. Stops only the sounds whose source path matches.
 		if (!s_Engine)
 			return false;
-		ma_engine_stop(s_Engine);
-		(void)buffer;
+
+		std::vector<SoundHandle> matches;
+		if (buffer)
+		{
+			for (const auto& [handle, entry] : s_Sounds)
+			{
+				if (entry.SourcePath == buffer->GetSourcePath())
+					matches.push_back(handle);
+			}
+		}
+
+		if (matches.empty())
+			return false;
+
+		for (SoundHandle handle : matches)
+		{
+			(void)StopSound(handle);
+		}
+
 		return true;
 	}
 

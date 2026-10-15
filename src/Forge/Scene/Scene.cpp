@@ -6,6 +6,7 @@
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
 #include "Forge/Physics/Physics.h"
+#include "Forge/Audio/AudioEngine.h"
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
@@ -78,6 +79,7 @@ namespace Forge {
 		m_IsRunning = true;
 
 		OnPhysicsStart();
+		StartAudioSources();
 
 		// Scripting: ScriptEngine loads each entity's script and calls OnCreate.
 		ScriptEngine::OnRuntimeStart(this);
@@ -87,6 +89,7 @@ namespace Forge {
 	{
 		m_IsRunning = false;
 
+		StopAudioSources();
 		OnPhysicsStop();
 
 		ScriptEngine::OnRuntimeStop();
@@ -106,6 +109,10 @@ namespace Forge {
 	{
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
+			// Reclaim finished sounds before the rest of the frame, so a one-shot
+			// that ended during the previous frame does not hold its handle.
+			UpdateAudioSources();
+
 			// Update scripts
 			{
 				// C# Entity OnUpdate
@@ -576,6 +583,75 @@ namespace Forge {
 		}
 	}
 
+	void Scene::StartAudioSources()
+	{
+		if (!AudioEngine::Init())
+		{
+			// Reported once by AudioEngine; do not treat audio as fatal.
+			FG_CORE_INFO("Scene: continuing without audio");
+			return;
+		}
+
+		auto view = m_Registry.view<AudioSourceComponent>();
+		for (auto handle : view)
+		{
+			auto& audio = view.get<AudioSourceComponent>(handle);
+
+			// An empty path is inert by design, so a half-authored entity does
+			// not spam warnings every run.
+			if (!audio.PlayOnStart || audio.SourcePath.empty())
+				continue;
+
+			AudioEngine::SoundHandle sound = AudioEngine::InvalidSound;
+			if (!AudioEngine::PlaySound(audio.SourcePath, audio.Volume, audio.Pitch, audio.Loop, &sound))
+			{
+				FG_CORE_WARN("Scene: could not start audio source '{0}'", audio.SourcePath);
+				continue;
+			}
+
+			audio.SoundHandle = sound;
+			audio.Finished = false;
+		}
+	}
+
+	void Scene::UpdateAudioSources()
+	{
+		auto view = m_Registry.view<AudioSourceComponent>();
+		for (auto handle : view)
+		{
+			auto& audio = view.get<AudioSourceComponent>(handle);
+			if (audio.SoundHandle == AudioEngine::InvalidSound)
+				continue;
+
+			if (AudioEngine::IsSoundPlaying(audio.SoundHandle))
+				continue;
+
+			// No longer playing: for a one-shot this is the natural end, so
+			// release the handle instead of holding a finished sound for the
+			// whole session.
+			if (AudioEngine::StopSound(audio.SoundHandle))
+				audio.SoundHandle = AudioEngine::InvalidSound;
+
+			audio.Finished = true;
+		}
+	}
+
+	void Scene::StopAudioSources()
+	{
+		auto view = m_Registry.view<AudioSourceComponent>();
+		for (auto handle : view)
+		{
+			auto& audio = view.get<AudioSourceComponent>(handle);
+			if (audio.SoundHandle == AudioEngine::InvalidSound)
+				continue;
+
+			// Handles came from this scene's own PlaySound calls, so this cannot
+			// fail; the cast records that.
+			(void)AudioEngine::StopSound(audio.SoundHandle);
+			audio.SoundHandle = AudioEngine::InvalidSound;
+		}
+	}
+
 	void Scene::SyncPhysicsBodiesFromTransforms()
 	{
 		for (auto& [entityHandle, body] : m_PhysicsBodies)
@@ -746,6 +822,25 @@ namespace Forge {
 	void Scene::OnComponentAdded<PBRMaterialComponent>(Entity entity, PBRMaterialComponent& component)
 	{
 		(void)entity; (void)component;
+	}
+
+	template<>
+	void Scene::OnComponentAdded<AudioSourceComponent>(Entity entity, AudioSourceComponent& component)
+	{
+		// Adding the component mid-simulation should start the sound, otherwise
+		// a script that attaches a source at runtime would never be heard.
+		if (!m_PhysicsActive || !entity)
+			return;
+
+		if (!component.PlayOnStart || component.SourcePath.empty())
+			return;
+
+		if (component.SoundHandle != AudioEngine::InvalidSound)
+			return;   // already playing
+
+		AudioEngine::SoundHandle sound = AudioEngine::InvalidSound;
+		if (AudioEngine::PlaySound(component.SourcePath, component.Volume, component.Pitch, component.Loop, &sound))
+			component.SoundHandle = sound;
 	}
 
 	template<>

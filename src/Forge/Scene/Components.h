@@ -206,4 +206,37 @@ namespace Forge {
 		EnvironmentMapComponent(const std::string& path) : Path(path) {}
 	};
 
+	// Plays a sound clip. Authored fields are serialized; the runtime fields
+	// below are rebuilt by the Scene on playback and never written to disk.
+	struct AudioSourceComponent
+	{
+		// Clip to play, relative to the working directory. A source with an empty
+		// path is inert rather than an error, so a half-finished entity still
+		// simulates.
+		std::string SourcePath;
+
+		float Volume = 1.0f;
+		float Pitch = 1.0f;
+
+		// Looping sounds keep playing until stopped; one-shot sounds finish and
+		// are then reclaimed.
+		bool Loop = false;
+
+		// Start playing automatically when playback begins.
+		bool PlayOnStart = true;
+
+		// --- Runtime only (not serialized) ---
+
+		// Handle of the currently playing sound, or 0 when not playing.
+		uint64_t SoundHandle = 0;
+
+		// True once the sound has been observed to finish, so a one-shot can be
+		// detected and its handle released rather than leaking for the session.
+		bool Finished = false;
+
+		AudioSourceComponent() = default;
+		AudioSourceComponent(const AudioSourceComponent&) = default;
+		AudioSourceComponent(const std::string& path) : SourcePath(path) {}
+	};
+
 }
