@@ -67,7 +67,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (128 test cases, 1096 assertions - all passing, order-independent)
+### Tests (138 test cases, 1115 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
@@ -78,7 +78,8 @@
       verifies every component + physics + the scripting API end-to-end)
 - [x] RendererTests (null stubs)
 - [x] PhysicsTests (physics engine, collision, integration, body sleeping,
-      collision callbacks, Scene entity collision handlers)
+      collision callbacks, Scene entity collision handlers, kinematic bodies,
+      resting-contact regression)
 - [x] ScriptingTests (Lua engine, Lua collision hooks, script state inspection)
 
 ---
@@ -159,3 +160,10 @@
 | Editor viewport has no swapchain | ⚠️ Renderer backend still largely stubs; needs full pipeline + real GPU |
 | Full headless frame (device + swapchain + passes) | 🔄 Device now boots (instance+adapter+queue+nvrhi); passes pending shader compilation |
 | Runtime launched the Lua REPL instead of the engine | ✅ Fixed - lua.c removed, cross-platform entry point |
+| Physics collision normal was inverted | ✅ Fixed - overlapping bodies were pushed together, so boxes sank through the ground |
+| Impulse solver skipped approaching pairs | ✅ Fixed - resting bodies accumulated velocity without bound and never came to rest |
+| Positional correction split 50/50 | ✅ Fixed - now weighted by inverse mass so an immovable partner absorbs none |
+| Friction impulse was unclamped | ✅ Fixed - clamped by the normal impulse so it cannot reverse tangential motion |
+| `BodyType::Kinematic` was unimplemented | ✅ Fixed - treated as static; now drives by velocity with infinite mass |
+| `PhysicsBody::SleepTime` uninitialised in component ctors | ✅ Fixed - bodies began with garbage sleep time |
+| Test suite was order-dependent | ✅ Fixed - tests leaking the global script/prefab directories now restore them |

@@ -125,7 +125,14 @@ namespace Forge {
 		static std::unordered_map<PhysicsBody*, CollisionCallback> s_CollisionCallbacks;
 	};
 
-	// Represents a physics body in the simulation
+	// Represents a physics body in the simulation.
+	//
+	// A body is exactly one of:
+	//   Static    - never moves; infinite mass; no collision response on it.
+	//   Kinematic  - moved only by its own Velocity, ignores forces and gravity,
+	//               has infinite mass so dynamic bodies collide with it without
+	//               pushing it. Use for platforms, elevators and moving hazards.
+	//   Dynamic   - fully simulated: gravity, forces, collision response.
 	struct PhysicsBody
 	{
 		uint64_t ID;
@@ -139,6 +146,7 @@ namespace Forge {
 		float Restitution;
 		float Friction;
 		bool IsStatic;
+		bool IsKinematic;
 		bool FixedRotation;
 		bool IsSleeping;
 		float SleepTime; // Accumulated sleep time (seconds)

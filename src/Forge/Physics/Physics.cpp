@@ -22,7 +22,7 @@ namespace Forge {
 	// PhysicsBody implementation
 	PhysicsBody::PhysicsBody()
 		: ID(0), Mass(0.0f), InverseMass(0.0f), Restitution(0.0f), Friction(0.5f),
-		  IsStatic(true), FixedRotation(false), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
+		  IsStatic(true), IsKinematic(false), FixedRotation(false), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
 	{
 		Position = glm::vec3(0.0f);
 		Velocity = glm::vec3(0.0f);
@@ -36,7 +36,7 @@ namespace Forge {
 
 	PhysicsBody::PhysicsBody(uint64_t id)
 		: ID(id), Mass(0.0f), InverseMass(0.0f), Restitution(0.0f), Friction(0.5f),
-		  IsStatic(true), FixedRotation(false), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
+		  IsStatic(true), IsKinematic(false), FixedRotation(false), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
 	{
 		Position = glm::vec3(0.0f);
 		Velocity = glm::vec3(0.0f);
@@ -52,6 +52,7 @@ namespace Forge {
 		: ID(id), Mass(collider.Density * collider.Size.x * collider.Size.y * collider.Size.z),
 		  InverseMass(0.0f), Restitution(collider.Restitution), Friction(collider.Friction),
 		  IsStatic(rb.Type == RigidbodyComponent::BodyType::Static),
+		  IsKinematic(rb.Type == RigidbodyComponent::BodyType::Kinematic),
 		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
 	{
 		BoxSize = collider.Size;
@@ -63,7 +64,9 @@ namespace Forge {
 		AngularAcceleration = glm::vec3(0.0f);
 		Position = glm::vec3(0.0f);
 
-		if (IsStatic)
+		// Kinematic bodies behave as if infinitely massive so dynamic bodies
+		// collide with them without pushing them.
+		if (IsStatic || IsKinematic)
 		{
 			InverseMass = 0.0f;
 		}
@@ -77,6 +80,7 @@ namespace Forge {
 		: ID(id), Mass(collider.Density * (4.0f / 3.0f) * 3.14159f * collider.Radius * collider.Radius * collider.Radius),
 		  InverseMass(0.0f), Restitution(collider.Restitution), Friction(collider.Friction),
 		  IsStatic(rb.Type == RigidbodyComponent::BodyType::Static),
+		  IsKinematic(rb.Type == RigidbodyComponent::BodyType::Kinematic),
 		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Sphere)
 	{
 		BoxSize = glm::vec3(0.0f);
@@ -88,7 +92,9 @@ namespace Forge {
 		AngularAcceleration = glm::vec3(0.0f);
 		Position = glm::vec3(0.0f);
 
-		if (IsStatic)
+		// Kinematic bodies behave as if infinitely massive so dynamic bodies
+		// collide with them without pushing them.
+		if (IsStatic || IsKinematic)
 		{
 			InverseMass = 0.0f;
 		}
@@ -237,10 +243,11 @@ namespace Forge {
 		if (s_Bodies.empty())
 			return;
 
-		// Apply gravity to dynamic bodies (skip sleeping bodies)
+		// Apply gravity to dynamic bodies. Static and kinematic bodies ignore it, and
+		// sleeping bodies are not simulated at all.
 		for (auto* body : s_Bodies)
 		{
-			if (!body->IsStatic && !body->IsSleeping)
+			if (!body->IsStatic && !body->IsKinematic && !body->IsSleeping)
 			{
 				body->Velocity.y += s_Gravity.y * timestep;
 			}
@@ -285,7 +292,19 @@ namespace Forge {
 	{
 		for (auto* body : s_Bodies)
 		{
-			if (body->IsStatic)
+			// A kinematic body advances purely from its own velocity: it ignores
+			// acceleration and cannot be pushed by a collision.
+			if (body->IsKinematic)
+			{
+				if (!body->IsSleeping)
+				{
+					body->Position += body->Velocity * timestep;
+					body->Velocity = glm::vec3(0.0f);
+				}
+				continue;
+			}
+
+			if (body->IsStatic || body->IsSleeping)
 				continue;
 
 			// Update velocity
@@ -321,7 +340,8 @@ namespace Forge {
 				PhysicsBody* bodyA = s_Bodies[i];
 				PhysicsBody* bodyB = s_Bodies[j];
 
-				// Skip if both are static
+				// Skip if neither body can be pushed by a collision: a static/static
+				// pair can never move, so resolving it would be wasted work.
 				if (bodyA->IsStatic && bodyB->IsStatic)
 					continue;
 
@@ -460,38 +480,51 @@ namespace Forge {
 						overlapAxis = 2;
 					}
 
-					// Determine collision normal
+					// Collision normal, pointing from A towards B along the axis of least
+					// overlap. If A's extent starts below B's on this axis, B is the
+					// one that must be pushed up, so the normal is +axis.
 					glm::vec3 normal = glm::vec3(0.0f);
 					if (overlapAxis == 0)
 					{
-						normal = (minA.x < minB.x) ? glm::vec3(-1.0f, 0.0f, 0.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+						normal = (minA.x < minB.x) ? glm::vec3(1.0f, 0.0f, 0.0f) : glm::vec3(-1.0f, 0.0f, 0.0f);
 					}
 					else if (overlapAxis == 1)
 					{
-						normal = (minA.y < minB.y) ? glm::vec3(0.0f, -1.0f, 0.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+						normal = (minA.y < minB.y) ? glm::vec3(0.0f, 1.0f, 0.0f) : glm::vec3(0.0f, -1.0f, 0.0f);
 					}
 					else
 					{
-						normal = (minA.z < minB.z) ? glm::vec3(0.0f, 0.0f, -1.0f) : glm::vec3(0.0f, 0.0f, 1.0f);
+						normal = (minA.z < minB.z) ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 0.0f, -1.0f);
 					}
 
-					// Resolve position (positional correction)
-					float correction = minOverlap + 0.01f; // Small epsilon to prevent sinking
-					if (!bodyA->IsStatic)
+					// Resolve position (positional correction), weighted by inverse mass so an
+					// immovable partner (static or kinematic) absorbs none of the
+					// correction and the movable body takes all of it. A naive
+					// 50/50 split would let a kinematic platform sink into the
+					// dynamic body that rests on it.
+					const float totalInverseMass = bodyA->InverseMass + bodyB->InverseMass;
+					if (totalInverseMass > 0.0f)
 					{
-						bodyA->Position -= normal * correction * 0.5f;
-					}
-					if (!bodyB->IsStatic)
-					{
-						bodyB->Position += normal * correction * 0.5f;
+						const float correction = minOverlap + 0.01f; // Small epsilon to prevent sinking
+						const glm::vec3 separation = normal * correction;
+
+						bodyA->Position -= separation * (bodyA->InverseMass / totalInverseMass);
+						bodyB->Position += separation * (bodyB->InverseMass / totalInverseMass);
 					}
 
-					// Resolve velocity (impulse-based)
+					// Resolve velocity (impulse-based). A kinematic body participates here: its
+					// velocity is what carries the platform, so a dynamic body
+					// landing on it inherits the platform's motion.
+					//
+					// `normal` points from A towards B, so B approaching A means
+					// (vA - vB) projects positively onto it. A negative projection
+					// therefore means the pair is already separating and an
+					// impulse would only add energy.
 					glm::vec3 relativeVelocity = bodyA->Velocity - bodyB->Velocity;
-					float velocityAlongNormal = glm::dot(relativeVelocity, normal);
+					const float velocityAlongNormal = glm::dot(relativeVelocity, normal);
 
-					// Only resolve if bodies are moving toward each other
-					if (velocityAlongNormal > 0.0f)
+					// Separating already: nothing to cancel.
+					if (velocityAlongNormal < 0.0f)
 						continue;
 
 					// Wake up sleeping bodies on collision
@@ -500,41 +533,36 @@ namespace Forge {
 					if (bodyB->IsSleeping)
 						bodyB->IsSleeping = false;
 
+					// Both partners immovable: nothing to impart.
+					if (totalInverseMass <= 0.0f)
+						continue;
+
 					float e = std::min(bodyA->Restitution, bodyB->Restitution);
 					float j = -(1.0f + e) * velocityAlongNormal;
-					j /= (bodyA->InverseMass + bodyB->InverseMass);
+					j /= totalInverseMass;
 
 					glm::vec3 impulse = j * normal;
 
-					if (!bodyA->IsStatic)
-					{
-						bodyA->Velocity += impulse * bodyA->InverseMass;
-					}
-					if (!bodyB->IsStatic)
-					{
-						bodyB->Velocity -= impulse * bodyB->InverseMass;
-					}
+					bodyA->Velocity += impulse * bodyA->InverseMass;
+					bodyB->Velocity -= impulse * bodyB->InverseMass;
 
-					// Apply friction
+					// Apply friction, clamped by the normal impulse so friction can never
+					// reverse the tangential motion (the classic friction bug).
 					glm::vec3 tangent = relativeVelocity - normal * velocityAlongNormal;
-					float tangentLength = glm::length(tangent);
+					const float tangentLength = glm::length(tangent);
 					if (tangentLength > 0.0f)
 					{
 						tangent = glm::normalize(tangent);
-						float friction = std::sqrt(bodyA->Friction * bodyB->Friction);
-						float jF = -glm::dot(relativeVelocity, tangent) * friction;
-						jF /= (bodyA->InverseMass + bodyB->InverseMass);
 
-						glm::vec3 frictionImpulse = jF * tangent;
+						const float frictionCoefficient = std::sqrt(bodyA->Friction * bodyB->Friction);
+						float jF = -glm::dot(relativeVelocity, tangent) * frictionCoefficient;
+						jF = std::max(jF, -j * frictionCoefficient);
+						jF /= totalInverseMass;
 
-						if (!bodyA->IsStatic)
-						{
-							bodyA->Velocity += frictionImpulse * bodyA->InverseMass;
-						}
-						if (!bodyB->IsStatic)
-						{
-							bodyB->Velocity -= frictionImpulse * bodyB->InverseMass;
-						}
+						const glm::vec3 frictionImpulse = jF * tangent;
+
+						bodyA->Velocity += frictionImpulse * bodyA->InverseMass;
+						bodyB->Velocity -= frictionImpulse * bodyB->InverseMass;
 					}
 				}
 			}
@@ -655,7 +683,9 @@ namespace Forge {
 	{
 		for (auto* body : s_Bodies)
 		{
-			if (body->IsStatic)
+			// Static and kinematic bodies never sleep. A kinematic body is driven
+			// by its velocity, so parking it would silently stop it moving.
+			if (body->IsStatic || body->IsKinematic)
 				continue;
 
 			float speed = glm::length(body->Velocity);

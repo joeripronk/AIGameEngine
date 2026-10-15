@@ -387,6 +387,22 @@ Component type names: `Camera`, `Script`, `Rigidbody`, `BoxCollider`,
 - `BoxColliderComponent`: Offset, size, density, friction, restitution
 - `SphereColliderComponent`: Offset, radius, density, friction, restitution
 
+### Body types
+
+| Type | Gravity | Collision response | Moved by |
+|------|---------|--------------------|----------|
+| `Static` | no | none (infinite mass) | nothing, unless teleported |
+| `Kinematic` | no | acts as infinite mass | its own `Velocity` |
+| `Dynamic` | yes | full impulse response | forces, gravity, contacts |
+
+A kinematic body is the right choice for moving platforms, elevators and moving
+hazards: it is driven by velocity rather than forces, yet dynamic bodies collide
+with it as if it were immovable, and they inherit its motion when they land on
+it. Kinematic bodies never sleep.
+
+Positional correction is weighted by inverse mass, so when one partner is
+immovable the movable body absorbs the entire correction rather than half of it.
+
 ### Integration
 
 - Physics step runs in `OnUpdateRuntime` and `OnUpdateSimulation`

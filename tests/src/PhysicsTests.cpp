@@ -832,3 +832,312 @@ TEST_CASE("Destroying an entity mid-simulation is safe", "[physics][scene-collis
     scene.OnPhysicsStop();
     Forge::Physics::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Kinematic bodies
+// ---------------------------------------------------------------------------
+
+namespace {
+    Forge::PhysicsBody MakeKinematicBox(uint64_t id, const glm::vec3& size)
+    {
+        Forge::RigidbodyComponent rb;
+        rb.Type = Forge::RigidbodyComponent::BodyType::Kinematic;
+
+        Forge::BoxColliderComponent bc;
+        bc.Size = size;
+        bc.Density = 1.0f;
+
+        Forge::PhysicsBody body(id, rb, bc, Forge::Physics::GetGravityY());
+        return body;
+    }
+}
+
+TEST_CASE("Kinematic body is flagged and has infinite mass", "[physics][kinematic]")
+{
+    Forge::Physics::Init();
+
+    auto body = MakeKinematicBox(1, glm::vec3(1.0f));
+
+    REQUIRE(body.IsStatic == false);
+    REQUIRE(body.IsKinematic == true);
+    REQUIRE(body.InverseMass == Approx(0.0f));
+}
+
+TEST_CASE("Kinematic body ignores gravity", "[physics][kinematic]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(-9.81f);
+
+    auto* body = new Forge::PhysicsBody(3, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, Forge::Physics::GetGravityY());
+    body->IsStatic = false;
+    body->IsKinematic = true;
+    body->Position = glm::vec3(0.0f);
+    body->Velocity = glm::vec3(0.0f);
+    Forge::Physics::AddBody(body);
+
+    for (int i = 0; i < 10; i++)
+        Forge::Physics::Update(0.016f);
+
+    REQUIRE(body->Velocity == glm::vec3(0.0f));
+    REQUIRE(body->Position == glm::vec3(0.0f));
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Kinematic body advances by its velocity", "[physics][kinematic]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* body = new Forge::PhysicsBody(3, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    body->IsStatic = false;
+    body->IsKinematic = true;
+    body->Position = glm::vec3(0.0f);
+    body->Velocity = glm::vec3(2.0f, 0.0f, 0.0f);
+    Forge::Physics::AddBody(body);
+
+    Forge::Physics::Update(1.0f);
+
+    REQUIRE(body->Position.x == Approx(2.0f));
+
+    // Velocity is consumed by the step, so the body does not run away.
+    REQUIRE(body->Velocity == glm::vec3(0.0f));
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Kinematic body is not pushed by a dynamic body", "[physics][kinematic]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* platform = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    platform->IsStatic = false;
+    platform->IsKinematic = true;
+    platform->InverseMass = 0.0f;
+    platform->Position = glm::vec3(0.0f);
+    platform->BoxSize = glm::vec3(10.0f, 1.0f, 10.0f);
+
+    auto* crate = new Forge::PhysicsBody(2, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    crate->IsStatic = false;
+    crate->InverseMass = 1.0f;
+    crate->Position = glm::vec3(0.0f, 0.6f, 0.0f);
+    crate->BoxSize = glm::vec3(1.0f);
+
+    Forge::Physics::AddBody(platform);
+    Forge::Physics::AddBody(crate);
+
+    const glm::vec3 platformStart = platform->Position;
+
+    Forge::Physics::Update(0.016f);
+
+    // The platform must not move at all; the crate absorbs the whole correction.
+    REQUIRE(platform->Position == platformStart);
+    REQUIRE(crate->Position.y > 0.6f);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Positional correction is weighted by inverse mass", "[physics][collision]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    // A heavy box and a light box overlapping: the light one must move roughly
+    // twice as far as the heavy one (inverse mass 1 vs 0.5).
+    auto heavy = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    heavy->IsStatic = false;
+    heavy->Mass = 2.0f;
+    heavy->InverseMass = 0.5f;
+    heavy->Position = glm::vec3(0.0f);
+    heavy->BoxSize = glm::vec3(1.0f);
+
+    auto light = new Forge::PhysicsBody(2, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    light->IsStatic = false;
+    light->Mass = 1.0f;
+    light->InverseMass = 1.0f;
+    light->Position = glm::vec3(0.9f, 0.0f, 0.0f);
+    light->BoxSize = glm::vec3(1.0f);
+
+    Forge::Physics::AddBody(heavy);
+    Forge::Physics::AddBody(light);
+
+    Forge::Physics::Update(0.016f);
+
+    // The light box is displaced twice as far as the heavy one.
+    const float lightDisplacement = std::abs(light->Position.x - 0.9f);
+    const float heavyDisplacement = std::abs(heavy->Position.x - 0.0f);
+
+    REQUIRE(lightDisplacement > heavyDisplacement);
+    REQUIRE(lightDisplacement == Approx(heavyDisplacement * 2.0f).margin(0.001f));
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Kinematic body never sleeps", "[physics][kinematic][sleep]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::Physics::SetSleepTimeThreshold(0.01f);
+
+    auto* body = new Forge::PhysicsBody(3, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    body->IsStatic = false;
+    body->IsKinematic = true;
+    body->Position = glm::vec3(0.0f);
+    Forge::Physics::AddBody(body);
+
+    for (int i = 0; i < 20; i++)
+        Forge::Physics::Update(0.016f);
+
+    REQUIRE(body->IsSleeping == false);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Kinematic body reports contacts like a static one", "[physics][kinematic][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto platform = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    platform->IsStatic = false;
+    platform->IsKinematic = true;
+    platform->InverseMass = 0.0f;
+    platform->Position = glm::vec3(0.0f);
+    platform->BoxSize = glm::vec3(10.0f, 1.0f, 10.0f);
+    Forge::Physics::AddBody(platform);
+
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::SetCollisionCallback(ball, OnContactA);
+
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Enters == 0);
+
+    ball->Position = glm::vec3(0.0f, 0.6f, 0.0f);
+    Forge::Physics::Update(0.016f);
+
+    // A kinematic/static pair still counts as a contact for the dynamic side.
+    REQUIRE(g_ContactLogA.Enters == 1);
+
+    Forge::Physics::Shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Resting contact regression
+//
+// These cover a bug where the collision normal was inverted, so overlapping
+// bodies were pushed further into each other instead of apart: a box dropped
+// on the ground sank through it.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A box dropped on the ground settles on top of it", "[physics][resting]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(-9.81f);
+
+    auto* ground = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    ground->IsStatic = true;
+    ground->Position = glm::vec3(0.0f);
+    ground->BoxSize = glm::vec3(20.0f, 1.0f, 20.0f);
+
+    auto* box = new Forge::PhysicsBody(2, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    box->IsStatic = false;
+    box->Mass = 1.0f;
+    box->InverseMass = 1.0f;
+    box->Position = glm::vec3(0.0f, 3.0f, 0.0f);
+    box->BoxSize = glm::vec3(1.0f);
+
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(box);
+
+    // Simulate a couple of seconds of falling.
+    for (int i = 0; i < 120; i++)
+        Forge::Physics::Update(1.0f / 60.0f);
+
+    // Ground surface is at y = 0.5; a unit box resting on it has its centre
+    // at y = 1.0 and must never sink below the surface.
+    REQUIRE(box->Position.y > 0.5f);
+    REQUIRE(box->Position.y < 1.2f);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("A box dropped on the ground stops falling", "[physics][resting]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(-9.81f);
+
+    auto* ground = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    ground->IsStatic = true;
+    ground->Position = glm::vec3(0.0f);
+    ground->BoxSize = glm::vec3(20.0f, 1.0f, 20.0f);
+
+    auto* box = new Forge::PhysicsBody(2, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    box->IsStatic = false;
+    box->Mass = 1.0f;
+    box->InverseMass = 1.0f;
+    box->Position = glm::vec3(0.0f, 3.0f, 0.0f);
+    box->BoxSize = glm::vec3(1.0f);
+    box->Restitution = 0.0f;
+
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(box);
+
+    for (int i = 0; i < 240; i++)
+        Forge::Physics::Update(1.0f / 60.0f);
+
+    // Given time, the box must have come to rest rather than accumulating speed.
+    REQUIRE(box->Position.y > 0.5f);
+    REQUIRE(std::abs(box->Velocity.y) < 1.0f);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Overlapping bodies are pushed apart, not together", "[physics][resting]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* a = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    a->IsStatic = false;
+    a->Mass = 1.0f;
+    a->InverseMass = 1.0f;
+    a->Position = glm::vec3(0.0f);
+    a->BoxSize = glm::vec3(1.0f);
+
+    auto* b = new Forge::PhysicsBody(2, Forge::RigidbodyComponent{},
+        Forge::BoxColliderComponent{}, 0.0f);
+    b->IsStatic = false;
+    b->Mass = 1.0f;
+    b->InverseMass = 1.0f;
+    // Overlapping A by 0.4 along x.
+    b->Position = glm::vec3(0.6f, 0.0f, 0.0f);
+    b->BoxSize = glm::vec3(1.0f);
+
+    Forge::Physics::AddBody(a);
+    Forge::Physics::AddBody(b);
+
+    const float initialSeparation = b->Position.x - a->Position.x;
+
+    Forge::Physics::Update(0.016f);
+
+    // The overlap must shrink, not grow.
+    REQUIRE(b->Position.x - a->Position.x > initialSeparation);
+
+    Forge::Physics::Shutdown();
+}
