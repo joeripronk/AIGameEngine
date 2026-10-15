@@ -6,13 +6,22 @@ on:
   pull_request:
     branches: [main]
 
+# Every job builds all three configurations. Debug alone hides real problems:
+# assertions and the debugbreak trap were compiled into every build because
+# FG_DEBUG was defined unconditionally, so a shipped game trapped with SIGTRAP
+# on an assertion failure. Release and Dist also catch optimisation- and
+# NDEBUG-sensitive undefined behaviour that Debug papers over.
 env:
-  CMAKE_BUILD_TYPE: Debug
+  BUILD_TYPES: Debug,Release,Dist
 
 jobs:
   linux:
-    name: Linux (Ubuntu 24.04)
+    name: Linux (Ubuntu 24.04, ${{ matrix.build_type }})
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release, Dist]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -28,7 +37,7 @@ jobs:
           ninja-build
 
     - name: Configure
-      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
     - name: Build
       run: cmake --build build -j$(nproc)
@@ -37,8 +46,12 @@ jobs:
       run: ctest --test-dir build --output-on-failure
 
   windows:
-    name: Windows (MSVC)
+    name: Windows (MSVC, ${{ matrix.build_type }})
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release, Dist]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -49,18 +62,27 @@ jobs:
       run: |
         choco install vulkan-sdk -y --no-progress
 
+    # Visual Studio is a multi-config generator: the configuration is selected at
+    # build time with --config, and Dist has to be declared up front or CMake
+    # rejects it as an unknown configuration.
     - name: Configure
-      run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+      run: >
+        cmake -S . -B build
+        -DCMAKE_CONFIGURATION_TYPES="${{ env.BUILD_TYPES }}"
 
     - name: Build
-      run: cmake --build build --config ${{ env.CMAKE_BUILD_TYPE }}
+      run: cmake --build build --config ${{ matrix.build_type }}
 
     - name: Run tests
-      run: ctest --test-dir build -C ${{ env.CMAKE_BUILD_TYPE }} --output-on-failure
+      run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
 
   macos:
-    name: macOS (Apple Clang)
+    name: macOS (Apple Clang, ${{ matrix.build_type }})
     runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release, Dist]
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -68,10 +90,61 @@ jobs:
         submodules: recursive
 
     - name: Configure
-      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }}
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
     - name: Build
       run: cmake --build build -j$(sysctl -n hw.ncpu)
 
     - name: Run tests
       run: ctest --test-dir build --output-on-failure
+
+  # The shipping configuration has to keep working, not just compile.
+  deploy-dist:
+    name: Distribution package (Linux)
+    runs-on: ubuntu-24.04
+    needs: linux
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          cmake \
+          ninja-build
+
+    - name: Configure (Dist)
+      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Dist
+
+    - name: Build
+      run: cmake --build build -j$(nproc)
+
+    - name: Run tests
+      run: ctest --test-dir build --output-on-failure
+
+    - name: Package
+      run: tools/deploy.sh Dist
+
+    # deploy.sh writes the archive into build/deploy/, not the repo root.
+    - name: Verify the package
+      run: |
+        set -euo pipefail
+        archive=$(ls -1 build/deploy/ForgeRuntime-linux-Dist-*.tar.gz)
+        echo "Package: $archive"
+        mkdir -p /tmp/pkg
+        tar -xzf "$archive" -C /tmp/pkg
+        test -x /tmp/pkg/linux-Dist/ForgeRuntime
+        test -d /tmp/pkg/linux-Dist/resources
+        test -d /tmp/pkg/linux-Dist/resources/scenes
+        test -d /tmp/pkg/linux-Dist/resources/shaders
+        test -f /tmp/pkg/linux-Dist/README.txt
+        echo "Package contents verified."
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: forge-dist-linux
+        path: build/deploy/ForgeRuntime-linux-Dist-*.tar.gz

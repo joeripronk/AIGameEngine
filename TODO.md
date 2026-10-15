@@ -67,7 +67,8 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (263 test cases, 1938 assertions - all passing, order-independent)
+### Tests (295 test cases, 2063 assertions - all passing, order-independent
+across Debug/Release/Dist, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
@@ -157,7 +158,8 @@
 - [x] Game export (package runtime + scene + resources) - via GameExporter
 - [x] Windows support (CMake fixes, CI on windows-2022 with Vulkan SDK)
 - [x] macOS support (CMake fixes, CI on macos-14)
-- [ ] Installer/deployment scripts
+- [x] Installer/deployment scripts (tools/deploy.sh, tools/deploy.ps1)
+- [x] Release and Dist configurations built and tested in CI on all 3 platforms
 - [x] CI/CD pipeline (Linux, Windows, macOS - Debug builds + tests)
 
 ---
@@ -203,4 +205,7 @@
 | Editor UI ignored scene-open failures | ✅ Fixed - opening a scene now reports success or failure |
 | Screenshot capture failure was silent | ✅ Fixed - `FG_CAPTURE_PATH` capture failures are logged |
 | `AudioEngine` was never called by either app | ✅ Fixed - `AudioSourceComponent` + Scene lifecycle + Lua `PlaySound`/`StopSound` |
+| `FG_DEBUG` was defined in every configuration | ✅ Fixed - asserts and the SIGTRAP debugbreak were compiled into the shipping build; `FG_DEBUG` now follows the configuration and asserts are genuinely compiled out |
+| `Dist` had no optimisation flags | ✅ Fixed - CMake has no built-in `Dist`, so its flags were empty and the shipping binary was larger than Release |
+| `ForgeRuntimeDist` collided with `ForgeRuntime` | ✅ Fixed - both wrote to `bin/ForgeRuntime` with identical sources; removed, since a static library keeps its own configuration anyway |
 | `SetSoundVolume` was reverted by the next frame | ✅ Fixed - the authored volume is the single source of truth; both the setter and the per-frame spatial recompute compose gain through `ComputeEffectiveGain` |

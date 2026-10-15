@@ -24,6 +24,14 @@ namespace Forge {
 
 		static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
 		static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
+
+		// The level the loggers were initialised at.
+		//
+		// A shipping build raises this to warn: trace-level logging that flushes
+		// on every message is both a large I/O cost and console spew the player
+		// should not be reading. Warnings and errors still get through, which is
+		// what a shipped game actually needs.
+		[[nodiscard]] static spdlog::level::level_enum GetLogLevel();
 	private:
 		static Ref<spdlog::logger> s_CoreLogger;
 		static Ref<spdlog::logger> s_ClientLogger;
@@ -57,9 +65,25 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 #define FG_CORE_CRITICAL(...) (::Forge::Log::GetCoreLogger() ? ::Forge::Log::GetCoreLogger()->critical(__VA_ARGS__) : (void)0)
 
 // Assert macros
-#define FG_ASSERT(x, ...) do { if(!(x)) { FG_CORE_ERROR(__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
-#define FG_CORE_ASSERT(x) do { if(!(x)) { FG_CORE_ERROR("Assertion failed: " #x); FG_DEBUGBREAK(); } } while(0)
-#define FG_CORE_ASSERT_MSG(x, msg, ...) do { if(!(x)) { FG_CORE_ERROR(msg, ##__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
+//
+// These are a debug facility, gated on FG_ENABLE_ASSERTS (which Base.h derives
+// from FG_DEBUG). Defining them unconditionally meant a shipped build still
+// evaluated every invariant and logged it, so BuildConfig::AreAssertsEnabled
+// would have been reporting on a macro definition rather than on behaviour.
+//
+// The condition is not evaluated when asserts are off, so a variable used only
+// inside an assert can become unused in a shipping build. Declare it
+// [[maybe_unused]] if that happens - with -Werror it is a build break rather
+// than a silent problem.
+#ifdef FG_ENABLE_ASSERTS
+	#define FG_ASSERT(x, ...) do { if(!(x)) { FG_CORE_ERROR(__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
+	#define FG_CORE_ASSERT(x) do { if(!(x)) { FG_CORE_ERROR("Assertion failed: " #x); FG_DEBUGBREAK(); } } while(0)
+	#define FG_CORE_ASSERT_MSG(x, msg, ...) do { if(!(x)) { FG_CORE_ERROR(msg, ##__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
+#else
+	#define FG_ASSERT(...) ((void)0)
+	#define FG_CORE_ASSERT(...) ((void)0)
+	#define FG_CORE_ASSERT_MSG(...) ((void)0)
+#endif
 
 // Client log macros
 #define FG_TRACE(...)         ::Forge::Log::GetClientLogger()->trace(__VA_ARGS__)

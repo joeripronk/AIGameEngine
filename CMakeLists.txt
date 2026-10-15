@@ -46,9 +46,45 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-# Debug/Release configurations
+# Build configuration
+#
+# Single-config generators (Makefiles, Ninja) need a type up front. Leaving it
+# empty used to compile no configuration macro at all, which silently disabled
+# assertions in the default local build; defaulting to Debug keeps the
+# development loop honest.
+get_property(FG_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT FG_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+    message(STATUS "CMAKE_BUILD_TYPE was unset; defaulting to Debug")
+endif()
+
+# Dist is the shipping configuration. CMake has no built-in Dist, so without
+# this its flags are empty and the build gets no optimisation at all - which
+# made the shipping binary *larger* than an ordinary Release build. Dist is
+# Release's optimisation plus NDEBUG; the behavioural difference (log level) is
+# handled by FG_DIST below.
+if(FG_MULTI_CONFIG)
+    # Multi-config generators (Visual Studio, Xcode) need Dist declared
+    # alongside the built-in configurations, or it is rejected outright.
+    string(REPLACE ";" ";" CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES};Dist"
+        CACHE STRING "Configurations" FORCE)
+
+    if(MSVC)
+        set(CMAKE_CXX_FLAGS_DIST "/O2 /Ob2 /DNDEBUG")
+    else()
+        # Xcode and other multi-config generators use the GCC/Clang spelling.
+        set(CMAKE_CXX_FLAGS_DIST "-O2 -DNDEBUG")
+    endif()
+else()
+    set(CMAKE_CXX_FLAGS_DIST "-O2 -DNDEBUG")
+endif()
+
+# FG_DEBUG gates FG_ENABLE_ASSERTS and the debugbreak trap, so it must follow
+# the actual configuration. Defining it unconditionally made every build trap
+# with SIGTRAP on an assertion failure - including the one that ships, where it
+# took the game down with no diagnostic instead of logging and continuing.
 add_compile_definitions(
-    FG_DEBUG
+    $<$<CONFIG:Debug>:FG_DEBUG>
     $<$<CONFIG:Release>:FG_RELEASE>
     $<$<CONFIG:Dist>:FG_DIST>
 )

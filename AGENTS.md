@@ -307,6 +307,59 @@ editor.Stop();
 - **Final Shader**: Final composite with SSAO overlay
 - **Shadow Shader**: Shadow map rendering
 
+## Build Configurations
+
+Three configurations, all of which must build and pass the full suite:
+
+| Config | Asserts | Debugbreak | Log level | Optimisation | Binary |
+|--------|---------|------------|-----------|--------------|--------|
+| `Debug` | on | SIGTRAP / `__debugbreak` | trace | none | ~159 MB |
+| `Release` | off | — | trace | `-O2` | ~17 MB |
+| `Dist` | off | — | warn | `-O2 -DNDEBUG` | ~16 MB |
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Dist   # shipping
+tools/deploy.sh Dist
+```
+
+`FG_DEBUG` is defined **only** for `Debug`. This is the whole point: defining it
+unconditionally put `FG_ENABLE_ASSERTS` and a `raise(SIGTRAP)` debugbreak into
+every build, so a shipped game took SIGTRAP on an assertion failure — no log
+line, no diagnostic, just a crash. `FG_ASSERT` / `FG_CORE_ASSERT` are gated on
+`FG_ENABLE_ASSERTS` and genuinely compiled out, not merely made non-trapping, so
+the reported state matches the behaviour.
+
+Because the condition is not evaluated when asserts are off, a variable used
+only inside an assert becomes unused in a shipping build. Mark it
+`[[maybe_unused]]`; with `-Werror` that is a build break rather than a silent
+problem.
+
+`Dist` is declared explicitly with optimisation flags. CMake has no built-in
+`Dist`, so its flags default to empty — which made the *shipping* binary larger
+than an ordinary Release build.
+
+The configuration is a queryable fact rather than a macro you have to trust:
+
+```cpp
+Forge::GetBuildConfigurationName();   // "Debug" / "Release" / "Dist"
+Forge::AreAssertsEnabled();
+Forge::DoesAssertTrap();
+Forge::IsDistributionBuild();
+Forge::Log::GetLogLevel();
+```
+
+All of it is covered by `BuildConfigTests`, which runs identically in every
+configuration and asserts whichever branch applies.
+
+### One runtime target, not two
+
+The shipping executable is `ForgeRuntime` built with `-DCMAKE_BUILD_TYPE=Dist`.
+There is no separate `ForgeRuntimeDist` target: the Dist behaviour lives in
+`ForgeCore`, and a static library keeps the configuration it was compiled with,
+so an executable target cannot switch it on. The old `ForgeRuntimeDist` had
+identical sources and libraries and the same `OUTPUT_NAME`, so both wrote to
+`bin/ForgeRuntime` — whichever linked last silently won.
+
 ## Audio System
 
 Audio is **optional**. A machine with no output device still runs the game: the
