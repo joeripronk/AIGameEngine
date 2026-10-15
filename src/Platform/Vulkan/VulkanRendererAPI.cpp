@@ -966,7 +966,7 @@ namespace Forge {
 			samplerDesc.setMipFilter(true);
 			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
 			nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
-			if (!ssaoSampler)
+			if (!ssaoSampler.Get())
 			{
 				FG_CORE_WARN("SSAO: failed to create sampler");
 				return;
@@ -979,7 +979,7 @@ namespace Forge {
 			ssaoSetDesc.bindings.push_back(ssaoSamplerItem);
 		}
 
-		if (s_SSAOUniformBuffer)
+		if (s_SSAOUniformBuffer.Get())
 			ssaoSetDesc.bindings.push_back(MakeConstantBufferItem(s_SSAOUniformBuffer.Get(), 1));
 
 		nvrhi::BindingSetHandle ssaoSet = s_Device->createBindingSet(ssaoSetDesc, s_SSAOBindingLayout);
@@ -1122,16 +1122,21 @@ namespace Forge {
 			samplerDesc.setMagFilter(true);
 			samplerDesc.setMipFilter(true);
 			samplerDesc.setBorderColor(nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
-			nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
+			nvrhi::SamplerHandle finalSampler = s_Device->createSampler(samplerDesc);
+			if (!finalSampler.Get())
+			{
+				FG_CORE_WARN("Final: failed to create sampler");
+				return;
+			}
 			nvrhi::BindingSetItem ssaoSamplerItem{};
-			ssaoSamplerItem.resourceHandle = ssaoSampler.Get();
+			ssaoSamplerItem.resourceHandle = finalSampler.Get();
 			ssaoSamplerItem.slot = 1;
 			ssaoSamplerItem.type = nvrhi::ResourceType::Sampler;
 			finalSetDesc.bindings.push_back(item);
 			finalSetDesc.bindings.push_back(ssaoSamplerItem);
 		}
 
-		if (s_FinalUniformBuffer)
+		if (s_FinalUniformBuffer.Get())
 			finalSetDesc.bindings.push_back(MakeConstantBufferItem(s_FinalUniformBuffer.Get(), 2));
 
 		nvrhi::BindingSetHandle finalSet = s_Device->createBindingSet(finalSetDesc, s_FinalBindingLayout);
