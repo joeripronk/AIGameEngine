@@ -348,6 +348,10 @@ the handle stays valid and `IsSoundPlaying` stays true until the fade finishes;
 a second `StopSound` on the same handle returns false, letting callers tell
 "stopped" from "stopping".
 
+`StopAllSounds` releases outright instead of fading, because it is teardown
+(shutdown, leaving playback) and sounds must not outlive the scene that owns
+them.
+
 ### Volume has one source of truth
 
 Spatialisation recomputes gain every frame as
@@ -368,10 +372,6 @@ AudioEngine::GetSoundVolume(handle);                   // reads back the mix
 `GetSoundVolume` exists so the claim is verifiable rather than assumed: a
 volume change can be asserted to survive a frame boundary, and to compose with
 attenuation rather than replace it.
-
-`StopAllSounds` releases outright instead of fading, because it is teardown
-(shutdown, leaving playback) and sounds must not outlive the scene that owns
-them.
 
 ### Reverb
 
