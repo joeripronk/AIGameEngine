@@ -6,6 +6,9 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include <unordered_map>
+#include <vector>
+
 namespace Forge {
 
 	class Scene;
@@ -46,6 +49,51 @@ namespace Forge {
 		static float GetSleepTimeThreshold() { return s_SleepTimeThreshold; }
 		static void SetSleepTimeThreshold(float threshold) { s_SleepTimeThreshold = threshold; }
 
+		// --- Collision callbacks ---
+		//
+		// Callbacks fire once per contact pair: on the step where the contact
+		// begins (ContactPhase::Begin) and on the step where it stops
+		// (ContactPhase::End). A pair that is still touching on the next step
+		// fires neither, so Begin/End are balanced edge events rather than a
+		// per-step "still colliding" stream.
+		//
+		// Bodies with no registered callback simply do not receive events, so
+		// static geometry can stay silent while dynamic bodies react.
+		enum class ContactPhase { Begin, End };
+
+		// `normal` points from B towards A for Begin, and from A towards B for End.
+		using CollisionCallback = void (*)(PhysicsBody& a, PhysicsBody& b, const glm::vec3& normal, ContactPhase phase);
+
+		struct ContactKey
+		{
+			uint64_t A;
+			uint64_t B;
+
+			// Contact keys are stored in a hash set, so define equality and a
+			// stable hash. Bodies are always registered with A < B.
+			bool operator==(const ContactKey& other) const { return A == other.A && B == other.B; }
+		};
+
+		struct ContactKeyHash
+		{
+			size_t operator()(const ContactKey& key) const
+			{
+				// FNV-1a over the two ids.
+				size_t hash = 14695981039346656037ull;
+				hash ^= static_cast<size_t>(key.A);
+				hash *= 1099511628211ull;
+				hash ^= static_cast<size_t>(key.B);
+				hash *= 1099511628211ull;
+				return hash;
+			}
+		};
+
+		// Registers a callback for one body. Passing nullptr unregisters.
+		static void SetCollisionCallback(PhysicsBody* body, CollisionCallback callback);
+
+		// The contacts currently being resolved this step (for debugging/tests).
+		static const std::vector<ContactKey>& GetActiveContacts() { return s_ActiveContacts; }
+
 	private:
 		static void CreateBodies();
 		static void DestroyBodies();
@@ -55,11 +103,26 @@ namespace Forge {
 		static void IntegrateBodies(float timestep);
 		static void HandleSleeping(float timestep);
 
+		// Fires enter/exit callbacks for contacts that began or ended this step.
+		static void DispatchCollisionCallbacks();
+
+		// Resolves a body ID back to its live PhysicsBody, or nullptr if the body
+		// was removed from the world.
+		static PhysicsBody* FindBodyByID(uint64_t id);
+
 		static std::vector<PhysicsBody*> s_Bodies;
 		static glm::vec3 s_Gravity;
 		static int s_StepFrames;
 		static float s_SleepVelocityThreshold;
 		static float s_SleepTimeThreshold;
+
+		// Contacts that overlapped during the current step, and the contacts that
+		// overlapped during the previous step (for enter/exit detection).
+		static std::vector<ContactKey> s_ActiveContacts;
+		static std::vector<ContactKey> s_PreviousContacts;
+
+		// Per-body callback dispatch table.
+		static std::unordered_map<PhysicsBody*, CollisionCallback> s_CollisionCallbacks;
 	};
 
 	// Represents a physics body in the simulation

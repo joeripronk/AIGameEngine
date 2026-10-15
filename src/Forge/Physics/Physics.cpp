@@ -15,6 +15,9 @@ namespace Forge {
 	std::vector<PhysicsBody*> Physics::s_Bodies;
 	float Physics::s_SleepVelocityThreshold = 0.05f;
 	float Physics::s_SleepTimeThreshold = 0.5f;
+	std::vector<Physics::ContactKey> Physics::s_ActiveContacts;
+	std::vector<Physics::ContactKey> Physics::s_PreviousContacts;
+	std::unordered_map<PhysicsBody*, Physics::CollisionCallback> Physics::s_CollisionCallbacks;
 
 	// PhysicsBody implementation
 	PhysicsBody::PhysicsBody()
@@ -33,7 +36,7 @@ namespace Forge {
 
 	PhysicsBody::PhysicsBody(uint64_t id)
 		: ID(id), Mass(0.0f), InverseMass(0.0f), Restitution(0.0f), Friction(0.5f),
-		  IsStatic(true), FixedRotation(false), IsSleeping(false), Shape(ShapeType::Box)
+		  IsStatic(true), FixedRotation(false), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
 	{
 		Position = glm::vec3(0.0f);
 		Velocity = glm::vec3(0.0f);
@@ -49,7 +52,7 @@ namespace Forge {
 		: ID(id), Mass(collider.Density * collider.Size.x * collider.Size.y * collider.Size.z),
 		  InverseMass(0.0f), Restitution(collider.Restitution), Friction(collider.Friction),
 		  IsStatic(rb.Type == RigidbodyComponent::BodyType::Static),
-		  FixedRotation(rb.FixedRotation), IsSleeping(false), Shape(ShapeType::Box)
+		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
 	{
 		BoxSize = collider.Size;
 		SphereRadius = 0.0f;
@@ -74,7 +77,7 @@ namespace Forge {
 		: ID(id), Mass(collider.Density * (4.0f / 3.0f) * 3.14159f * collider.Radius * collider.Radius * collider.Radius),
 		  InverseMass(0.0f), Restitution(collider.Restitution), Friction(collider.Friction),
 		  IsStatic(rb.Type == RigidbodyComponent::BodyType::Static),
-		  FixedRotation(rb.FixedRotation), IsSleeping(false), Shape(ShapeType::Sphere)
+		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Sphere)
 	{
 		BoxSize = glm::vec3(0.0f);
 		SphereRadius = collider.Radius;
@@ -169,12 +172,16 @@ namespace Forge {
 		s_StepFrames = 0;
 		s_SleepVelocityThreshold = 0.05f;
 		s_SleepTimeThreshold = 0.5f;
+		s_ActiveContacts.clear();
+		s_PreviousContacts.clear();
+		s_CollisionCallbacks.clear();
 		FG_CORE_INFO("Physics initialized (gravity: {0} m/s²)", s_Gravity.y);
 	}
 
 	void Physics::Shutdown()
 	{
 		DestroyBodies();
+		s_CollisionCallbacks.clear();
 		FG_CORE_INFO("Physics shut down");
 	}
 
@@ -185,12 +192,27 @@ namespace Forge {
 
 	void Physics::RemoveBody(PhysicsBody* body)
 	{
+		// Drop the callback registration before the body is deleted so a stale
+		// pointer can never be dereferenced by a later dispatch.
+		s_CollisionCallbacks.erase(body);
+
 		auto it = std::find(s_Bodies.begin(), s_Bodies.end(), body);
 		if (it != s_Bodies.end())
 		{
 			delete *it;
 			s_Bodies.erase(it);
 		}
+	}
+
+	void Physics::SetCollisionCallback(PhysicsBody* body, CollisionCallback callback)
+	{
+		if (!body)
+			return;
+
+		if (callback)
+			s_CollisionCallbacks[body] = callback;
+		else
+			s_CollisionCallbacks.erase(body);
 	}
 
 	void Physics::OnSceneStart()
@@ -224,7 +246,7 @@ namespace Forge {
 			}
 		}
 
-		// Detect collisions
+		// Detect collisions (populates s_ActiveContacts)
 		DetectCollisions();
 
 		// Resolve collisions
@@ -238,6 +260,9 @@ namespace Forge {
 
 		// Handle body sleeping
 		HandleSleeping(timestep);
+
+		// Fire enter/exit callbacks for contacts that began or ended this step.
+		DispatchCollisionCallbacks();
 	}
 
 	void Physics::CreateBodies()
@@ -287,6 +312,8 @@ namespace Forge {
 
 	void Physics::DetectCollisions()
 	{
+		s_ActiveContacts.clear();
+
 		for (size_t i = 0; i < s_Bodies.size(); i++)
 		{
 			for (size_t j = i + 1; j < s_Bodies.size(); j++)
@@ -298,14 +325,96 @@ namespace Forge {
 				if (bodyA->IsStatic && bodyB->IsStatic)
 					continue;
 
-				// Check collision
-				if (bodyA->IntersectsAABB(*bodyB))
+				// Spheres use exact sphere-sphere overlap; everything else falls
+				// back to the axis-aligned box test.
+				const bool touching = bodyA->Shape == PhysicsBody::ShapeType::Sphere &&
+					bodyB->Shape == PhysicsBody::ShapeType::Sphere
+					? bodyA->IntersectsSphere(*bodyB)
+					: bodyA->IntersectsAABB(*bodyB);
+
+				if (touching)
 				{
-					// Collision detected - store for resolution
-					// For now, we'll resolve immediately in ResolveCollisions
+					// Order the pair so the key is stable regardless of body
+					// insertion order into s_Bodies.
+					ContactKey key{ bodyA->ID < bodyB->ID ? bodyA->ID : bodyB->ID,
+					                bodyA->ID < bodyB->ID ? bodyB->ID : bodyA->ID };
+					s_ActiveContacts.push_back(key);
 				}
 			}
 		}
+	}
+
+	void Physics::DispatchCollisionCallbacks()
+	{
+		// Nothing to dispatch if no body registered a callback, but the
+		// previous-step baseline still has to advance or every contact would
+		// look "new" once callbacks are registered later.
+		if (s_CollisionCallbacks.empty())
+		{
+			s_PreviousContacts = s_ActiveContacts;
+			return;
+		}
+
+		const auto wasInContact = [](const ContactKey& key)
+		{
+			return std::find(s_PreviousContacts.begin(), s_PreviousContacts.end(), key)
+				!= s_PreviousContacts.end();
+		};
+
+		const auto isInContact = [](const ContactKey& key)
+		{
+			return std::find(s_ActiveContacts.begin(), s_ActiveContacts.end(), key)
+				!= s_ActiveContacts.end();
+		};
+
+		// Deliver a callback to whichever of the two bodies registered one.
+		const auto deliver = [](uint64_t selfID, uint64_t otherID, const glm::vec3& normal, ContactPhase phase)
+		{
+			PhysicsBody* self = FindBodyByID(selfID);
+			PhysicsBody* other = FindBodyByID(otherID);
+			if (!self || !other)
+				return;
+
+			auto entry = s_CollisionCallbacks.find(self);
+			if (entry != s_CollisionCallbacks.end() && entry->second)
+				entry->second(*self, *other, normal, phase);
+		};
+
+		// Contacts that began this step: fire on both bodies' callbacks.
+		for (const ContactKey& key : s_ActiveContacts)
+		{
+			if (wasInContact(key))
+				continue;
+
+			deliver(key.A, key.B, glm::vec3(0.0f, 1.0f, 0.0f), ContactPhase::Begin);
+			deliver(key.B, key.A, glm::vec3(0.0f, -1.0f, 0.0f), ContactPhase::Begin);
+		}
+
+		// Contacts that ended this step: the normal flips so a handler can tell
+		// which body the separation pushed.
+		for (const ContactKey& key : s_PreviousContacts)
+		{
+			if (isInContact(key))
+				continue;
+
+			deliver(key.A, key.B, glm::vec3(0.0f, -1.0f, 0.0f), ContactPhase::End);
+			deliver(key.B, key.A, glm::vec3(0.0f, 1.0f, 0.0f), ContactPhase::End);
+		}
+
+		// This step's contacts become the baseline for the next step.
+		// s_ActiveContacts is intentionally left intact so callers can query
+		// the contacts resolved during the step that just completed.
+		s_PreviousContacts = s_ActiveContacts;
+	}
+
+	PhysicsBody* Physics::FindBodyByID(uint64_t id)
+	{
+		for (PhysicsBody* body : s_Bodies)
+		{
+			if (body->ID == id)
+				return body;
+		}
+		return nullptr;
 	}
 
 	void Physics::ResolveCollisions(float timestep)

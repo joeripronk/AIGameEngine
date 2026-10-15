@@ -237,3 +237,347 @@ TEST_CASE("Physics gravity integration", "[physics][integration]")
 
     Forge::Physics::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Body sleeping
+// ---------------------------------------------------------------------------
+
+namespace {
+    // Builds a dynamic box body of the given size with the given mass.
+    Forge::PhysicsBody MakeDynamicBox(uint64_t id, const glm::vec3& size, float density = 1.0f)
+    {
+        Forge::RigidbodyComponent rb;
+        rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+
+        Forge::BoxColliderComponent bc;
+        bc.Size = size;
+        bc.Density = density;
+
+        Forge::PhysicsBody body(id, rb, bc, Forge::Physics::GetGravityY());
+        return body;
+    }
+}
+
+TEST_CASE("Physics body starts awake with zero sleep time", "[physics][sleep]")
+{
+    auto body = MakeDynamicBox(1, glm::vec3(1.0f));
+    REQUIRE(body.IsSleeping == false);
+    REQUIRE(body.SleepTime == Approx(0.0f));
+}
+
+TEST_CASE("Physics body sleeps after staying below the velocity threshold", "[physics][sleep]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f); // no gravity, so the body never accelerates
+
+    auto* body = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{}, Forge::BoxColliderComponent{}, 0.0f);
+    body->IsStatic = false;
+    body->Position = glm::vec3(0.0f);
+    body->Velocity = glm::vec3(0.0f);
+    Forge::Physics::AddBody(body);
+
+    Forge::Physics::SetSleepVelocityThreshold(0.05f);
+    Forge::Physics::SetSleepTimeThreshold(0.1f);
+
+    // One step well under the sleep time threshold: awake, timer accumulating.
+    Forge::Physics::Update(0.05f);
+    REQUIRE(body->IsSleeping == false);
+    REQUIRE(body->SleepTime == Approx(0.05f));
+
+    // Push past the threshold: the body falls asleep and its motion is zeroed.
+    Forge::Physics::Update(0.1f);
+    REQUIRE(body->IsSleeping == true);
+    REQUIRE(body->SleepTime >= 0.1f);
+    REQUIRE(body->Velocity == glm::vec3(0.0f));
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Sleeping body does not integrate gravity", "[physics][sleep]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(-9.81f);
+
+    auto* body = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{}, Forge::BoxColliderComponent{}, 0.0f);
+    body->IsStatic = false;
+    body->IsSleeping = true;
+    body->Position = glm::vec3(0.0f);
+    body->Velocity = glm::vec3(0.0f);
+    Forge::Physics::AddBody(body);
+
+    const glm::vec3 start = body->Position;
+    Forge::Physics::Update(0.016f);
+
+    // A sleeping body must neither accelerate nor drift.
+    REQUIRE(body->Velocity == glm::vec3(0.0f));
+    REQUIRE(body->Position == start);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Body exceeding the velocity threshold resets its sleep timer", "[physics][sleep]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* body = new Forge::PhysicsBody(1, Forge::RigidbodyComponent{}, Forge::BoxColliderComponent{}, 0.0f);
+    body->IsStatic = false;
+    body->Position = glm::vec3(0.0f);
+    body->Velocity = glm::vec3(0.0f);
+    Forge::Physics::AddBody(body);
+
+    Forge::Physics::SetSleepTimeThreshold(0.5f);
+
+    Forge::Physics::Update(0.2f);
+    REQUIRE(body->SleepTime == Approx(0.2f));
+
+    // Moving fast clears the accumulated sleep time.
+    body->Velocity = glm::vec3(5.0f, 0.0f, 0.0f);
+    Forge::Physics::Update(0.016f);
+    REQUIRE(body->SleepTime == Approx(0.0f));
+    REQUIRE(body->IsSleeping == false);
+
+    Forge::Physics::Shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Collision callbacks
+// ---------------------------------------------------------------------------
+
+namespace {
+    // Records every callback invocation so tests can assert on enter/exit.
+    struct ContactLog
+    {
+        int Enters = 0;
+        int Exits = 0;
+        glm::vec3 LastNormal = glm::vec3(0.0f);
+        uint64_t LastOtherID = 0;
+    };
+
+    ContactLog g_ContactLogA;
+    ContactLog g_ContactLogB;
+
+    void RecordContact(ContactLog& log, Forge::PhysicsBody& other, const glm::vec3& normal, Forge::Physics::ContactPhase phase)
+    {
+        if (phase == Forge::Physics::ContactPhase::Begin)
+            ++log.Enters;
+        else
+            ++log.Exits;
+
+        log.LastNormal = normal;
+        log.LastOtherID = other.ID;
+    }
+
+    void OnContactA(Forge::PhysicsBody& self, Forge::PhysicsBody& other, const glm::vec3& n, Forge::Physics::ContactPhase p)
+    {
+        (void)self;
+        RecordContact(g_ContactLogA, other, n, p);
+    }
+
+    void OnContactB(Forge::PhysicsBody& self, Forge::PhysicsBody& other, const glm::vec3& n, Forge::Physics::ContactPhase p)
+    {
+        (void)self;
+        RecordContact(g_ContactLogB, other, n, p);
+    }
+
+    void ResetContactLogs()
+    {
+        g_ContactLogA = ContactLog{};
+        g_ContactLogB = ContactLog{};
+    }
+
+    Forge::PhysicsBody* MakeStaticBox(uint64_t id, const glm::vec3& position, const glm::vec3& size)
+    {
+        auto* body = new Forge::PhysicsBody(id, Forge::RigidbodyComponent{}, Forge::BoxColliderComponent{}, 0.0f);
+        body->IsStatic = true;
+        body->Position = position;
+        body->BoxSize = size;
+        return body;
+    }
+
+    // A dynamic box, so it participates in contacts against static geometry.
+    Forge::PhysicsBody* MakeDynamicBoxAt(uint64_t id, const glm::vec3& position, const glm::vec3& size)
+    {
+        auto* body = new Forge::PhysicsBody(id, Forge::RigidbodyComponent{}, Forge::BoxColliderComponent{}, 0.0f);
+        body->IsStatic = false;
+        body->Mass = 1.0f;
+        body->InverseMass = 1.0f;
+        body->Position = position;
+        body->BoxSize = size;
+        return body;
+    }
+}
+
+TEST_CASE("Collision callback fires when bodies begin touching", "[physics][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::SetCollisionCallback(ball, OnContactA);
+    Forge::Physics::SetCollisionCallback(ground, OnContactB);
+
+    // Separated: no callbacks yet.
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Enters == 0);
+
+    // Overlap the ground (ground spans y in [-0.5, 0.5]).
+    ball->Position = glm::vec3(0.0f, 0.6f, 0.0f);
+    Forge::Physics::Update(0.016f);
+
+    REQUIRE(g_ContactLogA.Enters == 1);
+    REQUIRE(g_ContactLogB.Enters == 1);
+    REQUIRE(g_ContactLogA.LastOtherID == ground->ID);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Collision callback does not re-fire while bodies stay in contact", "[physics][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 0.6f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::SetCollisionCallback(ball, OnContactA);
+
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Enters == 1);
+
+    // Positional correction pushes the dynamic ball clear of the ground, so
+    // re-seat it each step to hold the contact open. Enter must not re-fire.
+    for (int i = 0; i < 2; i++)
+    {
+        ball->Position = glm::vec3(0.0f, 0.6f, 0.0f);
+        Forge::Physics::Update(0.016f);
+    }
+
+    REQUIRE(g_ContactLogA.Enters == 1);
+    REQUIRE(g_ContactLogA.Exits == 0);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Collision callback fires when bodies separate", "[physics][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 0.6f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::SetCollisionCallback(ball, OnContactA);
+
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Enters == 1);
+    REQUIRE(g_ContactLogA.Exits == 0);
+
+    // Leave the ball clear of the ground: an exit must fire exactly once.
+    ball->Position = glm::vec3(0.0f, 5.0f, 0.0f);
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Exits == 1);
+
+    // And it must not fire again once already separated.
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Exits == 1);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Unregistering a collision callback stops delivery", "[physics][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::SetCollisionCallback(ball, OnContactA);
+
+    Forge::Physics::SetCollisionCallback(ball, nullptr);
+
+    ball->Position = glm::vec3(0.0f, 0.6f, 0.0f);
+    Forge::Physics::Update(0.016f);
+
+    REQUIRE(g_ContactLogA.Enters == 0);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Removing a body drops its collision callback registration", "[physics][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 0.6f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(ball);
+    Forge::Physics::SetCollisionCallback(ball, OnContactA);
+
+    // Destroying the body must erase its registration; the surviving body's
+    // contact with nothing must not touch the freed pointer.
+    Forge::Physics::RemoveBody(ball);
+    Forge::Physics::Update(0.016f);
+
+    REQUIRE(g_ContactLogA.Enters == 0);
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Static-static pairs are never treated as contacts", "[physics][collision]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    // Two static boxes fully overlapping: neither moves, so no contact.
+    auto* a = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(1.0f));
+    auto* b = MakeStaticBox(2, glm::vec3(0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(a);
+    Forge::Physics::AddBody(b);
+    Forge::Physics::SetCollisionCallback(a, OnContactA);
+
+    Forge::Physics::Update(0.016f);
+
+    REQUIRE(g_ContactLogA.Enters == 0);
+    REQUIRE(Forge::Physics::GetActiveContacts().empty());
+
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Active contacts are reported for the current step", "[physics][collision]")
+{
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    auto* ball = MakeDynamicBoxAt(2, glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f));
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(ball);
+
+    Forge::Physics::Update(0.016f);
+    REQUIRE(Forge::Physics::GetActiveContacts().empty());
+
+    ball->Position = glm::vec3(0.0f, 0.6f, 0.0f);
+    Forge::Physics::Update(0.016f);
+
+    const auto& contacts = Forge::Physics::GetActiveContacts();
+    REQUIRE(contacts.size() == 1);
+    REQUIRE(contacts[0].A == ground->ID);
+    REQUIRE(contacts[0].B == ball->ID);
+
+    Forge::Physics::Shutdown();
+}
