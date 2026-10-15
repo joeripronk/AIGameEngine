@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include <glm/gtc/matrix_inverse.hpp>
 #include "Forge/Renderer/ViewportRenderer.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
@@ -91,7 +92,7 @@ namespace Forge {
 			return defaultCube;
 		};
 
-		auto pbr = Renderer::s_PbrRenderer;
+		auto pbr = Renderer::GetPbrRenderer();
 		if (!pbr || !pbr->IsValid())
 			return;
 
@@ -172,7 +173,7 @@ namespace Forge {
 		for (auto entity : materialView)
 		{
 			// Skip entities that already have a MeshComponent (they were drawn above).
-			if (materialView.get<MeshComponent>(entity))
+			if (materialView.contains(entity))
 				continue;
 
 			auto& transformComp = materialView.get<TransformComponent>(entity);

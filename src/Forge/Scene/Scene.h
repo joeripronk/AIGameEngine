@@ -167,6 +167,7 @@ namespace Forge {
 		void OnComponentRemoved(Entity entity, T& component);
 
 		void OnComponentAdded(Entity entity, EnvironmentMapComponent& component);
+		const entt::registry& GetRegistry() const { return m_Registry; }
 		entt::registry m_Registry;
 		uint32_t m_ViewportWidth = 0, m_ViewportHeight = 0;
 		bool m_IsRunning = false;

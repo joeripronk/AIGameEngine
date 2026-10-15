@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Forge/Events/Event.h"
+#include <GLFW/glfw3.h>
 
 namespace Forge {
 
@@ -93,6 +94,31 @@ namespace Forge {
 		}
 
 		FG_EVENT_CLASS_TYPE(MouseButtonReleased)
+	};
+
+	// MouseEvent is a base class for all mouse events.
+	class MouseEvent : public Event
+	{
+	public:
+		static EventType GetStaticType() { return EventType::MouseMoved; }
+		
+		float GetXOffset() const { return m_XOffset; }
+		float GetYOffset() const { return m_YOffset; }
+		float GetX() const { return m_X; }
+		float GetY() const { return m_Y; }
+		int GetButton() const { return m_Button; }
+
+		FG_EVENT_CLASS_CATEGORY(EventCategoryMouse | EventCategoryInput)
+	protected:
+		MouseEvent(float x, float y)
+			: m_X(x), m_Y(y), m_XOffset(0.0f), m_YOffset(0.0f), m_Button(GLFW_MOUSE_BUTTON_RIGHT) {}
+
+		MouseEvent(float x, float y, float xOffset, float yOffset)
+			: m_X(x), m_Y(y), m_XOffset(xOffset), m_YOffset(yOffset), m_Button(GLFW_MOUSE_BUTTON_RIGHT) {}
+
+		float m_X, m_Y;
+		float m_XOffset, m_YOffset;
+		int m_Button;
 	};
 
 }

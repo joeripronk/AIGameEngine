@@ -52,6 +52,23 @@ namespace Forge {
 		{
 			return GetCategoryFlags() & category;
 		}
+
+		// Cast to a derived event type.
+		template<typename T>
+		T* TryCast()
+		{
+			if (T::GetStaticType() == GetEventType())
+				return static_cast<T*>(this);
+			return nullptr;
+		}
+
+		template<typename T>
+		const T* TryCast() const
+		{
+			if (T::GetStaticType() == GetEventType())
+				return static_cast<const T*>(this);
+			return nullptr;
+		}
 	};
 
 	class EventDispatcher

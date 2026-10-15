@@ -4,6 +4,11 @@
 #include "Forge/Events/KeyEvent.h"
 #include "Forge/Core/Application.h"
 
+// GLFW 3.6 mouse wheel support
+#if !defined(GLFW_INCLUDE_VULKAN)
+#include <GLFW/glfw3.h>
+#endif
+
 namespace Forge {
 
 	EditorCamera::EditorCamera(float fov, float nearClip, float farClip)
@@ -65,7 +70,7 @@ namespace Forge {
 			m_Position.y += speed;
 
 		// Zoom
-		m_ZoomLevel -= zoomSpeed * static_cast<float>(glfwGetMouseWheel());
+		m_ZoomLevel -= zoomSpeed * static_cast<float>(glfwGetMouseWheel(window));
 		m_ZoomLevel = glm::clamp(m_ZoomLevel, 0.1f, 10.0f);
 
 		Recalculate();

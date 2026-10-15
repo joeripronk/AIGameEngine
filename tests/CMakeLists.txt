@@ -28,10 +28,12 @@ target_sources(ForgeTests
         src/ReverbTests.cpp
         src/BuildConfigTests.cpp
         src/NativeScriptTests.cpp
+        src/TetrisTests.cpp
 )
 
 target_link_libraries(ForgeTests
     PRIVATE
+        ForgeApp
         ForgeCore
         Catch2::Catch2WithMain
         ${CMAKE_DL_LIBS}

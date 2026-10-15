@@ -10,6 +10,14 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 
+// Forward declarations for Tetris types.
+namespace Forge {
+	enum class TetrominoType : uint8_t;
+	enum class TetrisDirection : int8_t;
+	struct TetrominoDefinition;
+	struct TetrisPiece;
+}
+
 namespace Forge {
 
 	struct IDComponent
@@ -250,6 +258,55 @@ namespace Forge {
 		AudioSourceComponent() = default;
 		AudioSourceComponent(const AudioSourceComponent&) = default;
 		AudioSourceComponent(const std::string& path) : SourcePath(path) {}
+	};
+
+	// Tetris game components
+	struct TetrisGameComponent
+	{
+		bool IsRunning = false;
+		bool IsPaused = false;
+		bool IsGameOver = false;
+		glm::vec3 BoardPosition = glm::vec3(0.0f, -10.0f, 0.0f);
+		float BoardWidth = 10.0f;
+		float BoardHeight = 20.0f;
+		float BlockSize = 1.0f;
+		TetrisGameComponent() = default;
+		TetrisGameComponent(const TetrisGameComponent&) = default;
+	};
+
+	struct TetrisPieceComponent
+	{
+		uint8_t Type = 0;
+		uint8_t State = 0;
+		glm::ivec2 GridPosition = glm::ivec2(0, 0);
+		glm::vec3 VisualOffset = glm::vec3(0.0f);
+		glm::vec3 Color = glm::vec3(1.0f);
+		float Scale = 1.0f;
+		float Alpha = 1.0f;
+		TetrisPieceComponent() = default;
+		TetrisPieceComponent(const TetrisPieceComponent&) = default;
+	};
+
+	struct TetrisBoardComponent
+	{
+		uint32_t Width = 10;
+		uint32_t Height = 20;
+		std::vector<uint8_t> Board;
+		std::vector<bool> LinesToClear;
+		TetrisBoardComponent() = default;
+		TetrisBoardComponent(const TetrisBoardComponent&) = default;
+	};
+
+	struct TetrisDisplayComponent
+	{
+		int32_t Score = 0;
+		int32_t Level = 1;
+		int32_t LinesCleared = 0;
+		int32_t Combo = 0;
+		uint8_t NextPiece = 0;
+		std::string GameStateText = "Menu";
+		TetrisDisplayComponent() = default;
+		TetrisDisplayComponent(const TetrisDisplayComponent&) = default;
 	};
 
 }

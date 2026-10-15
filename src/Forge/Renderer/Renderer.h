@@ -70,6 +70,7 @@ namespace Forge {
 
 		static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
 		static ShaderLibrary& GetShaderLibrary() { return s_ShaderLibrary; }
+		static Ref<class PbrRenderer> GetPbrRenderer() { return s_PbrRenderer; }
 
 	private:
 		struct SceneData
