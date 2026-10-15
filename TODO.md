@@ -67,7 +67,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (200 test cases, 1409 assertions - all passing, order-independent)
+### Tests (204 test cases, 1417 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] SerializationTests (round-trip fidelity for every component field, UUIDs,
@@ -187,3 +187,5 @@
 | `CopyDirectory` swallowed per-file failures | ✅ Fixed - a failed file aborts the whole resource copy |
 | Prefabs spawned during simulation never became physical | ✅ Fixed - `EnsurePhysicsBody` builds a body on component add while physics is active |
 | `Prefab::IsValid()` accepted corrupt files | ✅ Fixed - the file must parse and contain a recognisable entity |
+| `SceneSerializer::Serialize` returned void, so `SaveScene` always returned true | ✅ Fixed - Serialize returns bool and checks the stream after flushing; an agent now learns whether a save happened |
+| Editor UI discarded save and export results | ✅ Fixed - failures now surface as a notification instead of being silently swallowed |

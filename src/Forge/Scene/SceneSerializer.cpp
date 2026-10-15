@@ -338,8 +338,14 @@ namespace Forge {
 		out << YAML::EndMap; // Entity
 	}
 
-	void SceneSerializer::Serialize(const std::string& filepath)
+	bool SceneSerializer::Serialize(const std::string& filepath)
 	{
+		if (filepath.empty())
+		{
+			FG_CORE_ERROR("Serialize: no filepath given");
+			return false;
+		}
+
 		YAML::Emitter out;
 		out << YAML::BeginMap;
 		out << YAML::Key << "Scene" << YAML::Value << "Untitled";
@@ -357,10 +363,21 @@ namespace Forge {
 		if (!fout.is_open())
 		{
 			FG_CORE_ERROR("Failed to open scene file for writing: {0}", filepath);
-			return;
+			return false;
 		}
 
 		fout << out.c_str();
+		fout.flush();
+
+		// A stream can fail on flush (full disk, permissions) long after the
+		// open succeeded, and a truncated scene file is worse than none.
+		if (!fout.good())
+		{
+			FG_CORE_ERROR("Failed while writing scene file: {0}", filepath);
+			return false;
+		}
+
+		return true;
 	}
 
 	// Reads every component node present on an entity YAML node into `entity`.

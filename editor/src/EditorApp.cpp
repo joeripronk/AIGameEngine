@@ -132,11 +132,67 @@ namespace Forge {
 			DrawAssetBrowserPanel();
 			DrawPropertiesPanel();
 
+			// Drawn last so it sits above every other panel.
+			DrawNotification();
+
 			ImGui::Render();
 			VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
 			if (cmdBuf != VK_NULL_HANDLE)
 				ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
 		}
+	}
+
+	void EditorApp::Notify(const std::string& message, bool isError)
+	{
+		m_Notification = message;
+		m_NotificationIsError = isError;
+
+		// Stay visible for roughly four seconds. A message that vanishes in one
+		// frame is easy to miss, and an error the user never saw is the same as
+		// an error that never happened.
+		m_NotificationFramesRemaining = kNotificationFrames;
+
+		if (isError)
+			FG_CORE_ERROR("Editor: {0}", message);
+		else
+			FG_CORE_INFO("Editor: {0}", message);
+	}
+
+	void EditorApp::DrawNotification()
+	{
+		if (m_Notification.empty() || m_NotificationFramesRemaining <= 0)
+			return;
+
+		// Anchored to the top-centre so it reads as transient feedback rather
+		// than a permanent panel.
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(
+			ImVec2(viewport->Pos.x + viewport->Size.x * 0.5f, viewport->Pos.y + 24.0f),
+			ImGuiCond_Always, ImVec2(0.5f, 0.0f));
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
+			| ImGuiWindowFlags_AlwaysAutoResize
+			| ImGuiWindowFlags_NoSavedSettings
+			| ImGuiWindowFlags_NoFocusOnAppearing
+			| ImGuiWindowFlags_NoNav;
+
+		ImGui::Begin("##Notification", nullptr, flags);
+
+		ImGui::PushStyleColor(ImGuiCol_Text, m_NotificationIsError
+			? ImVec4(1.0f, 0.45f, 0.45f, 1.0f)
+			: ImVec4(0.55f, 0.9f, 0.6f, 1.0f));
+		ImGui::TextUnformatted(m_Notification.c_str());
+		ImGui::PopStyleColor();
+
+		if (ImGui::Button("Dismiss"))
+		{
+			m_Notification.clear();
+			m_NotificationFramesRemaining = 0;
+		}
+
+		ImGui::End();
+
+		--m_NotificationFramesRemaining;
 	}
 
 	void EditorApp::DrawMenuBar()
@@ -150,7 +206,10 @@ namespace Forge {
 				CreateDefaultScene();
 
 			if (ImGui::MenuItem("Save Scene"))
-				m_Editor.SaveScene("resources/scenes/editor.forge");
+			{
+				const bool saved = m_Editor.SaveScene("resources/scenes/editor.forge");
+				Notify(saved ? "Scene saved" : "Failed to save scene", !saved);
+			}
 
 			ImGui::Separator();
 			if (ImGui::MenuItem("Export Game..."))
@@ -161,7 +220,9 @@ namespace Forge {
 				opts.ResourcesDirectory = "resources/";
 				opts.RuntimeExecutable = "bin/ForgeRuntime";
 				opts.GameName = "MyGame";
-				GameExporter::Export(opts);
+
+				const bool exported = GameExporter::Export(opts);
+				Notify(exported ? "Game exported to dist/" : "Export failed - see Forge.log for details", !exported);
 			}
 
 			ImGui::Separator();

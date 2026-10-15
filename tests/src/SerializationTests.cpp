@@ -22,6 +22,7 @@ using Catch::Approx;
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scene/SceneSerializer.h"
+#include "Forge/Editor/EditorContext.h"
 
 namespace {
 
@@ -513,4 +514,63 @@ TEST_CASE("Saving twice produces an identical file", "[serialization][roundtrip]
 
 	REQUIRE(readAll(first) == readAll(second));
 	REQUIRE_FALSE(readAll(first).empty());
+}
+// ---------------------------------------------------------------------------
+// Save failure reporting
+//
+// A save that silently fails is indistinguishable from one that succeeded. The
+// AI agent path depends on this to know whether the work it just did was
+// actually persisted.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("SaveScene reports failure for an unwritable path", "[serialization][save]")
+{
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	scene->CreateEntity("Anything");
+
+	Forge::SceneSerializer serializer(scene);
+
+	// A path whose parent directory does not exist cannot be opened.
+	REQUIRE(serializer.Serialize("test_roundtrip/no_such_directory/level.forge") == false);
+}
+
+TEST_CASE("SaveScene reports failure for an empty path", "[serialization][save]")
+{
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	scene->CreateEntity("Anything");
+
+	Forge::SceneSerializer serializer(scene);
+	REQUIRE(serializer.Serialize("") == false);
+}
+
+TEST_CASE("EditorContext SaveScene reports failure rather than assuming success", "[serialization][save]")
+{
+	Forge::EditorContext context;
+	context.CreateEntity("Entity");
+
+	// The context's contract is that a failed save is visible to the caller.
+	// Returning true here would tell an agent its work was saved when nothing
+	// was written.
+	REQUIRE(context.SaveScene("test_roundtrip/missing_dir/level.forge") == false);
+	REQUIRE(context.SaveScene("") == false);
+}
+
+TEST_CASE("A successful save creates a loadable file", "[serialization][save]")
+{
+	std::error_code ec;
+	std::filesystem::create_directories("test_roundtrip", ec);
+
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	auto entity = scene->CreateEntity("Persisted");
+	entity.GetComponent<Forge::TransformComponent>().Translation = { 7.0f, 8.0f, 9.0f };
+
+	const std::string path = "test_roundtrip/save_success.forge";
+	Forge::SceneSerializer serializer(scene);
+	REQUIRE(serializer.Serialize(path));
+	REQUIRE(std::filesystem::is_regular_file(path));
+
+	auto reloaded = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer reader(reloaded);
+	REQUIRE(reader.Deserialize(path));
+	REQUIRE(reloaded->FindEntityByName("Persisted"));
 }

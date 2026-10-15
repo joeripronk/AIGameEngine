@@ -45,9 +45,10 @@ namespace Forge {
 		if (!m_Scene)
 			return false;
 
+		// Serialize reports failure; forwarding it means an agent that saves a
+		// scene learns whether the save actually happened.
 		SceneSerializer serializer(m_Scene);
-		serializer.Serialize(path);
-		return true;
+		return serializer.Serialize(path);
 	}
 
 	void EditorContext::SelectEntity(Entity entity)

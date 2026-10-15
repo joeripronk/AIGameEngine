@@ -14,7 +14,10 @@ namespace Forge {
 	public:
 		SceneSerializer(const Ref<Scene>& scene);
 
-		void Serialize(const std::string& filepath);
+		// Writes the scene to `filepath`. Returns false if the file could not be
+		// opened or written; callers must not treat a failed save as success.
+		bool Serialize(const std::string& filepath);
+
 		void SerializeRuntime(const std::string& filepath);
 
 		bool Deserialize(const std::string& filepath);
