@@ -330,6 +330,28 @@ AudioEngine::SetSoundVolume(sound, 0.5f);
 AudioEngine::StopSound(sound);      // only this sound
 ```
 
+### Click-free playback
+
+Changing volume or stopping a sound instantly produces an audible click: the
+waveform jumps discontinuously. Sounds therefore fade in on start, ramp volume
+changes, and fade out before release.
+
+```cpp
+AudioEngine::SetFadeDuration(0.02f);   // 0 = instant, clicking playback
+```
+
+`StopSound` begins a fade-out and the sound is reclaimed on the next
+`AudioEngine::Update()` (called once per frame by the Scene), because it has to
+keep playing for the duration of the fade — releasing it immediately would cut
+the decay off, which is exactly the click being avoided. So after `StopSound`
+the handle stays valid and `IsSoundPlaying` stays true until the fade finishes;
+a second `StopSound` on the same handle returns false, letting callers tell
+"stopped" from "stopping".
+
+`StopAllSounds` releases outright instead of fading, because it is teardown
+(shutdown, leaving playback) and sounds must not outlive the scene that owns
+them.
+
 ### 3D positional audio
 
 `AudioSourceComponent::Spatial` makes a sound's world position come from its

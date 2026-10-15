@@ -686,10 +686,11 @@ namespace Forge {
 			audio.Finished = true;
 		}
 
-		// Re-mix after positions and the listener have moved, so gains and pans
-		// reflect this frame rather than the last.
+		// Reclaim finished sounds and re-mix spatial audio. Update() does both, so a
+		// faded-out sound is released only once its fade has actually finished
+		// rather than being cut off mid-decay.
 		UpdateAudioListener();
-		AudioEngine::UpdateSpatialization();
+		AudioEngine::Update();
 	}
 
 	void Scene::StopAudioSources()

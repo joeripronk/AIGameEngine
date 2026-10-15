@@ -18,6 +18,8 @@ using Catch::Approx;
 #include <fstream>
 #include <string>
 #include <vector>
+#include <chrono>
+#include <thread>
 
 #include "Forge/Core/Base.h"
 #include "Forge/Core/Log.h"
@@ -217,6 +219,11 @@ TEST_CASE("Sounds are tracked individually and released on stop", "[audio]")
 
 	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_handles.wav", 48000, 1.0);
 
+	// Fades off so release is immediate and deterministic. Fade length is
+	// measured in audio frames, which only advance once the device has actually
+	// run, so the deferred path has its own test below.
+	Forge::AudioEngine::SetFadeDuration(0.0f);
+
 	Forge::AudioEngine::SoundHandle first = Forge::AudioEngine::InvalidSound;
 	Forge::AudioEngine::SoundHandle second = Forge::AudioEngine::InvalidSound;
 
@@ -228,7 +235,7 @@ TEST_CASE("Sounds are tracked individually and released on stop", "[audio]")
 	REQUIRE(first != second);
 	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 2);
 
-	// Stopping one sound must leave the other playing. The old fire-and-forget
+	// Stopping one sound must leave the other alone. The old fire-and-forget
 	// implementation stopped the entire engine here, silencing everything.
 	REQUIRE(Forge::AudioEngine::StopSound(first));
 	REQUIRE(Forge::AudioEngine::IsValidSound(first) == false);
@@ -242,7 +249,71 @@ TEST_CASE("Sounds are tracked individually and released on stop", "[audio]")
 	Forge::AudioEngine::StopAllSounds();
 	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 0);
 
+	Forge::AudioEngine::SetFadeDuration(0.02f);
 	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("With fades enabled a stopped sound is released after its fade", "[audio][fade]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; deferred release requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_fade.wav", 48000, 2.0);
+
+	Forge::AudioEngine::SetFadeDuration(0.05f);
+	REQUIRE(Forge::AudioEngine::GetFadeDuration() == Approx(0.05f));
+
+	Forge::AudioEngine::SoundHandle handle = Forge::AudioEngine::InvalidSound;
+	REQUIRE(Forge::AudioEngine::PlaySound(wav, 1.0f, 1.0f, true, &handle));
+
+	REQUIRE(Forge::AudioEngine::StopSound(handle));
+
+	// Deferred: the sound keeps playing out its decay, because releasing it now
+	// would cut the fade off mid-way, which is the click being avoided.
+	REQUIRE(Forge::AudioEngine::IsValidSound(handle) == true);
+
+	// A repeated stop while fading is rejected, so callers can distinguish
+	// "stopped" from "stopping".
+	REQUIRE(Forge::AudioEngine::StopSound(handle) == false);
+
+	// Once the fade has elapsed the sound stops playing and Update() reclaims it.
+	// Sleep so real audio time passes rather than spinning.
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
+	REQUIRE(Forge::AudioEngine::IsSoundPlaying(handle) == false);
+
+	Forge::AudioEngine::Update();
+	REQUIRE(Forge::AudioEngine::IsValidSound(handle) == false);
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 0);
+
+	Forge::AudioEngine::SetFadeDuration(0.02f);
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("Fade duration is clamped to a sane range", "[audio][fade]")
+{
+	Forge::Log::Init();
+
+	Forge::AudioEngine::SetFadeDuration(0.25f);
+	REQUIRE(Forge::AudioEngine::GetFadeDuration() == Approx(0.25f));
+
+	// Negative would be nonsense; it clamps to instant rather than inverting.
+	Forge::AudioEngine::SetFadeDuration(-5.0f);
+	REQUIRE(Forge::AudioEngine::GetFadeDuration() == Approx(0.0f));
+
+	Forge::AudioEngine::SetFadeDuration(0.02f);
+	REQUIRE(Forge::AudioEngine::GetFadeDuration() == Approx(0.02f));
+}
+
+TEST_CASE("Update is safe with nothing playing", "[audio]")
+{
+	Forge::AudioEngine::Shutdown();
+	REQUIRE_NOTHROW(Forge::AudioEngine::Update());
+	REQUIRE(Forge::AudioEngine::GetActiveSoundCount() == 0);
 }
 
 TEST_CASE("Stopping all sounds releases every handle", "[audio]")

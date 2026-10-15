@@ -117,6 +117,25 @@ namespace Forge {
 			float volume = 1.0f, float pitch = 1.0f, bool loop = false,
 			SoundHandle* outHandle = nullptr);
 
+		// --- Click-free playback ---
+		//
+		// Setting volume or stopping a sound instantly produces an audible click:
+		// the waveform jumps discontinuously. Sounds therefore fade in on start,
+		// ramp volume changes, and fade out before release.
+		//
+		// StopSound begins a fade-out and the sound is reclaimed on the next
+		// Update(), because it must keep playing for the duration of the fade.
+
+		// Fade duration used for starting and stopping sounds, in seconds.
+		// Defaults to 0.02 (20 ms), long enough to kill a click and short enough
+		// to feel immediate. Set to 0 for instant, clicking playback.
+		static void SetFadeDuration(float seconds);
+		static float GetFadeDuration();
+
+		// Per-frame housekeeping: reclaims sounds whose fade-out has finished and
+		// re-mixes spatial sounds. The Scene calls this once per frame.
+		static void Update();
+
 		// --- 3D audio ---
 		//
 		// Spatialisation is computed here rather than delegated to miniaudio,
@@ -165,6 +184,12 @@ namespace Forge {
 		static float GetMasterVolume();
 
 	private:
+		// Fade length in PCM frames, or 0 when fading is disabled.
+		static uint64_t FadeFrames();
+
+		// Uninitialises and frees a sound, invalidating its handle.
+		static void ReleaseSound(SoundHandle handle);
+
 		struct PlayingSound
 		{
 			ma_sound* Sound = nullptr;
@@ -177,6 +202,10 @@ namespace Forge {
 
 			SpatialParams Spatial;
 			glm::vec3 Position = { 0.0f, 0.0f, 0.0f };
+
+			// True once a fade-out has been requested. The sound keeps playing
+			// until the fade completes, so it must not be reclaimed yet.
+			bool PendingRelease = false;
 		};
 
 		static PlayingSound* Find(SoundHandle handle);
@@ -189,6 +218,7 @@ namespace Forge {
 
 		static ma_engine* s_Engine;
 		static float s_MasterVolume;
+		static float s_FadeDuration;
 		static ListenerState s_Listener;
 		static std::unordered_map<SoundHandle, PlayingSound> s_Sounds;
 		static SoundHandle s_NextHandle;

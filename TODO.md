@@ -67,7 +67,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (238 test cases, 1583 assertions - all passing, order-independent)
+### Tests (241 test cases, 1596 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
@@ -147,6 +147,7 @@
 - [x] Audio engine (per-sound handles, WAV/MP3/FLAC decode + playback)
 - [x] AudioSourceComponent + Scene playback lifecycle + Lua audio API
 - [x] 3D positional audio (listener-relative attenuation and stereo panning)
+- [x] Click-free playback (fade in/out, volume ramping, deferred sound release)
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

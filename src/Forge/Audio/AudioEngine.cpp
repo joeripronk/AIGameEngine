@@ -12,6 +12,7 @@ namespace Forge {
 	ma_engine* AudioEngine::s_Engine = nullptr;
 	float AudioEngine::s_MasterVolume = 1.0f;
 	AudioEngine::ListenerState AudioEngine::s_Listener{};
+	float AudioEngine::s_FadeDuration = 0.02f;
 	std::unordered_map<AudioEngine::SoundHandle, AudioEngine::PlayingSound> AudioEngine::s_Sounds;
 	AudioEngine::SoundHandle AudioEngine::s_NextHandle = 1; // 0 is InvalidSound
 
@@ -185,6 +186,10 @@ namespace Forge {
 		config.channelsOut = 0;  // use the engine's channel count
 		config.isLooping = loop ? 1 : 0;
 
+		// Ramp volume changes instead of stepping them, which is what removes
+		// the click when a source's volume or spatial gain changes mid-playback.
+		config.volumeSmoothTimeInPCMFrames = static_cast<ma_uint32>(FadeFrames());
+
 		// The resource manager loads asynchronously, so this returns promptly and
 		// the sound begins once the first pages are decoded.
 		ma_result result = ma_sound_init_ex(s_Engine, &config, sound);
@@ -230,7 +235,74 @@ namespace Forge {
 		if (outHandle)
 			*outHandle = handle;
 
+		// Fade in from silence so the start is not a discontinuity.
+		const ma_uint64 fadeFrames = FadeFrames();
+		if (fadeFrames > 0)
+			ma_sound_set_fade_in_pcm_frames(sound, 0.0f, entry.BaseVolume, fadeFrames);
+
 		return true;
+	}
+
+	// --- Click-free playback ----------------------------------------------
+
+	void AudioEngine::SetFadeDuration(float seconds)
+	{
+		s_FadeDuration = (seconds < 0.0f) ? 0.0f : seconds;
+	}
+
+	float AudioEngine::GetFadeDuration()
+	{
+		return s_FadeDuration;
+	}
+
+	// The fade length in PCM frames, or 0 when fading is disabled or there is no
+	// engine to ask for a sample rate.
+	uint64_t AudioEngine::FadeFrames()
+	{
+		if (!s_Engine || s_FadeDuration <= 0.0f)
+			return 0;
+
+		const ma_uint32 sampleRate = ma_engine_get_sample_rate(s_Engine);
+		if (sampleRate == 0)
+			return 0;
+
+		return static_cast<ma_uint64>(s_FadeDuration * sampleRate);
+	}
+
+	void AudioEngine::Update()
+	{
+		// Reclaim sounds whose fade-out has finished. Collected first because
+		// releasing mutates the map.
+		std::vector<SoundHandle> finished;
+		for (const auto& [handle, entry] : s_Sounds)
+		{
+			if (!entry.PendingRelease)
+				continue;
+
+			// A sound stopped with no fade has already stopped playing.
+			if (ma_sound_is_playing(entry.Sound) == 0)
+				finished.push_back(handle);
+		}
+
+		for (SoundHandle handle : finished)
+			ReleaseSound(handle);
+
+		UpdateSpatialization();
+	}
+
+	void AudioEngine::ReleaseSound(SoundHandle handle)
+	{
+		auto it = s_Sounds.find(handle);
+		if (it == s_Sounds.end())
+			return;
+
+		if (it->second.Sound)
+		{
+			ma_sound_uninit(it->second.Sound);
+			delete it->second.Sound;
+		}
+
+		s_Sounds.erase(it);
 	}
 
 	// --- 3D audio ---------------------------------------------------------
@@ -331,13 +403,24 @@ namespace Forge {
 		if (!entry)
 			return false;
 
-		ma_sound_stop(entry->Sound);
-		ma_sound_uninit(entry->Sound);
-		delete entry->Sound;
+		// Already fading out; a second stop is not an error but has nothing to
+		// do, so report failure the same way an unknown handle would.
+		if (entry->PendingRelease)
+			return false;
 
-		// Erasing the entry invalidates the handle, which is what lets callers
-		// detect a double stop instead of silently succeeding twice.
-		s_Sounds.erase(handle);
+		const ma_uint64 fadeFrames = FadeFrames();
+		if (fadeFrames > 0 && ma_sound_is_playing(entry->Sound) != 0)
+		{
+			// Keep the sound alive for the duration of the fade, then reclaim it
+			// on the next Update(). Releasing it now would cut the sound off
+			// mid-decay, which is exactly the click we are avoiding.
+			ma_sound_stop_with_fade_in_pcm_frames(entry->Sound, fadeFrames);
+			entry->PendingRelease = true;
+			return true;
+		}
+
+		// Nothing playing or fading disabled: release immediately.
+		ReleaseSound(handle);
 		return true;
 	}
 
@@ -381,7 +464,7 @@ namespace Forge {
 
 	void AudioEngine::StopAllSounds()
 	{
-		// Copied handles first: StopSound mutates s_Sounds.
+		// Copied handles first: releasing mutates s_Sounds.
 		std::vector<SoundHandle> handles;
 		handles.reserve(s_Sounds.size());
 		for (const auto& [handle, entry] : s_Sounds)
@@ -390,12 +473,11 @@ namespace Forge {
 			handles.push_back(handle);
 		}
 
+		// Released outright rather than faded: this is teardown (shutdown, or
+		// stopping playback), and leaving sounds alive for a fade would let them
+		// keep playing after the scene that owns them is gone.
 		for (SoundHandle handle : handles)
-		{
-			// Every handle came from s_Sounds, so this cannot fail; the cast
-			// records that the result is intentionally discarded.
-			(void)StopSound(handle);
-		}
+			ReleaseSound(handle);
 	}
 
 	uint32_t AudioEngine::GetActiveSoundCount()
