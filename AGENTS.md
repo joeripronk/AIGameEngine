@@ -531,9 +531,25 @@ serialized by name. An unrecognised name in a scene file falls back to the
 default rather than failing the load.
 
 Authoring is available both ways. `EditorContext` drives it from an agent, and
-the Inspector renders every authored field with a Scene > Create Audio Source
-item — there is no generic Add Component menu, so a component the GUI does not
-render is a component the GUI cannot create.
+the Inspector renders every authored field, with generic **Add Component** /
+**Remove Component** menus plus a Scene > Create Audio Source item. ID, Tag and
+Transform are never offered for removal: the engine reads them unconditionally
+(`GetName`, `GetUUID`, the gizmo), so removing one would leave an entity in a
+state nothing else handles.
+
+### Removing a component releases what it owns
+
+Removal is not the absence of an addition. `AddComponent` runs
+`Scene::OnComponentAdded`, which builds a physics body when physics is active;
+`RemoveComponent` runs `Scene::OnComponentRemoved`, which releases it. Skipping
+the hook left the `PhysicsBody` alive, holding the old collider's dimensions and
+still colliding with them — and left `RigidbodyComponent::RuntimeBody` dangling,
+so the next `EnsurePhysicsBody` believed the entity already had a body.
+
+The hook fires *before* the erase, while the Scene can still see the component.
+Physics-bearing components declare an explicit specialisation in `Scene.h`; the
+no-op primary lives in `Entity.h` because defining it needs a complete `Entity`
+(`Scene.h` only forward-declares it).
 
 ### 3D positional audio
 

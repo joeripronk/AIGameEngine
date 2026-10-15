@@ -32,6 +32,9 @@ namespace Forge {
 		void DrawPropertiesPanel();
 		void DrawGizmoToolbar();
 
+		// Add/remove component menus for the selected entity.
+		void DrawComponentMenu(Entity& entity);
+
 		// Surfaces the result of a user-initiated action (save, export). Without
 		// this the UI silently discards failures: a failed export would leave the
 		// user believing they had a distributable game.

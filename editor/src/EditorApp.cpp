@@ -329,6 +329,13 @@ namespace Forge {
 			entity.GetComponent<TagComponent>().Tag = nameBuffer;
 
 		ImGui::Separator();
+
+		// Generic add/remove. Without this, a component is only obtainable
+		// through a purpose-built "Create ..." item, so anything not covered by
+		// one of those menus cannot be authored in the GUI at all.
+		DrawComponentMenu(entity);
+
+		ImGui::Separator();
 		ImGui::Text("Transform");
 
 		auto& tc = entity.GetComponent<TransformComponent>();
@@ -453,6 +460,69 @@ namespace Forge {
 		}
 
 		ImGui::End();
+	}
+
+	// Adds a component the entity does not already have, or removes one it does.
+	//
+	// ID, Tag and Transform are structural: the engine assumes every entity has
+	// them (GetName, GetUUID and the gizmo all read them unconditionally), so
+	// removing one would leave the entity in a state nothing else handles. They
+	// are excluded from removal and never offered for addition.
+	template<typename T>
+	static void OfferAddComponent(Entity& entity, const char* label)
+	{
+		if (entity.HasComponent<T>())
+			return;
+
+		if (ImGui::MenuItem(label))
+			entity.AddComponent<T>();
+	}
+
+	template<typename T>
+	static void OfferRemoveComponent(Entity& entity, const char* label)
+	{
+		if (!entity.HasComponent<T>())
+			return;
+
+		if (ImGui::MenuItem(label))
+			entity.RemoveComponent<T>();
+	}
+
+	void EditorApp::DrawComponentMenu(Entity& entity)
+	{
+		if (ImGui::BeginMenu("Add Component"))
+		{
+			OfferAddComponent<CameraComponent>(entity, "Camera");
+			OfferAddComponent<LightComponent>(entity, "Light");
+			OfferAddComponent<PBRMaterialComponent>(entity, "PBR Material");
+			OfferAddComponent<MeshComponent>(entity, "Mesh");
+			OfferAddComponent<ScriptComponent>(entity, "Script");
+			OfferAddComponent<AudioSourceComponent>(entity, "Audio Source");
+			OfferAddComponent<EnvironmentMapComponent>(entity, "Environment Map");
+			ImGui::Separator();
+			OfferAddComponent<RigidbodyComponent>(entity, "Rigidbody");
+			OfferAddComponent<BoxColliderComponent>(entity, "Box Collider");
+			OfferAddComponent<SphereColliderComponent>(entity, "Sphere Collider");
+
+			ImGui::EndMenu();
+		}
+
+		if (ImGui::BeginMenu("Remove Component"))
+		{
+			OfferRemoveComponent<CameraComponent>(entity, "Camera");
+			OfferRemoveComponent<LightComponent>(entity, "Light");
+			OfferRemoveComponent<PBRMaterialComponent>(entity, "PBR Material");
+			OfferRemoveComponent<MeshComponent>(entity, "Mesh");
+			OfferRemoveComponent<ScriptComponent>(entity, "Script");
+			OfferRemoveComponent<AudioSourceComponent>(entity, "Audio Source");
+			OfferRemoveComponent<EnvironmentMapComponent>(entity, "Environment Map");
+			ImGui::Separator();
+			OfferRemoveComponent<RigidbodyComponent>(entity, "Rigidbody");
+			OfferRemoveComponent<BoxColliderComponent>(entity, "Box Collider");
+			OfferRemoveComponent<SphereColliderComponent>(entity, "Sphere Collider");
+
+			ImGui::EndMenu();
+		}
 	}
 
 	void EditorApp::DrawViewportPanel()

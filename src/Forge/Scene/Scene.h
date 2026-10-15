@@ -128,6 +128,11 @@ namespace Forge {
 		// would otherwise never become physical until the next play.
 		void EnsurePhysicsBody(Entity entity);
 
+		// Tears down an entity's physics body, if it has one, and clears the
+		// RigidbodyComponent's pointer to it. Used when the entity is destroyed
+		// and when a physics-bearing component is removed.
+		void ReleasePhysicsBody(Entity entity);
+
 		// Bridges a raw PhysicsBody pair to the owning entities and dispatches to
 		// any registered Scene-level handlers. Static for the callback signature;
 		// the active Scene is tracked in s_CollisionDispatchScene.
@@ -141,6 +146,20 @@ namespace Forge {
 
 		template<typename T>
 		void OnComponentAdded(Entity entity, T& component);
+
+		// Called before a component is erased from the registry.
+		//
+		// Removal is not simply the absence of an addition: a collider or
+		// rigidbody removed mid-simulation owns a live PhysicsBody, and erasing
+		// the component without releasing it leaves the world colliding with
+		// dimensions that no longer exist.
+		//
+		// Components that own engine resources declare their specialisation just
+		// after this class, at namespace scope. Everything else falls through to
+		// the no-op primary, which lives in Entity.h because it needs a complete
+		// Entity to be defined.
+		template<typename T>
+		void OnComponentRemoved(Entity entity, T& component);
 
 		void OnComponentAdded(Entity entity, EnvironmentMapComponent& component);
 		entt::registry m_Registry;
@@ -165,5 +184,19 @@ namespace Forge {
 		friend class Entity;
 		friend class SceneSerializer;
 	};
+
+	// Removal hooks for the components that own a physics body. Declared here,
+	// at namespace scope, so they are visible before any RemoveComponent<T>
+	// instantiates the primary template: a use seen before the declaration would
+	// implicitly instantiate the no-op instead, leaving the specialisation as a
+	// different body under the same name.
+	template<>
+	void Scene::OnComponentRemoved(Entity entity, RigidbodyComponent& component);
+
+	template<>
+	void Scene::OnComponentRemoved(Entity entity, BoxColliderComponent& component);
+
+	template<>
+	void Scene::OnComponentRemoved(Entity entity, SphereColliderComponent& component);
 
 }

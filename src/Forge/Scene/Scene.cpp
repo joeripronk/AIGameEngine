@@ -61,17 +61,30 @@ namespace Forge {
 	void Scene::DestroyEntity(Entity& entity)
 	{
 		// If the entity owns a physics body, release it first.
-		auto bodyIt = m_PhysicsBodies.find((entt::entity)entity);
-		if (bodyIt != m_PhysicsBodies.end())
-		{
-			Physics::RemoveBody(bodyIt->second);
-			m_PhysicsBodies.erase(bodyIt);
-		}
+		ReleasePhysicsBody(entity);
 
 		m_EntityMap.erase(entity.GetUUID());
 		m_Registry.destroy(entity);
 		// Invalidate the entity handle so it evaluates to false
 		entity.m_EntityHandle = entt::null;
+	}
+
+	void Scene::ReleasePhysicsBody(Entity entity)
+	{
+		auto bodyIt = m_PhysicsBodies.find((entt::entity)entity);
+		if (bodyIt == m_PhysicsBodies.end())
+			return;
+
+		Physics::RemoveBody(bodyIt->second);
+
+		// The body's RigidbodyComponent points at it, and that pointer has to
+		// be cleared too: leaving it dangling means the next EnsurePhysicsBody
+		// finds a non-null RuntimeBody for an entity whose body is gone.
+		if (auto* rb = m_Registry.try_get<RigidbodyComponent>((entt::entity)entity))
+			rb->RuntimeBody = nullptr;
+
+		s_BodyOwnerLookup.erase(bodyIt->second->ID);
+		m_PhysicsBodies.erase(bodyIt);
 	}
 
 	void Scene::OnRuntimeStart()
@@ -870,6 +883,27 @@ namespace Forge {
 	{
 		(void)component;
 		EnsurePhysicsBody(entity);
+	}
+
+	template<>
+	void Scene::OnComponentRemoved<RigidbodyComponent>(Entity entity, RigidbodyComponent& component)
+	{
+		(void)component;
+		ReleasePhysicsBody(entity);
+	}
+
+	template<>
+	void Scene::OnComponentRemoved<BoxColliderComponent>(Entity entity, BoxColliderComponent& component)
+	{
+		(void)component;
+		ReleasePhysicsBody(entity);
+	}
+
+	template<>
+	void Scene::OnComponentRemoved<SphereColliderComponent>(Entity entity, SphereColliderComponent& component)
+	{
+		(void)component;
+		ReleasePhysicsBody(entity);
 	}
 
 	template<>

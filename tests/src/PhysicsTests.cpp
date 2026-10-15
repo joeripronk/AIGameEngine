@@ -1353,3 +1353,106 @@ TEST_CASE("CCD defaults to disabled and can be toggled", "[physics][ccd]")
 
     Forge::Physics::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Component removal releases what the component owns
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Removing a collider mid-simulation releases its physics body", "[physics][removal]")
+{
+    Forge::Scene scene;
+
+    // A body that will later be knocked away, so a leaked body would keep
+    // colliding with something that no longer exists.
+    auto crate = scene.CreateEntity("Crate");
+    crate.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 5.0f, 0.0f };
+    auto& rb = crate.AddComponent<Forge::RigidbodyComponent>();
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    crate.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    auto floor = scene.CreateEntity("Floor");
+    floor.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, -1.0f, 0.0f };
+    auto& floorRb = floor.AddComponent<Forge::RigidbodyComponent>();
+    floorRb.Type = Forge::RigidbodyComponent::BodyType::Static;
+    floor.AddComponent<Forge::BoxColliderComponent>().Size = { 20.0f, 1.0f, 20.0f };
+
+    REQUIRE_NOTHROW(scene.OnPhysicsStart());
+
+    // Both entities are physical and own a body.
+    REQUIRE(rb.RuntimeBody != nullptr);
+    REQUIRE(floorRb.RuntimeBody != nullptr);
+
+    // Removing the collider has to tear the body down. Before this existed,
+    // RemoveComponent only erased the component, so the body survived holding
+    // the old shape and kept colliding with it.
+    crate.RemoveComponent<Forge::BoxColliderComponent>();
+    REQUIRE_FALSE(crate.HasComponent<Forge::BoxColliderComponent>());
+    REQUIRE(rb.RuntimeBody == nullptr);
+
+    // The rest of the world must still simulate without it.
+    REQUIRE_NOTHROW(scene.OnUpdateSimulation(Forge::Timestep(0.016f)));
+    REQUIRE_NOTHROW(scene.OnUpdateSimulation(Forge::Timestep(0.016f)));
+
+    // Adding a collider back builds a fresh body rather than resurrecting the
+    // released one.
+    crate.AddComponent<Forge::BoxColliderComponent>().Size = { 2.0f, 2.0f, 2.0f };
+    REQUIRE(rb.RuntimeBody != nullptr);
+
+    REQUIRE_NOTHROW(scene.OnPhysicsStop());
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Removing a rigidbody releases its body and clears the back-pointer", "[physics][removal]")
+{
+    Forge::Scene scene;
+
+    auto box = scene.CreateEntity("Box");
+    box.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 3.0f, 0.0f };
+    auto& rb = box.AddComponent<Forge::RigidbodyComponent>();
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    box.AddComponent<Forge::SphereColliderComponent>().Radius = 0.5f;
+
+    REQUIRE_NOTHROW(scene.OnPhysicsStart());
+    REQUIRE(rb.RuntimeBody != nullptr);
+
+    box.RemoveComponent<Forge::RigidbodyComponent>();
+
+    REQUIRE_FALSE(box.HasComponent<Forge::RigidbodyComponent>());
+
+    // A dangling RuntimeBody would make the next EnsurePhysicsBody believe the
+    // entity already has a body, so it is part of the same contract.
+    REQUIRE(rb.RuntimeBody == nullptr);
+
+    // A collider without a rigidbody is not physical, and must not resurrect the
+    // released body. Simulating is what triggers EnsurePhysicsBody, so the step
+    // stands in for the explicit call.
+    REQUIRE_NOTHROW(scene.OnUpdateSimulation(Forge::Timestep(0.016f)));
+    REQUIRE(rb.RuntimeBody == nullptr);
+
+    REQUIRE_NOTHROW(scene.OnPhysicsStop());
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Destroying an entity releases its body", "[physics][removal]")
+{
+    Forge::Scene scene;
+
+    auto box = scene.CreateEntity("Box");
+    box.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 3.0f, 0.0f };
+    auto& rb = box.AddComponent<Forge::RigidbodyComponent>();
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    box.AddComponent<Forge::SphereColliderComponent>().Radius = 0.5f;
+
+    REQUIRE_NOTHROW(scene.OnPhysicsStart());
+    REQUIRE(rb.RuntimeBody != nullptr);
+
+    // DestroyEntity routes through the same release path, so the body must not
+    // outlive the entity that owned it.
+    REQUIRE_NOTHROW(scene.DestroyEntity(box));
+    REQUIRE(rb.RuntimeBody == nullptr);
+
+    REQUIRE_NOTHROW(scene.OnUpdateSimulation(Forge::Timestep(0.016f)));
+
+    REQUIRE_NOTHROW(scene.OnPhysicsStop());
+    Forge::Physics::Shutdown();
+}
