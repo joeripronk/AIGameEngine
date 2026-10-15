@@ -193,6 +193,28 @@ namespace Forge {
 		// spatial gain are applied.
 		static float ComputeBusGain(AudioBus bus);
 
+		// --- Gapless looping ---
+		//
+		// A looping sound needs the LOOPING flag on its data source, not just
+		// ma_sound_set_looping(). Without it the resource manager stops filling
+		// its buffer at the end of the clip, so the wrap is discontinuous and
+		// audible as a seam - the classic "click between loops" defect.
+		//
+		// Streaming interacts with this: the resource manager must pre-fill its
+		// buffer at init, and streaming a very short clip glitches for exactly
+		// that reason. So short clips are buffered whole regardless of size, and
+		// only larger ones are streamed.
+
+		// Files larger than this are streamed; smaller ones are buffered whole.
+		// Default 4 MB, which covers typical sound effects comfortably while
+		// keeping long music out of memory.
+		static void SetStreamingThreshold(uint64_t bytes) { s_StreamingThreshold = bytes; }
+		static uint64_t GetStreamingThreshold() { return s_StreamingThreshold; }
+
+		// Whether a clip of this size and loop setting should be streamed.
+		// Pure, so the policy is testable without a device.
+		[[nodiscard]] static bool ShouldStream(uint64_t fileSizeBytes, bool loop);
+
 		// --- 3D audio ---
 		//
 		// Spatialisation is computed here rather than delegated to miniaudio,
@@ -279,6 +301,7 @@ namespace Forge {
 		static ma_engine* s_Engine;
 		static float s_MasterVolume;
 		static float s_FadeDuration;
+		static uint64_t s_StreamingThreshold;
 		static float s_BusVolumes[static_cast<size_t>(AudioBus::Count)];
 		static ListenerState s_Listener;
 		static std::unordered_map<SoundHandle, PlayingSound> s_Sounds;

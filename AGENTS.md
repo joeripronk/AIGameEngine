@@ -352,6 +352,25 @@ a second `StopSound` on the same handle returns false, letting callers tell
 (shutdown, leaving playback) and sounds must not outlive the scene that owns
 them.
 
+### Gapless looping
+
+A looping sound needs `MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING` on its data
+source, **not** just `ma_sound_set_looping()`. Without the flag the resource
+manager stops filling its buffer at the end of the clip, so the wrap is
+discontinuous and audible as a seam — the classic click between loops.
+
+Streaming interacts with this: the resource manager pre-fills its buffer at
+init, and streaming a clip shorter than that fill glitches audibly. So short
+clips are buffered whole and only larger ones are streamed:
+
+```cpp
+AudioEngine::SetStreamingThreshold(4ull << 20);   // 4 MB
+AudioEngine::PlaySound("music.ogg", 1.0f, 1.0f, /*loop*/ true, &handle);
+```
+
+`ShouldStream(size, loop)` is the pure policy function, so the rule is testable
+without a device.
+
 ### Mixing buses
 
 Sounds route through one of five buses — `Master`, `Music`, `SFX`, `Voice`,

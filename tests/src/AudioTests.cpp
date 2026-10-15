@@ -1137,3 +1137,196 @@ TEST_CASE("Lua PlaySound accepts a bus name and rejects a bad one", "[scripting]
 
 	Forge::ScriptEngine::Shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// Gapless looping
+//
+// A looping sound needs the LOOPING flag on its data source, not just
+// ma_sound_set_looping(); without it the resource manager stops filling its
+// buffer at the end of the clip and the wrap is audible as a seam.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Short clips are buffered rather than streamed", "[audio][loop]")
+{
+	using Forge::AudioEngine;
+
+	const uint64_t threshold = AudioEngine::GetStreamingThreshold();
+	REQUIRE(threshold > 0);
+
+	// A short sound effect must be buffered whole: the resource manager
+	// pre-fills its stream buffer at init, and streaming something shorter than
+	// that fill glitches audibly.
+	REQUIRE(AudioEngine::ShouldStream(0, false) == false);
+	REQUIRE(AudioEngine::ShouldStream(1024, false) == false);
+	REQUIRE(AudioEngine::ShouldStream(threshold, false) == false);
+	REQUIRE(AudioEngine::ShouldStream(threshold - 1, false) == false);
+}
+
+TEST_CASE("Large clips are streamed", "[audio][loop]")
+{
+	using Forge::AudioEngine;
+
+	const uint64_t threshold = AudioEngine::GetStreamingThreshold();
+
+	// Long music should not be held entirely in memory.
+	REQUIRE(AudioEngine::ShouldStream(threshold + 1, false) == true);
+	REQUIRE(AudioEngine::ShouldStream(threshold * 10, false) == true);
+}
+
+TEST_CASE("Short looping clips are still buffered", "[audio][loop]")
+{
+	using Forge::AudioEngine;
+
+	const uint64_t threshold = AudioEngine::GetStreamingThreshold();
+
+	// This is the case that actually matters for gapless looping: streaming a
+	// short loop produces a glitch, so it must be buffered even though it loops.
+	REQUIRE(AudioEngine::ShouldStream(4096, true) == false);
+	REQUIRE(AudioEngine::ShouldStream(threshold - 1, true) == false);
+	REQUIRE(AudioEngine::ShouldStream(threshold + 1, true) == true);
+}
+
+TEST_CASE("Streaming threshold is configurable", "[audio][loop]")
+{
+	using Forge::AudioEngine;
+
+	const uint64_t original = AudioEngine::GetStreamingThreshold();
+
+	AudioEngine::SetStreamingThreshold(1024);
+	REQUIRE(AudioEngine::GetStreamingThreshold() == 1024);
+	REQUIRE(AudioEngine::ShouldStream(2048, false) == true);
+	REQUIRE(AudioEngine::ShouldStream(512, false) == false);
+
+	// A zero threshold means everything streams; it must not divide by zero or
+	// misbehave.
+	AudioEngine::SetStreamingThreshold(0);
+	REQUIRE(AudioEngine::GetStreamingThreshold() == 0);
+	REQUIRE(AudioEngine::ShouldStream(1, false) == true);
+
+	AudioEngine::SetStreamingThreshold(original);
+	REQUIRE(AudioEngine::GetStreamingThreshold() == original);
+}
+
+TEST_CASE("A looping sound starts and keeps playing", "[audio][loop]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; looping playback requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_loop.wav", 48000, 0.5);
+
+	Forge::AudioEngine::SoundHandle handle = Forge::AudioEngine::InvalidSound;
+	REQUIRE(Forge::AudioEngine::PlaySound(wav, 1.0f, 1.0f, /*loop*/ true, &handle));
+
+	// Let real audio time pass so the clip has certainly run past its end. A
+	// non-looping sound would have finished by now; a looping one has not.
+	std::this_thread::sleep_for(std::chrono::milliseconds(700));
+
+	REQUIRE(Forge::AudioEngine::IsValidSound(handle));
+	REQUIRE(Forge::AudioEngine::IsSoundPlaying(handle) == true);
+
+	Forge::AudioEngine::StopAllSounds();
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("A non-looping short sound ends on its own", "[audio][loop]")
+{
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; one-shot playback requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_oneshot.wav", 48000, 0.2);
+
+	Forge::AudioEngine::SoundHandle handle = Forge::AudioEngine::InvalidSound;
+	REQUIRE(Forge::AudioEngine::PlaySound(wav, 1.0f, 1.0f, /*loop*/ false, &handle));
+
+	// Past the clip's end, a one-shot must have stopped.
+	std::this_thread::sleep_for(std::chrono::milliseconds(500));
+	REQUIRE(Forge::AudioEngine::IsSoundPlaying(handle) == false);
+
+	Forge::AudioEngine::StopAllSounds();
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("The Scene keeps a looping source alive across frames", "[audio][loop][scene]")
+{
+	Forge::Log::Init();
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; scene looping requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_scene_loop.wav", 48000, 0.2);
+
+	Forge::Scene scene;
+	auto music = scene.CreateEntity("Music");
+	auto& audio = music.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = wav;
+	audio.Loop = true;
+	audio.PlayOnStart = true;
+	audio.Bus = Forge::AudioBus::Music;
+
+	scene.OnRuntimeStart();
+	REQUIRE(audio.SoundHandle != Forge::AudioEngine::InvalidSound);
+
+	// Many frames, far longer than the clip: a looping source must never be
+	// reclaimed as though it had finished.
+	for (int i = 0; i < 120; i++)
+	{
+		scene.OnUpdateRuntime(Forge::Timestep(1.0f / 60.0f));
+		REQUIRE(audio.SoundHandle != Forge::AudioEngine::InvalidSound);
+		REQUIRE(audio.Finished == false);
+	}
+
+	scene.OnRuntimeStop();
+	REQUIRE(audio.SoundHandle == Forge::AudioEngine::InvalidSound);
+
+	Forge::AudioEngine::Shutdown();
+}
+
+TEST_CASE("The Scene reclaims a finished one-shot", "[audio][loop][scene]")
+{
+	Forge::Log::Init();
+	Forge::AudioEngine::Shutdown();
+
+	if (!Forge::AudioEngine::Init())
+	{
+		SUCCEED("No audio device; one-shot reclaim requires one to verify");
+		return;
+	}
+
+	const std::string wav = WriteSineWav(AudioFixtureDir() + "tone_scene_oneshot.wav", 48000, 0.15);
+
+	Forge::Scene scene;
+	auto sfx = scene.CreateEntity("Blip");
+	auto& audio = sfx.AddComponent<Forge::AudioSourceComponent>();
+	audio.SourcePath = wav;
+	audio.Loop = false;
+	audio.PlayOnStart = true;
+
+	scene.OnRuntimeStart();
+	REQUIRE(audio.SoundHandle != Forge::AudioEngine::InvalidSound);
+
+	// Past the clip's end the source must release its handle rather than
+	// holding a finished sound for the whole session.
+	std::this_thread::sleep_for(std::chrono::milliseconds(400));
+	for (int i = 0; i < 5; i++)
+		scene.OnUpdateRuntime(Forge::Timestep(1.0f / 60.0f));
+
+	REQUIRE(audio.SoundHandle == Forge::AudioEngine::InvalidSound);
+	REQUIRE(audio.Finished == true);
+
+	scene.OnRuntimeStop();
+	Forge::AudioEngine::Shutdown();
+}

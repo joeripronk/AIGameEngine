@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <filesystem>
+#include <system_error>
 
 namespace Forge {
 
@@ -14,12 +16,24 @@ namespace Forge {
 	float AudioEngine::s_MasterVolume = 1.0f;
 	AudioEngine::ListenerState AudioEngine::s_Listener{};
 	float AudioEngine::s_FadeDuration = 0.02f;
+	uint64_t AudioEngine::s_StreamingThreshold = 4ull * 1024ull * 1024ull;   // 4 MB
 
 	// Every bus starts at full volume.
 	float AudioEngine::s_BusVolumes[static_cast<size_t>(AudioBus::Count)] =
 	{
 		1.0f, 1.0f, 1.0f, 1.0f, 1.0f
 	};
+
+	// --- Gapless looping ---------------------------------------------------
+
+	bool AudioEngine::ShouldStream(uint64_t fileSizeBytes, bool loop)
+	{
+		// Below the threshold the whole clip is buffered. This matters most for
+		// looping clips: the resource manager pre-fills its buffer at init, and
+		// streaming something shorter than that fill glitches audibly.
+		(void)loop;
+		return fileSizeBytes > s_StreamingThreshold;
+	}
 
 	// --- Mixing buses ------------------------------------------------------
 
@@ -330,7 +344,17 @@ namespace Forge {
 		config.pFilePath = filepath.c_str();
 		config.channelsIn = 0;   // use the engine's channel count
 		config.channelsOut = 0;  // use the engine's channel count
-		config.isLooping = loop ? 1 : 0;
+
+		// The LOOPING flag is what makes the wrap gapless. Setting only
+		// ma_sound_set_looping() leaves the resource manager stopping its buffer
+		// fill at the end of the clip, which is audible as a seam.
+		if (loop)
+			config.flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_LOOPING;
+
+		std::error_code fileError;
+		const uintmax_t fileSize = std::filesystem::file_size(filepath, fileError);
+		if (!fileError && ShouldStream(static_cast<uint64_t>(fileSize), loop))
+			config.flags |= MA_RESOURCE_MANAGER_DATA_SOURCE_FLAG_STREAM;
 
 		// Ramp volume changes instead of stepping them, which is what removes
 		// the click when a source's volume or spatial gain changes mid-playback.
