@@ -186,6 +186,31 @@ namespace Forge {
 				Renderer::BeginSSAOPass();
 				Renderer::BeginHDRPass();
 				Renderer::BeginFinalPass();
+
+				// Render ImGui into the command list BEFORE it is closed.
+				// GetCurrentCommandBuffer() is only valid between BeginScene()
+				// and EndScene().
+				ImGui_ImplGlfw_NewFrame();
+				ImGui_ImplVulkan_NewFrame();
+				ImGui::NewFrame();
+
+				DrawMenuBar();
+				DrawGizmoToolbar();
+				DrawGizmoInteraction();
+				DrawHierarchyPanel();
+				DrawInspectorPanel();
+				DrawViewportPanel();
+				DrawAssetBrowserPanel();
+				DrawPropertiesPanel();
+
+				// Drawn last so it sits above every other panel.
+				DrawNotification();
+
+				ImGui::Render();
+				VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
+				if (cmdBuf != VK_NULL_HANDLE)
+					ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
+
 				// EndFinalPass is a no-op (the final pass is the last render
 				// pass; EndScene closes the command list).
 				Renderer::EndScene();
@@ -196,27 +221,6 @@ namespace Forge {
 
 			GetWindowScope()->OnUpdate();
 			ExecuteMainThreadQueue();
-
-			ImGui_ImplGlfw_NewFrame();
-			ImGui_ImplVulkan_NewFrame();
-			ImGui::NewFrame();
-
-			DrawMenuBar();
-			DrawGizmoToolbar();
-			DrawGizmoInteraction();
-			DrawHierarchyPanel();
-			DrawInspectorPanel();
-			DrawViewportPanel();
-			DrawAssetBrowserPanel();
-			DrawPropertiesPanel();
-
-			// Drawn last so it sits above every other panel.
-			DrawNotification();
-
-			ImGui::Render();
-			VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
-			if (cmdBuf != VK_NULL_HANDLE)
-				ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
 		}
 	}
 

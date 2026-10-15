@@ -38,6 +38,7 @@ namespace Forge {
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = buffer;
 			item.slot = slot;
+			item.arrayElement = 0;
 			item.type = nvrhi::ResourceType::ConstantBuffer;
 			item.range = nvrhi::BufferRange(0, 0);   // whole buffer
 			return item;
@@ -48,6 +49,7 @@ namespace Forge {
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = texture;
 			item.slot = slot;
+			item.arrayElement = 0;
 			item.type = nvrhi::ResourceType::Texture_SRV;
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			// The SRV must name a concrete view format; an UNKNOWN value makes
@@ -158,6 +160,11 @@ namespace Forge {
 		samplerDesc.setMaxAnisotropy(1.0f);
 		samplerDesc.setBorderColor(nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
 		m_LinearSampler = device->createSampler(samplerDesc);
+		if (!m_LinearSampler.Get())
+		{
+			FG_CORE_WARN("PbrRenderer: failed to create linear sampler");
+			return false;
+		}
 
 		// 1x1 white fallback: sampling it multiplies the albedo by 1.
 		nvrhi::TextureDesc whiteDesc;
@@ -663,6 +670,11 @@ namespace Forge {
 		shadowSamplerDesc.setMipFilter(true);
 		shadowSamplerDesc.setBorderColor(nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
 		m_ShadowSampler = device->createSampler(shadowSamplerDesc);
+		if (!m_ShadowSampler.Get())
+		{
+			FG_CORE_WARN("PbrRenderer: failed to create shadow sampler");
+			return false;
+		}
 
 		return true;
 	}

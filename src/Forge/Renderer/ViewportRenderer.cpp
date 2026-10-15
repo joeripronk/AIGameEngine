@@ -65,8 +65,8 @@ namespace Forge {
 		camera.ViewMatrix = glm::inverse(translation * rotation);
 		camera.ViewProjectionMatrix = camera.ProjectionMatrix * camera.ViewMatrix;
 
-		// Begin scene rendering
-		Renderer::BeginScene();
+		// Note: We don't call BeginScene/EndScene here because the viewport is rendered
+		// within the main render pass (EditorApp::Run) which already has an open command buffer.
 
 		// Set view projection matrix in shader
 		auto pbrShader = Renderer::GetShaderLibrary().Get("PBR");
@@ -92,9 +92,6 @@ namespace Forge {
 			// TODO: Render default cube with PBR material
 			(void)transformComp;
 		}
-
-		// End scene rendering
-		Renderer::EndScene();
 	}
 
 	void ViewportRenderer::CreateRenderTargets()

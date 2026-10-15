@@ -351,12 +351,14 @@ namespace Forge {
 		}
 
 		// Hand the low-level objects to nvrhi to build its rendering device.
-		nvrhi::vulkan::DeviceDesc deviceDesc;
+		nvrhi::vulkan::DeviceDesc deviceDesc = {};
 		deviceDesc.instance = s_Instance;
 		deviceDesc.physicalDevice = s_PhysicalDevice;
 		deviceDesc.device = s_LogicalDevice;
 		deviceDesc.graphicsQueue = s_GraphicsQueue;
 		deviceDesc.graphicsQueueIndex = (int)s_GraphicsQueueIndex;
+		deviceDesc.transferQueue = VK_NULL_HANDLE;
+		deviceDesc.computeQueue = VK_NULL_HANDLE;
 		deviceDesc.errorCB = &s_NvrhiMessageCallback;
 
 		s_Device = nvrhi::vulkan::createDevice(deviceDesc);
@@ -824,6 +826,7 @@ namespace Forge {
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = texture;
 			item.slot = slot;
+			item.arrayElement = 0;
 			item.type = nvrhi::ResourceType::Texture_SRV;
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = texture->getDesc().format;
@@ -836,6 +839,7 @@ namespace Forge {
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = sampler;
 			item.slot = slot;
+			item.arrayElement = 0;
 			item.type = nvrhi::ResourceType::Sampler;
 			return item;
 		}
@@ -845,6 +849,7 @@ namespace Forge {
 			nvrhi::BindingSetItem item{};
 			item.resourceHandle = buffer;
 			item.slot = slot;
+			item.arrayElement = 0;
 			item.type = nvrhi::ResourceType::ConstantBuffer;
 			item.range = nvrhi::BufferRange(0, 0);
 			return item;
@@ -871,6 +876,9 @@ namespace Forge {
 			auto device = VulkanRendererAPI::GetStaticDevice();
 
 			// Vertex buffer (4 vertices * 16 bytes = 64 bytes).
+			// Keep the RefCountPtr alive until after writeBuffer;
+			// converting to raw pointer first would release the buffer.
+			nvrhi::RefCountPtr<nvrhi::IBuffer> vbo;
 			if (!outVBO)
 			{
 				nvrhi::BufferDesc vboDesc;
@@ -878,10 +886,12 @@ namespace Forge {
 				vboDesc.debugName = "FullscreenQuad_VBO";
 				vboDesc.keepInitialState = true;
 				vboDesc.initialState = nvrhi::ResourceStates::VertexBuffer;
-				outVBO = device->createBuffer(vboDesc);
+				vbo = device->createBuffer(vboDesc);
+				outVBO = vbo.Get();
 			}
 
 			// Index buffer (6 indices * 4 bytes = 24 bytes).
+			nvrhi::RefCountPtr<nvrhi::IBuffer> ibo;
 			if (!outIBO)
 			{
 				nvrhi::BufferDesc iboDesc;
@@ -889,7 +899,8 @@ namespace Forge {
 				iboDesc.debugName = "FullscreenQuad_IBO";
 				iboDesc.keepInitialState = true;
 				iboDesc.initialState = nvrhi::ResourceStates::IndexBuffer;
-				outIBO = device->createBuffer(iboDesc);
+				ibo = device->createBuffer(iboDesc);
+				outIBO = ibo.Get();
 			}
 
 			// Upload on first use.
@@ -900,11 +911,10 @@ namespace Forge {
 		nvrhi::IBuffer* s_FullscreenVBO = nullptr;
 		nvrhi::IBuffer* s_FullscreenIBO = nullptr;
 
-		void DrawFullscreenQuad(nvrhi::ICommandList* commandList)
+		void DrawFullscreenQuad(nvrhi::ICommandList* commandList, nvrhi::GraphicsState& state)
 		{
 			UploadFullscreenQuad(commandList, s_FullscreenVBO, s_FullscreenIBO);
 
-			nvrhi::GraphicsState state;
 			state.vertexBuffers.push_back(nvrhi::VertexBufferBinding(s_FullscreenVBO, 0, 16));
 			nvrhi::IndexBufferBinding ibo;
 			ibo.buffer = s_FullscreenIBO;
@@ -920,9 +930,26 @@ namespace Forge {
 		}
 	}
 
+		// Helper: create a binding set in a separate function to avoid the compiler
+	// placing the commandList parameter at the same stack slot as the binding
+	// set descriptor's vector data pointer (which crashes in RefCountPtr's
+	// copy constructor when createBindingSet returns).
+	namespace {
+		nvrhi::BindingSetHandle CreateBindingSet(
+			nvrhi::IDevice* device,
+			const nvrhi::BindingSetDesc& desc,
+			nvrhi::IBindingLayout* layout)
+		{
+			return device->createBindingSet(desc, layout);
+		}
+	}
+
 	void VulkanRendererAPI::RenderSSAOPass(nvrhi::ICommandList* commandList, nvrhi::TextureHandle depthTexture, const glm::mat4& invViewProj)
 	{
 		if (!s_SSAOPipeline || !s_SSAOBindingLayout || !commandList)
+			return;
+
+		if (!s_SSAOInput)
 			return;
 
 		// The depth texture must be valid; a null handle would cause a
@@ -947,47 +974,64 @@ namespace Forge {
 		// Create the SSAO binding set with combined sampler for depth texture.
 		nvrhi::BindingSetDesc ssaoSetDesc;
 
+		// Capture depth texture handle early to avoid dangling reference.
+		nvrhi::TextureHandle captureDepth = depthTexture;
+
+		// Linear sampler for depth reconstruction (created before the
+		// inner block so it stays alive until CreateBindingSet is done).
+		nvrhi::SamplerDesc samplerDesc;
+		samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.setMinFilter(true);
+		samplerDesc.setMagFilter(true);
+		samplerDesc.setMipFilter(true);
+		samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+		nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
+		if (!ssaoSampler.Get())
+		{
+			FG_CORE_WARN("SSAO: failed to create sampler");
+			return;
+		}
+
 		// Combined sampler2D for depth texture.
+		// Capture the sampler handle BEFORE adding to bindings to prevent
+		// the raw pointer from becoming stale during createBindingSet.
+		nvrhi::SamplerHandle captureSSAOSampler = ssaoSampler;
 		{
 			nvrhi::BindingSetItem item{};
-			item.resourceHandle = depthTexture.Get();
+			item.resourceHandle = captureDepth.Get();
 			item.slot = 0;
+			item.arrayElement = 0;
 			item.type = nvrhi::ResourceType::Texture_SRV;
 			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = depthTexture->getDesc().format;
+			item.format = captureDepth->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			// Linear sampler for depth reconstruction.
-			nvrhi::SamplerDesc samplerDesc;
-			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.setMinFilter(true);
-			samplerDesc.setMagFilter(true);
-			samplerDesc.setMipFilter(true);
-			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-			nvrhi::SamplerHandle ssaoSampler = s_Device->createSampler(samplerDesc);
-			if (!ssaoSampler.Get())
-			{
-				FG_CORE_WARN("SSAO: failed to create sampler");
-				return;
-			}
-			nvrhi::BindingSetItem ssaoSamplerItem{};
-			ssaoSamplerItem.resourceHandle = ssaoSampler.Get();
-			ssaoSamplerItem.slot = 0;
-			ssaoSamplerItem.type = nvrhi::ResourceType::Sampler;
 			ssaoSetDesc.bindings.push_back(item);
-			ssaoSetDesc.bindings.push_back(ssaoSamplerItem);
+			
+			nvrhi::BindingSetItem samplerItem{};
+			samplerItem.resourceHandle = captureSSAOSampler.Get();
+			samplerItem.slot = 0;
+			samplerItem.arrayElement = 0;
+			samplerItem.type = nvrhi::ResourceType::Sampler;
+			ssaoSetDesc.bindings.push_back(samplerItem);
 		}
 
 		if (s_SSAOUniformBuffer.Get())
 			ssaoSetDesc.bindings.push_back(MakeConstantBufferItem(s_SSAOUniformBuffer.Get(), 1));
 
-		nvrhi::BindingSetHandle ssaoSet = s_Device->createBindingSet(ssaoSetDesc, s_SSAOBindingLayout);
-		if (!ssaoSet)
+		// Helper function with its own stack frame prevents commandList from
+		// overlapping ssaoSetDesc.bindings.data (the compiler was placing
+		// commandList at the same stack slot as the vector's data pointer).
+		// Separate scope forces a distinct stack slot from commandList.
 		{
-			FG_CORE_WARN("SSAO: failed to create binding set");
-			return;
-		}
+			nvrhi::BindingSetHandle ssaoSet = CreateBindingSet(
+			    s_Device, ssaoSetDesc, s_SSAOBindingLayout);
+			if (!ssaoSet)
+			{
+				FG_CORE_WARN("SSAO: failed to create binding set");
+				return;
+			}
 
 		// Record the SSAO draw.
 		nvrhi::GraphicsState state;
@@ -998,12 +1042,16 @@ namespace Forge {
 		state.pipeline = s_SSAOPipeline.Get();
 		state.bindings.push_back(ssaoSet.Get());
 
-		DrawFullscreenQuad(commandList);
+		DrawFullscreenQuad(commandList, state);
+		}
 	}
 
 	void VulkanRendererAPI::RenderHDRPass(nvrhi::ICommandList* commandList)
 	{
 		if (!s_HDRPipeline || !s_HDRBindingLayout || !commandList)
+			return;
+
+		if (!s_HDRBuffer || !s_TonemappedFramebuffer)
 			return;
 
 		// Upload HDR uniform buffer (exposure).
@@ -1016,6 +1064,28 @@ namespace Forge {
 		// Create the HDR binding set with combined sampler for HDR buffer.
 		nvrhi::BindingSetDesc hdrSetDesc;
 
+		if (!s_HDRBuffer)
+		{
+			FG_CORE_WARN("HDR: HDR buffer is null");
+			return;
+		}
+
+		// Create sampler BEFORE the binding set is created, keep it alive.
+		nvrhi::SamplerDesc samplerDesc;
+		samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.setMinFilter(true);
+		samplerDesc.setMagFilter(true);
+		samplerDesc.setMipFilter(true);
+		samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+		nvrhi::SamplerHandle hdrSampler = s_Device->createSampler(samplerDesc);
+		if (!hdrSampler.Get())
+		{
+			FG_CORE_WARN("HDR: failed to create sampler");
+			return;
+		}
+
 		// Combined sampler2D for HDR buffer.
 		{
 			nvrhi::BindingSetItem item{};
@@ -1025,32 +1095,25 @@ namespace Forge {
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = s_HDRBuffer->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			nvrhi::SamplerDesc samplerDesc;
-			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.setMinFilter(true);
-			samplerDesc.setMagFilter(true);
-			samplerDesc.setMipFilter(true);
-			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-			nvrhi::SamplerHandle hdrSampler = s_Device->createSampler(samplerDesc);
-			nvrhi::BindingSetItem samplerItem{};
-			samplerItem.resourceHandle = hdrSampler.Get();
-			samplerItem.slot = 0;
-			samplerItem.type = nvrhi::ResourceType::Sampler;
+			// Inline the sampler binding item to avoid stack variable
+			// reordering corrupting hdrSampler's ptr_ member.
 			hdrSetDesc.bindings.push_back(item);
-			hdrSetDesc.bindings.push_back(samplerItem);
+			hdrSetDesc.bindings.push_back(MakeSamplerItem(hdrSampler.Get(), 0));
 		}
 
 		if (s_HDRUniformBuffer)
 			hdrSetDesc.bindings.push_back(MakeConstantBufferItem(s_HDRUniformBuffer.Get(), 1));
 
-		nvrhi::BindingSetHandle hdrSet = s_Device->createBindingSet(hdrSetDesc, s_HDRBindingLayout);
-		if (!hdrSet)
+		// Same helper for HDR pass.
+		// Separate scope forces a distinct stack slot from commandList.
 		{
-			FG_CORE_WARN("HDR: failed to create binding set");
-			return;
-		}
+			nvrhi::BindingSetHandle hdrSet = CreateBindingSet(
+			    s_Device, hdrSetDesc, s_HDRBindingLayout);
+			if (!hdrSet)
+			{
+				FG_CORE_WARN("HDR: failed to create binding set");
+				return;
+			}
 
 		// Record the HDR draw.
 		nvrhi::GraphicsState state;
@@ -1061,12 +1124,16 @@ namespace Forge {
 		state.pipeline = s_HDRPipeline.Get();
 		state.bindings.push_back(hdrSet.Get());
 
-		DrawFullscreenQuad(commandList);
+		DrawFullscreenQuad(commandList, state);
+		}
 	}
 
 	void VulkanRendererAPI::RenderFinalPass(nvrhi::ICommandList* commandList, nvrhi::FramebufferHandle swapchainFramebuffer)
 	{
 		if (!s_FinalPipeline || !s_FinalBindingLayout || !commandList)
+			return;
+
+		if (!swapchainFramebuffer)
 			return;
 
 		// Upload Final uniform buffer (SSAO intensity).
@@ -1079,6 +1146,28 @@ namespace Forge {
 		// Create the Final binding set with combined samplers.
 		nvrhi::BindingSetDesc finalSetDesc;
 
+		if (!s_TonemappedBuffer)
+		{
+			FG_CORE_WARN("Final: tonemapped buffer is null");
+			return;
+		}
+
+		// Create samplers BEFORE the binding set is created, keep them alive.
+		nvrhi::SamplerDesc samplerDesc;
+		samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.setMinFilter(true);
+		samplerDesc.setMagFilter(true);
+		samplerDesc.setMipFilter(true);
+		samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+		nvrhi::SamplerHandle tonemappedSampler = s_Device->createSampler(samplerDesc);
+		if (!tonemappedSampler.Get())
+		{
+			FG_CORE_WARN("Final: failed to create tonemapped sampler");
+			return;
+		}
+
 		// Combined sampler2D for tonemapped buffer.
 		{
 			nvrhi::BindingSetItem item{};
@@ -1088,21 +1177,32 @@ namespace Forge {
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = s_TonemappedBuffer->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			nvrhi::SamplerDesc samplerDesc;
-			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.setMinFilter(true);
-			samplerDesc.setMagFilter(true);
-			samplerDesc.setMipFilter(true);
-			samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-			nvrhi::SamplerHandle tonemappedSampler = s_Device->createSampler(samplerDesc);
-			nvrhi::BindingSetItem tonemappedSamplerItem{};
-			tonemappedSamplerItem.resourceHandle = tonemappedSampler.Get();
-			tonemappedSamplerItem.slot = 0;
-			tonemappedSamplerItem.type = nvrhi::ResourceType::Sampler;
+			// Inline the sampler binding item to avoid stack variable
+			// reordering corrupting tonemappedSampler's ptr_ member.
 			finalSetDesc.bindings.push_back(item);
-			finalSetDesc.bindings.push_back(tonemappedSamplerItem);
+			finalSetDesc.bindings.push_back(MakeSamplerItem(tonemappedSampler.Get(), 0));
+		}
+
+		if (!s_SSAOOutput)
+		{
+			FG_CORE_WARN("Final: SSAO output buffer is null (SSAO pass skipped)");
+			return;
+		}
+
+		// Create SSAO sampler outside the block to keep it alive.
+		nvrhi::SamplerDesc ssaoSamplerDesc;
+		ssaoSamplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+		ssaoSamplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+		ssaoSamplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+		ssaoSamplerDesc.setMinFilter(true);
+		ssaoSamplerDesc.setMagFilter(true);
+		ssaoSamplerDesc.setMipFilter(true);
+		ssaoSamplerDesc.setBorderColor(nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
+		nvrhi::SamplerHandle finalSampler = s_Device->createSampler(ssaoSamplerDesc);
+		if (!finalSampler.Get())
+		{
+			FG_CORE_WARN("Final: failed to create sampler");
+			return;
 		}
 
 		// Combined sampler2D for SSAO buffer.
@@ -1114,37 +1214,25 @@ namespace Forge {
 			item.dimension = nvrhi::TextureDimension::Texture2D;
 			item.format = s_SSAOOutput->getDesc().format;
 			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			nvrhi::SamplerDesc samplerDesc;
-			samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
-			samplerDesc.setMinFilter(true);
-			samplerDesc.setMagFilter(true);
-			samplerDesc.setMipFilter(true);
-			samplerDesc.setBorderColor(nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
-			nvrhi::SamplerHandle finalSampler = s_Device->createSampler(samplerDesc);
-			if (!finalSampler.Get())
-			{
-				FG_CORE_WARN("Final: failed to create sampler");
-				return;
-			}
-			nvrhi::BindingSetItem ssaoSamplerItem{};
-			ssaoSamplerItem.resourceHandle = finalSampler.Get();
-			ssaoSamplerItem.slot = 1;
-			ssaoSamplerItem.type = nvrhi::ResourceType::Sampler;
+			// Inline the SSAO sampler binding item to avoid stack variable
+			// reordering corrupting finalSampler's ptr_ member.
 			finalSetDesc.bindings.push_back(item);
-			finalSetDesc.bindings.push_back(ssaoSamplerItem);
+			finalSetDesc.bindings.push_back(MakeSamplerItem(finalSampler.Get(), 1));
 		}
 
 		if (s_FinalUniformBuffer.Get())
 			finalSetDesc.bindings.push_back(MakeConstantBufferItem(s_FinalUniformBuffer.Get(), 2));
 
-		nvrhi::BindingSetHandle finalSet = s_Device->createBindingSet(finalSetDesc, s_FinalBindingLayout);
-		if (!finalSet)
+		// Same helper for Final pass.
+		// Separate scope forces a distinct stack slot from commandList.
 		{
-			FG_CORE_WARN("Final: failed to create binding set");
-			return;
-		}
+			nvrhi::BindingSetHandle finalSet = CreateBindingSet(
+			    s_Device, finalSetDesc, s_FinalBindingLayout);
+			if (!finalSet)
+			{
+				FG_CORE_WARN("Final: failed to create binding set");
+				return;
+			}
 
 		// Record the Final draw.
 		nvrhi::GraphicsState state;
@@ -1155,7 +1243,8 @@ namespace Forge {
 		state.pipeline = s_FinalPipeline.Get();
 		state.bindings.push_back(finalSet.Get());
 
-		DrawFullscreenQuad(commandList);
+		DrawFullscreenQuad(commandList, state);
+		}
 	}
 
 }
