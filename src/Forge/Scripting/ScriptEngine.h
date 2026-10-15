@@ -32,6 +32,20 @@ namespace Forge {
 		static void OnUpdateEntity(Entity entity, Timestep ts);
 		static void OnDestroyEntity(Entity entity);
 
+		// Dispatches a physics contact into the entity's Lua script table,
+		// calling OnCollision (contact began) or OnCollisionEnd (contact ended)
+		// if the script defines it. Both are optional.
+		//
+		// Signature: OnCollision(other, nx, ny, nz)
+		//            OnCollisionEnd(other, nx, ny, nz)
+		// where `other` is nil if the partner body has no entity.
+		static void OnEntityCollision(Entity self, Entity other, const glm::vec3& normal, Physics::ContactPhase phase);
+
+		// Attaches this engine as the collision bridge for every scripted entity
+		// in `scene`, so Lua scripts receive contacts without per-entity setup.
+		// Safe to call before or after playback starts.
+		static void BindSceneCollisionHandlers(Scene* scene);
+
 		// The scene currently exposed to scripts (nullptr between runtimes).
 		static Scene* GetActiveScene() { return s_ActiveScene; }
 
@@ -59,7 +73,24 @@ namespace Forge {
 		// Returns the tostring() of a global variable (useful for tests/AI).
 		static std::string GetGlobalAsString(const std::string& name);
 
+		// Reads a field out of an entity's script table. This is how a script's
+		// own state (hit counters, last contact, and so on) becomes observable to
+		// tests, tools and AI agents without the script needing a special export.
+		//
+		// Returns false if the entity has no script, the field is absent, or the
+		// field is not a number/string.
+		static bool GetScriptNumber(Entity entity, const char* field, double& out);
+		static bool GetScriptString(Entity entity, const char* field, std::string& out);
+
+		// Writes a number into an entity's script table, so tools can drive a
+		// script's inputs the same way Lua would.
+		static bool SetScriptNumber(Entity entity, const char* field, double value);
+
 	private:
+		// Pushes the entity's script table onto the stack. Returns false (leaving
+		// the stack untouched) when there is no script for that entity.
+		static bool PushEntityScriptTable(Entity entity);
+
 		static void RegisterBindings();
 		static void ReleaseEntityScript(uint32_t entityID);
 

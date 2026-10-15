@@ -821,12 +821,42 @@ namespace Forge {
 
 			CallEntityFunction(entity, "OnCreate");
 		}
+
+		// Scripted entities receive physics contacts through this bridge, so
+		// authors get OnCollision/OnCollisionEnd without per-entity setup.
+		BindSceneCollisionHandlers(scene);
+	}
+
+	void ScriptEngine::BindSceneCollisionHandlers(Scene* scene)
+	{
+		if (!scene)
+			return;
+
+		auto view = scene->GetAllEntitiesWith<ScriptComponent>();
+		for (auto e : view)
+		{
+			Entity entity{ e, scene };
+			scene->SetCollisionHandler(entity, &ScriptEngine::OnEntityCollision);
+		}
 	}
 
 	void ScriptEngine::OnRuntimeStop()
 	{
 		if (!s_LuaState)
 			return;
+
+		// Detach the collision bridge before the script tables die, so a physics
+		// step that outlives the Lua state cannot dispatch into freed state.
+		if (s_ActiveScene)
+		{
+			for (auto& [id, ref] : s_EntityScripts)
+			{
+				(void)ref;
+				Entity entity{ static_cast<entt::entity>(id), s_ActiveScene };
+				if (entity)
+					s_ActiveScene->SetCollisionHandler(entity, nullptr);
+			}
+		}
 
 		// Tear down every script instance.
 		for (auto& [id, ref] : s_EntityScripts)
@@ -846,6 +876,10 @@ namespace Forge {
 	void ScriptEngine::OnCreateEntity(Entity entity)
 	{
 		CallEntityFunction(entity, "OnCreate");
+
+		// Entities spawned mid-simulation must also receive contacts.
+		if (s_ActiveScene && entity)
+			s_ActiveScene->SetCollisionHandler(entity, &ScriptEngine::OnEntityCollision);
 	}
 
 	void ScriptEngine::OnUpdateEntity(Entity entity, Timestep ts)
@@ -987,6 +1021,53 @@ namespace Forge {
 		return ok;
 	}
 
+	void ScriptEngine::OnEntityCollision(Entity self, Entity other, const glm::vec3& normal, Physics::ContactPhase phase)
+	{
+		if (!s_LuaState || !self)
+			return;
+
+		const char* functionName = phase == Physics::ContactPhase::Begin ? "OnCollision" : "OnCollisionEnd";
+
+		auto it = s_EntityScripts.find((uint32_t)(entt::entity)self);
+		if (it == s_EntityScripts.end())
+			return;
+
+		lua_State* L = s_LuaState;
+
+		lua_rawgeti(L, LUA_REGISTRYINDEX, it->second); // script table
+		if (!lua_istable(L, -1))
+		{
+			lua_pop(L, 1);
+			return;
+		}
+
+		lua_getfield(L, -1, functionName);
+		if (!lua_isfunction(L, -1))
+		{
+			// Scripts are not required to handle collisions.
+			lua_pop(L, 2);
+			return;
+		}
+
+		PushEntity(L, self);
+		if (other)
+			PushEntity(L, other);
+		else
+			lua_pushnil(L);
+
+		lua_pushnumber(L, normal.x);
+		lua_pushnumber(L, normal.y);
+		lua_pushnumber(L, normal.z);
+
+		if (lua_pcall(L, 5, 0, 0) != 0)
+		{
+			FG_CORE_ERROR("Lua error in {0}: {1}", functionName, lua_tostring(L, -1));
+			lua_pop(L, 1);
+		}
+
+		lua_pop(L, 1); // script table
+	}
+
 	std::string ScriptEngine::GetGlobalAsString(const std::string& name)
 	{
 		if (!s_LuaState)
@@ -996,6 +1077,64 @@ namespace Forge {
 		std::string result = SafeString(s_LuaState, -1, "nil");
 		lua_pop(s_LuaState, 1);
 		return result;
+	}
+
+	bool ScriptEngine::PushEntityScriptTable(Entity entity)
+	{
+		if (!s_LuaState || !entity)
+			return false;
+
+		auto it = s_EntityScripts.find((uint32_t)(entt::entity)entity);
+		if (it == s_EntityScripts.end())
+			return false;
+
+		lua_rawgeti(s_LuaState, LUA_REGISTRYINDEX, it->second);
+		if (!lua_istable(s_LuaState, -1))
+		{
+			lua_pop(s_LuaState, 1);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool ScriptEngine::GetScriptNumber(Entity entity, const char* field, double& out)
+	{
+		if (!field || !PushEntityScriptTable(entity))
+			return false;
+
+		lua_getfield(s_LuaState, -1, field);
+		const bool ok = lua_isnumber(s_LuaState, -1);
+		if (ok)
+			out = lua_tonumber(s_LuaState, -1);
+
+		lua_pop(s_LuaState, 2); // value, table
+		return ok;
+	}
+
+	bool ScriptEngine::GetScriptString(Entity entity, const char* field, std::string& out)
+	{
+		if (!field || !PushEntityScriptTable(entity))
+			return false;
+
+		lua_getfield(s_LuaState, -1, field);
+		const bool ok = lua_isstring(s_LuaState, -1);
+		if (ok)
+			out = lua_tostring(s_LuaState, -1);
+
+		lua_pop(s_LuaState, 2); // value, table
+		return ok;
+	}
+
+	bool ScriptEngine::SetScriptNumber(Entity entity, const char* field, double value)
+	{
+		if (!field || !PushEntityScriptTable(entity))
+			return false;
+
+		lua_pushnumber(s_LuaState, value);
+		lua_setfield(s_LuaState, -2, field);
+		lua_pop(s_LuaState, 1); // table
+		return true;
 	}
 
 	void ScriptEngine::ReleaseEntityScript(uint32_t entityID)

@@ -36,6 +36,8 @@
 - [x] NativeScriptComponent base class
 - [x] ScriptEngine with Lua bindings
 - [x] Entity metatable (GetName, SetPosition, etc.)
+- [x] Lua collision hooks (OnCollision / OnCollisionEnd, auto-wired)
+- [x] Script state inspection (GetScriptNumber/String/SetScriptNumber)
 
 ### Editor (ImGui)
 - [x] Scene hierarchy panel
@@ -65,7 +67,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (125 test cases, 1082 assertions - all passing)
+### Tests (128 test cases, 1096 assertions - all passing, order-independent)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
 - [x] ComprehensiveTests (full-component scenes, copy, duplication)
@@ -77,7 +79,7 @@
 - [x] RendererTests (null stubs)
 - [x] PhysicsTests (physics engine, collision, integration, body sleeping,
       collision callbacks, Scene entity collision handlers)
-- [x] ScriptingTests (Lua engine)
+- [x] ScriptingTests (Lua engine, Lua collision hooks, script state inspection)
 
 ---
 

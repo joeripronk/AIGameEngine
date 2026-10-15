@@ -27,6 +27,27 @@ namespace {
 		out << contents;
 	}
 
+	// The script and prefab directories are process-global, so a test that
+	// points them at a temp folder would otherwise change the behaviour of
+	// whichever test runs next. This restores whatever was set beforehand.
+	struct DirectoryGuard
+	{
+		DirectoryGuard()
+			: m_ScriptDir(Forge::ScriptEngine::GetScriptDirectory())
+			, m_PrefabDir(Forge::PrefabLibrary::GetDirectory())
+		{
+		}
+
+		~DirectoryGuard()
+		{
+			Forge::ScriptEngine::SetScriptDirectory(m_ScriptDir);
+			Forge::PrefabLibrary::SetDirectory(m_PrefabDir);
+		}
+
+		std::string m_ScriptDir;
+		std::string m_PrefabDir;
+	};
+
 	Forge::Scene& MakeFullScene(Forge::Scene& scene)
 	{
 		auto entity = scene.CreateEntity("Full");
@@ -328,6 +349,8 @@ TEST_CASE("Prefab create and instantiate", "[prefab][feature]")
 
 TEST_CASE("Prefab instantiate with position override", "[prefab][feature]")
 {
+	DirectoryGuard directoryGuard;
+
 	Forge::Scene scene;
 	auto entity = scene.CreateEntity("Proto");
 	entity.AddComponent<Forge::PBRMaterialComponent>();
@@ -344,6 +367,8 @@ TEST_CASE("Prefab instantiate with position override", "[prefab][feature]")
 
 TEST_CASE("Prefab library loads committed prefab", "[prefab][feature]")
 {
+	DirectoryGuard directoryGuard;
+
 	Forge::PrefabLibrary::SetDirectory(std::string(FORGE_SOURCE_DIR) + "/resources/prefabs/");
 	auto prefab = Forge::PrefabLibrary::Get("Enemy");
 	REQUIRE(prefab);
@@ -358,6 +383,8 @@ TEST_CASE("Prefab library loads committed prefab", "[prefab][feature]")
 
 TEST_CASE("Scripting: full API surface via Lua", "[scripting][feature]")
 {
+	DirectoryGuard directoryGuard;
+
 	Forge::Log::Init();
 	Forge::ScriptEngine::Init();
 
@@ -441,6 +468,8 @@ return M
 
 TEST_CASE("Scripting: entity create and destroy from Lua", "[scripting][feature]")
 {
+	DirectoryGuard directoryGuard;
+
 	Forge::Log::Init();
 	Forge::ScriptEngine::Init();
 
@@ -485,6 +514,8 @@ return M
 
 TEST_CASE("Scripting: committed Mover script drives OnUpdate", "[scripting][feature]")
 {
+	DirectoryGuard directoryGuard;
+
 	Forge::Log::Init();
 	Forge::ScriptEngine::Init();
 
@@ -511,6 +542,8 @@ TEST_CASE("Scripting: committed Mover script drives OnUpdate", "[scripting][feat
 
 TEST_CASE("Scripting: SpawnPrefab from Lua", "[scripting][feature]")
 {
+	DirectoryGuard directoryGuard;
+
 	Forge::Log::Init();
 	Forge::ScriptEngine::Init();
 

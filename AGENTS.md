@@ -296,7 +296,8 @@ editor.Stop();
 
 - Global functions: `GetTime()`, `GetDeltaTime(ts)`, `SpawnPrefab(name)`
 A script is a Lua file in `resources/scripts/` that returns a table with
-optional `OnCreate(entity)`, `OnUpdate(entity, dt)` and `OnDestroy(entity)`.
+optional `OnCreate(entity)`, `OnUpdate(entity, dt)`, `OnDestroy(entity)`,
+`OnCollision(other, nx, ny, nz)` and `OnCollisionEnd(other, nx, ny, nz)`.
 An entity's `ScriptComponent::ClassName` selects the file (one instance of the
 chunk is created per entity, so scripts keep their own state).
 
@@ -316,6 +317,46 @@ function M.OnUpdate(entity, dt)
 end
 
 return M
+```
+
+### Collision hooks in Lua
+
+Every scripted entity is automatically wired to the physics collision bridge, so
+no registration is needed. A script only defines the hooks it wants:
+
+```lua
+-- resources/scripts/Player.lua
+local M = {}
+
+M.Hits = 0
+M.LastHitBy = ""
+
+function M.OnCollision(entity, other, nx, ny, nz)
+    M.Hits = M.Hits + 1
+    -- `other` is nil if the partner body has no entity.
+    M.LastHitBy = other and other:GetName() or ""
+end
+
+return M
+```
+
+Contacts are edge events: `OnCollision` fires on the step the contact starts,
+`OnCollisionEnd` on the step it stops. A contact that persists across steps
+fires neither.
+
+### Inspecting script state
+
+A script's own fields are readable and writable from C++, tools and AI agents,
+which is how tests assert on script behaviour without exporting globals:
+
+```cpp
+double hits = 0.0;
+ScriptEngine::GetScriptNumber(entity, "Hits", hits);
+
+std::string name;
+ScriptEngine::GetScriptString(entity, "LastHitBy", name);
+
+ScriptEngine::SetScriptNumber(entity, "Hits", 0.0);   // reset
 ```
 
 ### Available API

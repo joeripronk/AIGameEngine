@@ -1,10 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+using Catch::Approx;
 
 #include "Forge/Scripting/ScriptEngine.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Core/Log.h"
 
 TEST_CASE("ScriptEngine initializes", "[scripting]")
 {
@@ -79,4 +82,134 @@ TEST_CASE("ScriptEngine Lua state is created", "[scripting][lua]")
     REQUIRE(true);
 
     Forge::ScriptEngine::Shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Physics collisions delivered into Lua
+// ---------------------------------------------------------------------------
+
+#include "Forge/Physics/Physics.h"
+
+namespace {
+    // Other suites point the script directory at a temp folder and leave it
+    // there, so tests that need the shipped fixtures must set it themselves
+    // rather than rely on run order.
+    const char* kScriptDir = FORGE_SOURCE_DIR "/resources/scripts/";
+}
+
+TEST_CASE("Lua script receives collision begin and end events", "[scripting][collision]")
+{
+    Forge::Log::Init();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+
+    Forge::Scene scene;
+
+    // Static ground.
+    auto ground = scene.CreateEntity("Ground");
+    auto& groundRb = ground.AddComponent<Forge::RigidbodyComponent>();
+    groundRb.Type = Forge::RigidbodyComponent::BodyType::Static;
+    auto& groundCollider = ground.AddComponent<Forge::BoxColliderComponent>();
+    groundCollider.Size = glm::vec3(10.0f, 1.0f, 10.0f);
+    ground.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f);
+
+    // Dynamic ball carrying the Collider script.
+    auto ball = scene.CreateEntity("Ball");
+    auto& ballRb = ball.AddComponent<Forge::RigidbodyComponent>();
+    ballRb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    auto& ballCollider = ball.AddComponent<Forge::BoxColliderComponent>();
+    ballCollider.Size = glm::vec3(1.0f);
+    auto& ballScript = ball.AddComponent<Forge::ScriptComponent>();
+    ballScript.ClassName = "Collider";
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    double hits = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(ball, "Hits", hits));
+    REQUIRE(hits == Approx(0.0));
+
+    scene.OnPhysicsStart();
+
+    // Still clear of the ground.
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(ball, "Hits", hits));
+    REQUIRE(hits == Approx(0.0));
+
+    // Drop onto the ground: OnCollision must fire.
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(ball, "Hits", hits));
+    REQUIRE(hits == Approx(1.0));
+
+    // The script saw the partner entity, not nil.
+    std::string otherName;
+    REQUIRE(Forge::ScriptEngine::GetScriptString(ball, "LastOtherName", otherName));
+    REQUIRE(otherName == "Ground");
+
+    // Pull away: OnCollisionEnd must fire.
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+    scene.OnUpdateSimulation(Forge::Timestep(0.016f));
+
+    double separations = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(ball, "Separations", separations));
+    REQUIRE(separations == Approx(1.0));
+
+    scene.OnPhysicsStop();
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Script without collision handlers is unaffected by contacts", "[scripting][collision]")
+{
+    Forge::Log::Init();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+
+    Forge::Scene scene;
+
+    auto ground = scene.CreateEntity("Ground");
+    auto& groundRb = ground.AddComponent<Forge::RigidbodyComponent>();
+    groundRb.Type = Forge::RigidbodyComponent::BodyType::Static;
+    auto& groundCollider = ground.AddComponent<Forge::BoxColliderComponent>();
+    groundCollider.Size = glm::vec3(10.0f, 1.0f, 10.0f);
+
+    // Mover.lua defines no OnCollision; the bridge must tolerate that silently.
+    auto ball = scene.CreateEntity("Mover");
+    auto& ballRb = ball.AddComponent<Forge::RigidbodyComponent>();
+    ballRb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    auto& ballCollider = ball.AddComponent<Forge::BoxColliderComponent>();
+    ballCollider.Size = glm::vec3(1.0f);
+    auto& ballScript = ball.AddComponent<Forge::ScriptComponent>();
+    ballScript.ClassName = "Mover";
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 5.0f, 0.0f);
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+    scene.OnPhysicsStart();
+
+    ball.GetComponent<Forge::TransformComponent>().Translation = glm::vec3(0.0f, 0.6f, 0.0f);
+    REQUIRE_NOTHROW(scene.OnUpdateSimulation(Forge::Timestep(0.016f)));
+
+    scene.OnPhysicsStop();
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::Physics::Shutdown();
+}
+
+TEST_CASE("Script field access rejects entities without scripts", "[scripting]")
+{
+    Forge::Log::Init();
+    Forge::ScriptEngine::Init();
+
+    Forge::Scene scene;
+    auto entity = scene.CreateEntity("NoScript");
+
+    double value = 0.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Anything", value) == false);
+
+    std::string text;
+    REQUIRE(Forge::ScriptEngine::GetScriptString(entity, "Anything", text) == false);
+    REQUIRE(Forge::ScriptEngine::SetScriptNumber(entity, "Anything", 1.0) == false);
 }
