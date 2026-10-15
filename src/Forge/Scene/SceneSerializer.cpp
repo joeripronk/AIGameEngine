@@ -378,6 +378,12 @@ namespace Forge {
 		out << YAML::EndSeq;
 		out << YAML::EndMap;
 
+		// Create parent directories so save/open round-trips work even when the
+		// target path lives inside a fresh or empty directory tree.
+		const auto parent = filepath.substr(0, filepath.find_last_of('/'));
+		if (!parent.empty())
+			std::filesystem::create_directories(parent);
+
 		std::ofstream fout(filepath);
 		if (!fout.is_open())
 		{

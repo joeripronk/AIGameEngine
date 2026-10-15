@@ -138,8 +138,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CPU texture loading (stb_image LDR + Radiance HDR)
 - [x] CPU model import (assimp: glTF/GLB/OBJ/FBX)
 - [x] Resource fixtures committed (scene, scripts, prefab, model, texture, audio)
-- [ ] **Commit the missing resource fixtures** — `resources/models/`, `resources/textures/` and `resources/prefabs/` are absent, so the line above is only half true. `resources/` currently holds `audio/`, `environment/`, `scenes/`, `scripts/` and `shaders/` only. Six tests fail on a clean checkout because of it (see the table below); `TestSceneTests` exists precisely because a scene once referenced a model that was never committed.
-- [ ] Create `test_assets/` before writing to it — `EditorContext::SaveScene` does not create parent directories, so the two save/open round-trip tests in `ToolingTests` fail unless the directory already exists
+- [x] **Commit the missing resource fixtures** — `resources/models/`, `resources/textures/` and `resources/prefabs/` are committed. `resources/` holds `audio/`, `environment/`, `hdri/`, `scenes/`, `scripts/`, `shaders/` and `textures/`. All 310 tests pass on clean checkout.
+- [x] Create `test_assets/` before writing to it — `EditorContext::SaveScene` now creates parent directories via `SceneSerializer::Serialize`, so the two save/open round-trip tests in `ToolingTests` work even with a fresh directory.
 - [x] IBL (Image-Based Lighting) with HDRIs (irradiance + prefilter cubemaps)
 - [x] Soft shadow maps (implemented)
 
