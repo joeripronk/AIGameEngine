@@ -112,6 +112,11 @@ add_subdirectory(editor)
 add_subdirectory(runtime)
 add_subdirectory(tests)
 
+# Games link the engine; the engine does not link them. They are ordinary
+# subdirectories, so a default build covers them and `ctest` runs their tests -
+# a game whose rules are untested is the one most likely to rot.
+add_subdirectory(games/tetris)
+
 # Install rules
 install(TARGETS ForgeCore DESTINATION lib)
 install(DIRECTORY src/Forge DESTINATION include/Forge)

@@ -8,8 +8,10 @@
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Scripting/ScriptEngine.h"
 
+#include <GLFW/glfw3.h>
 #include <string>
 #include <cstdlib>
+#include <algorithm>
 
 namespace Forge {
 
@@ -32,10 +34,6 @@ namespace Forge {
 
 		if (!LoadScene(scenePath))
 			CreateFallbackScene();
-	}
-
-	RuntimeApp::~RuntimeApp()
-	{
 	}
 
 	bool RuntimeApp::LoadScene(const std::string& path)

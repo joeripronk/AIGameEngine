@@ -25,6 +25,7 @@ namespace Forge {
 
 	Application::~Application()
 	{
+		Renderer::Shutdown();
 	}
 
 	void Application::OnEvent(Event& e)

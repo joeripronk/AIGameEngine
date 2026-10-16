@@ -62,12 +62,6 @@ target_sources(ForgeCore
         Forge/Scene/SceneSerializer.cpp
         Forge/Scene/Prefab.h
         Forge/Scene/Prefab.cpp
-        Forge/Scene/TetrisTypes.h
-        Forge/Scene/TetrisManager.h
-        Forge/Scene/TetrisManager.cpp
-        Forge/Scene/TetrisComponents.h
-        Forge/Tetris/TetrisGame.h
-        Forge/Tetris/TetrisGame.cpp
         Forge/Editor/EditorContext.h
         Forge/Editor/EditorContext.cpp
         Forge/Editor/Gizmo.h

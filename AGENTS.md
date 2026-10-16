@@ -21,16 +21,17 @@ ForgeEngine/
 ├── vendor/             # Third-party dependencies
 ├── editor/             # Editor application (ImGui-based)
 ├── runtime/            # Standalone runtime application
+├── games/tetris/       # A game built on the engine (ForgeTetris)
 ├── tests/              # Unit tests (Catch2)
-└── resources/          # Game assets (scenes, models, textures, HDRIs)
+└── resources/          # Engine assets (scenes, models, textures, HDRIs)
 ```
 
 ### Build System
 
 - **CMake** (3.22+) for all builds
 - Static library: `Forge` (core engine)
-- Executables: `ForgeEditor`, `ForgeRuntime`
-- Tests: `ForgeTests`
+- Executables: `ForgeEditor`, `ForgeRuntime`, `ForgeTetris`
+- Tests: `ForgeTests`, `ForgeTetrisTests`
 - Output: `bin/` directory
 
 ### Dependencies
@@ -383,6 +384,45 @@ There is no separate `ForgeRuntimeDist` target: the Dist behaviour lives in
 so an executable target cannot switch it on. The old `ForgeRuntimeDist` had
 identical sources and libraries and the same `OUTPUT_NAME`, so both wrote to
 `bin/ForgeRuntime` — whichever linked last silently won.
+
+## Games
+
+A game is **not** part of the engine. `games/tetris/` builds `ForgeTetris`, which
+links exactly what `ForgeRuntime` links — `ForgeApp`, `nvrhi`,
+`forge_vk_dispatch` — and supplies the game itself.
+
+The dependency arrows only point one way:
+
+```
+TetrisManager      → GLM only. The rules.
+TetrisBoardView    → Forge::Scene. Mirrors the rules into entities.
+TetrisInputLayer   → Forge events. Maps key codes to actions.
+TetrisApp          → all of the above, plus the window and renderer.
+src/Forge/**       → none of them.
+```
+
+Concretely, that means:
+
+- **The engine does not branch on what is running.** No component of the game
+  is in `SceneSerializer`'s known-component list, and nothing in `ForgeCore`
+  references a game type. A gate like "start Tetris if the scene has a
+  `TetrisBoardComponent`" is coupling wearing a disguise: the component is
+  silently dropped on load, so the game never actually starts, and it looks like
+  it works.
+- **A game builds its own scene in code** rather than shipping a `.forge` that
+  depends on the engine serialising its components. `EditorContext` is the tool
+  for authoring scenes when an engine component *is* wanted.
+- **Input arrives as an action, not a key code.** `Tetris::Action` is what the
+  rules take, so they are pure arithmetic and the test target links `ForgeCore`
+  only — no window, no Vulkan.
+- **A game's tests are its own target** (`ForgeTetrisTests`), not part of
+  `ForgeTests`. Engine tests that reach into `games/` would fail to build the
+  moment the game was deleted: coupling in the other direction.
+
+```bash
+./run-tetris.sh
+./build-tetris/bin/ForgeTetris
+```
 
 ## Audio System
 

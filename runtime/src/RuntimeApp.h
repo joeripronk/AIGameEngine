@@ -9,7 +9,7 @@ namespace Forge {
 	{
 	public:
 		RuntimeApp(const ApplicationCommandLineArgs& args);
-		~RuntimeApp() override;
+		~RuntimeApp() override = default;
 
 		void Run() override;
 

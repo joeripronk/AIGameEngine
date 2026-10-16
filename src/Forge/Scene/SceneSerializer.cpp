@@ -380,9 +380,14 @@ namespace Forge {
 
 		// Create parent directories so save/open round-trips work even when the
 		// target path lives inside a fresh or empty directory tree.
-		const auto parent = filepath.substr(0, filepath.find_last_of('/'));
-		if (!parent.empty())
-			std::filesystem::create_directories(parent);
+		//
+		// Only when the path actually has a directory component. A bare filename
+		// has no separator, so substr(0, npos) would hand the *file name* to
+		// create_directories - creating a directory where the file should be,
+		// after which opening the file fails and the save is lost.
+		const auto separator = filepath.find_last_of('/');
+		if (separator != std::string::npos)
+			std::filesystem::create_directories(filepath.substr(0, separator));
 
 		std::ofstream fout(filepath);
 		if (!fout.is_open())

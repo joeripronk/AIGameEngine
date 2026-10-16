@@ -991,7 +991,10 @@ namespace Forge {
 		cmd->writeBuffer(vbo, quad, sizeof(quad), 0);
 		cmd->close();
 		device->executeCommandList(cmd, nvrhi::CommandQueue::Graphics);
-		cmd->Release();
+		// No Release() needed: cmd's destructor will release the handle at
+		// the end of this scope, and the lifetime tracker holds a separate
+		// shared_ptr that keeps the TrackedCommandBuffer alive until the GPU
+		// is done.
 
 		// Store the vertex buffer for later use.
 		m_IBLQuadVBO = vbo;
@@ -1219,7 +1222,6 @@ namespace Forge {
 		if (!iblSet)
 		{
 			FG_CORE_ERROR("IBL: failed to create IBL binding set");
-			cmd->Release();
 			return false;
 		}
 
@@ -1259,7 +1261,6 @@ namespace Forge {
 
 		cmd->close();
 		device->executeCommandList(cmd, nvrhi::CommandQueue::Graphics);
-		cmd->Release();
 
 		FG_CORE_INFO("IBL: irradiance map generated ({0}x{1})", size, size);
 		return true;
@@ -1385,7 +1386,6 @@ namespace Forge {
 
 		cmd->close();
 		device->executeCommandList(cmd, nvrhi::CommandQueue::Graphics);
-		cmd->Release();
 
 		FG_CORE_INFO("IBL: prefilter map generated ({0} mip levels)", mipCount);
 		return true;

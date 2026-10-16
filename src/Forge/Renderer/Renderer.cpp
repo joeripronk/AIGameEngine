@@ -199,6 +199,16 @@ namespace Forge {
 
 	void Renderer::Shutdown()
 	{
+		// Wait for GPU work to complete and retire command buffers before
+		// releasing any resources.
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (device)
+		{
+			VulkanRendererAPI::WaitForGpuIdle();
+			device->runGarbageCollection();
+			device->runGarbageCollection(); // second pass
+		}
+
 		// Released here rather than at static destruction so the GPU buffers go
 		// away while the Vulkan device is still alive.
 		s_DefaultCube = nullptr;

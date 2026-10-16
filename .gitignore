@@ -3,6 +3,8 @@ build/
 build-debug/
 build-release/
 build-dist/
+build-asan/
+build-tetris/
 bin/
 lib/
 *.o
