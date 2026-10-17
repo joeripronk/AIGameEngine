@@ -39,6 +39,10 @@
 - [x] Entity metatable (GetName, SetPosition, etc.)
 - [x] Lua collision hooks (OnCollision / OnCollisionEnd, auto-wired)
 - [x] Script state inspection (Get/Set for number, string and bool, type-strict)
+- [x] Script hot reload (Hazel workflow): HotReloadScript/HotReloadAll rebuild
+      live instances from disk with OnCreate, a failed reload keeps the
+      previous script running, the editor watches .lua files and reports
+      reload success/failure as a notification
 
 ### Editor (ImGui)
 - [x] Scene hierarchy panel
@@ -68,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (330 test cases, 10550 assertions - all passing, order-independent
+### Tests (335 test cases, 10588 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -102,6 +106,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       resting-contact regression, continuous collision detection)
 - [x] ScriptingTests (Lua engine, Lua collision hooks, script state inspection,
       setter failure reporting and backward compatibility)
+- [x] Hot-reload tests (fresh instance rebuild with OnCreate, source re-read
+      from disk, failed compile/removed file keeps the previous script,
+      recovery after fixing the file, failure outside a runtime session,
+      HotReloadAll counting clean reloads)
 - [x] NativeScriptTests (add hook, inert unbound, create/update/destroy, restart cycle,
       destroy teardown)
 - [x] ProfilerTests (configuration gating, inert session API in the compiled-out
@@ -306,3 +314,4 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | Staging textures were released twice | ✅ Fixed - `VulkanTexture` and the shadow mip pass called `->Release()` on objects owned by nvrhi's `RefCountPtr`; the refcount went negative, the object died while the lifetime tracker still referenced it, and the crash surfaced later in `runGarbageCollection`, far from the line that caused it |
 | The albedo cache never reloaded and never retried | ✅ Fixed - a texture edited on disk was never reflected in the viewport, and a failed load (missing file) was cached as a permanent null for the session, so an asset created later by a tool was invisible until restart. The cache now carries a `FileSignature`; a changed signature re-decodes, a failed load retries as soon as the file exists, a failed reload keeps the last working texture, and the replaced GPU texture is evicted from the PBR draw cache before it dies |
 | `HEAD` did not compile after the WIP commit | ✅ Fixed - the commit snapshotted `ViewportRenderer` mid-edit with an unmatched brace, so the default-cube PBR loop referenced out-of-scope variables; the three hand-rolled albedo-texture caches are now one `Renderer::GetAlbedoTexture`, which also logs a failed load once per path instead of once per frame |
+| The Lua source cache outlived the session | ✅ Fixed - `s_ScriptSourceCache` was only cleared at `Shutdown`, so editing a script and pressing Play again answered with the previous session's file; a session now reads its scripts from disk, and the cache only serves repeated spawns within that session |

@@ -841,6 +841,34 @@ component name and a field name, so `entity:SetFloat("BoxCollider", "Friction",
 - Override `OnCreate()`, `OnUpdate(Timestep)`, `OnDestroy()`
 - Bind via `NativeScriptComponent::Bind<T>()`
 
+### Hot reload
+
+Editing a `.lua` file while the game runs replaces the live behaviour
+without a restart (the Hazel script-reload workflow):
+
+```cpp
+ScriptEngine::HotReloadScript("resources/scripts/Player.lua");  // [[nodiscard]]
+ScriptEngine::HotReloadAll();   // -> number of files that reloaded cleanly
+ScriptEngine::IsRuntimeActive();
+```
+
+Each bound entity gets a **fresh instance**: the chunk runs again and
+`OnCreate` is called, so per-entity state starts clean — that is the point
+of reloading, not a side effect. A new Play session reads files from disk
+(the source cache lives for one session; held across sessions it would
+answer the next run with the previous session's file).
+
+A reload is verified, not assumed. A file that cannot be read, a chunk
+that fails to compile, and a chunk that stops returning a table all keep
+that entity's **previous instance running** and report failure — the same
+rule as the texture cache, where a failed reload keeps the texture that
+worked. `HotReloadAll` counts clean files, so the caller can tell one
+broken script from all of them being fine.
+
+The editor watches `.lua` files through the same `AssetWatcher` poll as
+textures; a change during playback triggers the reload and surfaces
+"Hot reloaded …" or "Hot reload FAILED …" as a notification.
+
 ## Physics
 
 ### Components
