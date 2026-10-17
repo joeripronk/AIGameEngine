@@ -32,8 +32,11 @@ target_sources(ForgeTetris
         src/TetrisComponents.h
         src/TetrisInputLayer.h
         src/TetrisInputLayer.cpp
+        src/TetrisInputOverlayLayer.h
         src/TetrisManager.h
         src/TetrisManager.cpp
+        src/TetrisOverlay.h
+        src/TetrisOverlay.cpp
         src/TetrisTypes.h
 )
 
@@ -42,6 +45,8 @@ target_link_libraries(ForgeTetris
         ForgeApp
         nvrhi
         forge_vk_dispatch
+        imgui
+        glfw
 )
 
 set_target_properties(ForgeTetris PROPERTIES
@@ -103,6 +108,9 @@ target_sources(ForgeTetrisTests
         # Compiled in for MapKey only - the key bindings are pure, and a
         # mapping that quietly did nothing would be invisible from the game.
         src/TetrisInputLayer.cpp
+        # The input layer now forwards to the overlay so a paused/reset action
+        # refreshes the HUD; tests link ImGui to keep that object resolvable.
+        src/TetrisOverlay.cpp
 )
 
 target_link_libraries(ForgeTetrisTests
@@ -110,6 +118,7 @@ target_link_libraries(ForgeTetrisTests
         ForgeCore
         Catch2::Catch2WithMain
         glfw
+        imgui
         ${CMAKE_DL_LIBS}
 )
 

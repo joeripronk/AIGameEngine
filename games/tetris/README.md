@@ -23,6 +23,7 @@ build-tetris/bin/ForgeTetris
 | Space | Hard drop |
 | P / Escape | Pause |
 | R | Restart |
+| V | Switch the flat 2D view and the angled 3D well |
 
 Moving and soft-dropping are delayed-autorepeat: one step on the press, then a
 repeat after 0.15 s, then every 0.05 s.

@@ -48,7 +48,28 @@ void InputLayer::OnEvent(Forge::Event& event)
 		// would move twice per tick on top of the manager's delayed repeat, which
 		// is exactly the double-step DAS exists to avoid.
 		if (pressed->GetRepeatCount() == 0)
-			m_Manager->HandleAction(MapKey(pressed->GetKeyCode()), true);
+		{
+			// The view toggle is presentation, not a rule: it goes straight to
+			// the application callback instead of through the action map.
+			if (pressed->GetKeyCode() == GLFW_KEY_V)
+			{
+				if (m_OnViewToggle)
+					m_OnViewToggle();
+			}
+
+			Action action = MapKey(pressed->GetKeyCode());
+			m_Manager->HandleAction(action, true);
+
+			// Refresh overlay on state-changing actions.
+			if (m_Overlay)
+			{
+				if (action == Action::TogglePause ||
+					action == Action::Restart)
+				{
+					m_Overlay->RefreshState();
+				}
+			}
+		}
 	}
 	else if (KeyReleasedEvent* released = dynamic_cast<KeyReleasedEvent*>(&event))
 	{

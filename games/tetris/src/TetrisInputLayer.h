@@ -1,8 +1,11 @@
 #pragma once
 
 #include "TetrisManager.h"
+#include "TetrisOverlay.h"
 
 #include "Forge/Core/Layer.h"
+
+#include <functional>
 
 namespace Tetris {
 
@@ -26,8 +29,18 @@ public:
 
 	void OnEvent(Forge::Event& event) override;
 
+	// Link the overlay so the input layer can refresh it on state changes.
+	void SetOverlay(OverlayLayer* overlay) { m_Overlay = overlay; }
+
+	// The view toggle is the app's, not the rules': switching 2D/3D changes
+	// the presentation, not the game state, so it is a callback into the
+	// application and never an Action.
+	void SetViewToggledCallback(std::function<void()> callback) { m_OnViewToggle = std::move(callback); }
+
 private:
 	TetrisManager* m_Manager = nullptr;
+	OverlayLayer* m_Overlay = nullptr;
+	std::function<void()> m_OnViewToggle;
 };
 
 }  // namespace Tetris

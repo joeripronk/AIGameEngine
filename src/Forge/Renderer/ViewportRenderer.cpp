@@ -149,6 +149,7 @@ namespace Forge {
 			float ao = 1.0f;
 			glm::vec3 emissive = { 0.0f, 0.0f, 0.0f };
 			float emissiveIntensity = 0.0f;
+			Ref<Texture> albedoTexture;
 
 			Entity ent(entity, scene);
 			if (ent.HasComponent<PBRMaterialComponent>())
@@ -160,10 +161,12 @@ namespace Forge {
 				ao = material.AO;
 				emissive = material.Emissive;
 				emissiveIntensity = material.EmissiveIntensity;
+				if (!material.AlbedoTexturePath.empty())
+					albedoTexture = Renderer::GetAlbedoTexture(material.AlbedoTexturePath);
 			}
 
 			pbr->DrawObject(cmdList.Get(), framebuffer,
-				mesh, model, normalMatrix,
+				mesh, albedoTexture, model, normalMatrix,
 				albedo, metallic, roughness, ao,
 				emissive, emissiveIntensity);
 		}
@@ -178,6 +181,10 @@ namespace Forge {
 
 			auto& transformComp = materialView.get<TransformComponent>(entity);
 			auto& pbrComp = materialView.get<PBRMaterialComponent>(entity);
+			Ref<Texture> albedoTexture;
+			if (!pbrComp.AlbedoTexturePath.empty())
+				albedoTexture = Renderer::GetAlbedoTexture(pbrComp.AlbedoTexturePath);
+			}
 
 			Ref<Mesh> mesh = getMesh(nullptr);
 
@@ -187,7 +194,7 @@ namespace Forge {
 			glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(model));
 
 			pbr->DrawObject(cmdList.Get(), framebuffer,
-				mesh, model, normalMatrix,
+				mesh, albedoTexture, model, normalMatrix,
 				pbrComp.Albedo, pbrComp.Metallic, pbrComp.Roughness,
 				pbrComp.AO, pbrComp.Emissive, pbrComp.EmissiveIntensity);
 		}

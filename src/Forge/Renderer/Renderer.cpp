@@ -26,6 +26,8 @@
 #include "Platform/Vulkan/VulkanSwapchain.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/PbrRenderer.h"
+#include <algorithm>
+#include <vector>
 #include "Forge/Renderer/CpuTexture.h"
 
 #include <nvrhi/vulkan.h>
@@ -50,10 +52,15 @@ namespace Forge {
 	nvrhi::FramebufferHandle Renderer::s_TonemappedFramebuffer;
 	nvrhi::FramebufferHandle Renderer::s_SSAOFramebuffer;
 	uint32_t Renderer::s_CurrentSwapchainImage = UINT32_MAX;
+	float Renderer::s_RenderScale = 1.0f;
 
 	void Renderer::Init()
 	{
 		RenderCommand::Init();
+
+		// The swapchain and every offscreen target are sized from the render scale,
+		// so set it before the surface is created.
+		VulkanRendererAPI::SetRenderScale(s_RenderScale);
 
 		// The backend owns the command list the frames are recorded into.
 		s_CommandList = VulkanRendererAPI::GetStaticCommandList();
@@ -177,8 +184,8 @@ namespace Forge {
 				}
 				else
 				{
-					s_PbrRenderer->SetFrameSize(s_Width, s_Height);
-					s_PbrRenderer->Resize(s_Width, s_Height);
+					s_PbrRenderer->SetFrameSize(VulkanRendererAPI::GetRenderWidth(), VulkanRendererAPI::GetRenderHeight());
+					s_PbrRenderer->Resize(VulkanRendererAPI::GetRenderWidth(), VulkanRendererAPI::GetRenderHeight());
 				}
 
 				// Create post-processing framebuffers using VulkanRendererAPI's accessors.
@@ -357,14 +364,6 @@ namespace Forge {
 		// The PBR renderer stores its HDR framebuffer after initialization.
 		nvrhi::FramebufferHandle pbrFrameBuffer = VulkanRendererAPI::GetHDRFramebuffer();
 
-		// Record the per-frame uniforms and clear the target.
-		s_PbrRenderer->UpdateFrame(s_CommandList.Get(), pbrFrameBuffer,
-			camera.ViewProjectionMatrix,
-			shadowViewProjection,
-			cameraTransform.Translation,
-			lightDirection, lightColor, lightIntensity,
-			glm::vec3(0.03f, 0.03f, 0.04f));
-
 		// Draw every entity carrying a mesh. Entities without one fall back to a
 		// shared cube that is built once and kept for the lifetime of the
 		// renderer: it owns GPU buffers, and a per-frame cube was being
@@ -384,6 +383,24 @@ namespace Forge {
 
 		auto meshEntities = scene->GetAllEntitiesWith<MeshComponent, TransformComponent>();
 		uint32_t drawn = 0;
+
+		struct DrawRecord
+		{
+			Ref<Mesh> MeshHandle;
+			glm::mat4 Model;
+			glm::mat3 NormalMatrix;
+			glm::vec3 Albedo;
+			glm::vec3 Emissive;
+			float Metallic;
+			float Roughness;
+			float AO;
+			float EmissiveIntensity;
+			float Depth;
+			Ref<Texture> AlbedoTexture;
+		};
+
+		std::vector<DrawRecord> records;
+
 		for (auto handle : meshEntities)
 		{
 			const auto& meshComponent = meshEntities.get<MeshComponent>(handle);
@@ -404,6 +421,7 @@ namespace Forge {
 			float ambientOcclusion = 1.0f;
 			glm::vec3 emissive = { 0.0f, 0.0f, 0.0f };
 			float emissiveIntensity = 0.0f;
+			Ref<Texture> albedoTexture;
 
 			Entity entity(handle, scene);
 			if (entity.HasComponent<PBRMaterialComponent>())
@@ -415,14 +433,62 @@ namespace Forge {
 				ambientOcclusion = material.AO;
 				emissive = material.Emissive;
 				emissiveIntensity = material.EmissiveIntensity;
+				if (!material.AlbedoTexturePath.empty())
+					albedoTexture = GetAlbedoTexture(material.AlbedoTexturePath);
 			}
 
-			s_PbrRenderer->DrawObject(s_CommandList.Get(), pbrFrameBuffer,
-				mesh, model, normalMatrix,
-				albedo, metallic, roughness, ambientOcclusion,
-				emissive, emissiveIntensity);
+			const glm::vec3 objectPosition(model[3][0], model[3][1], model[3][2]);
+			const glm::vec4 viewPosition = camera.ViewMatrix * glm::vec4(objectPosition, 1.0f);
+			const float depth = viewPosition.z;
 
-			drawn++;
+			records.push_back({ mesh, model, normalMatrix, albedo, emissive,
+				metallic, roughness, ambientOcclusion, emissiveIntensity, depth,
+				albedoTexture });
+		}
+
+		// Reflection probe pass: redraw the scene from the probe into a cubemap
+		// *before* UpdateFrame records the real camera, because the probe writes
+		// the shared camera buffer once per face and UpdateFrame overwrites it
+		// with the main camera right after.
+		if (s_PbrRenderer && s_PbrRenderer->IsReflectionProbeEnabled() && !records.empty())
+		{
+			std::vector<PbrRenderer::ProbeDraw> probeDraws;
+			probeDraws.reserve(records.size());
+			for (const DrawRecord& record : records)
+			{
+				probeDraws.push_back({
+					record.MeshHandle, record.AlbedoTexture, record.Model, record.NormalMatrix,
+					record.Albedo, record.Emissive,
+					record.Metallic, record.Roughness, record.AO, record.EmissiveIntensity });
+			}
+
+			s_PbrRenderer->RenderReflectionProbe(s_CommandList.Get(),
+				shadowViewProjection,
+				lightDirection, lightColor, lightIntensity,
+				glm::vec3(0.03f, 0.03f, 0.04f),
+				probeDraws);
+		}
+
+		// Record the per-frame uniforms and clear the target.
+		s_PbrRenderer->UpdateFrame(s_CommandList.Get(), pbrFrameBuffer,
+			camera.ViewProjectionMatrix,
+			shadowViewProjection,
+			cameraTransform.Translation,
+			lightDirection, lightColor, lightIntensity,
+			glm::vec3(0.03f, 0.03f, 0.04f));
+
+		std::sort(records.begin(), records.end(), [](const DrawRecord& a, const DrawRecord& b)
+		{
+			return a.Depth < b.Depth;
+		});
+
+		for (const DrawRecord& record : records)
+		{
+			s_PbrRenderer->DrawObject(s_CommandList.Get(), pbrFrameBuffer,
+				record.MeshHandle, record.AlbedoTexture, record.Model, record.NormalMatrix,
+				record.Albedo, record.Metallic, record.Roughness, record.AO,
+				record.Emissive, record.EmissiveIntensity);
+			++drawn;
 		}
 
 
@@ -438,27 +504,79 @@ namespace Forge {
 		}
 	}
 
+	bool Renderer::EnableReflectionProbe(uint32_t size)
+	{
+		if (!s_PbrRenderer || !s_PbrRenderer->IsValid())
+		{
+			FG_CORE_WARN("Renderer: reflection probe requested without a valid PBR renderer");
+			return false;
+		}
+		return s_PbrRenderer->EnableReflectionProbe(size);
+	}
+
+	bool Renderer::IsReflectionProbeEnabled()
+	{
+		return s_PbrRenderer && s_PbrRenderer->IsReflectionProbeEnabled();
+	}
+
+	void Renderer::SetReflectionProbePosition(const glm::vec3& position)
+	{
+		if (s_PbrRenderer)
+			s_PbrRenderer->SetReflectionProbePosition(position);
+	}
+
+	void Renderer::SetRenderScale(float scale)
+	{
+		s_RenderScale = scale > 1.0f ? std::min(scale, 4.0f) : 1.0f;
+
+		VulkanRendererAPI::SetRenderScale(s_RenderScale);
+		if (VulkanRendererAPI::GetSwapchain().IsValid())
+			ApplyFrameSize(s_Width, s_Height);
+	}
+
+	float Renderer::GetRenderScale()
+	{
+		return s_RenderScale;
+	}
+
+	Ref<Texture> Renderer::GetAlbedoTexture(const std::string& path)
+	{
+		static std::unordered_map<std::string, Ref<Texture>> s_AlbedoTextureCache;
+
+		auto cached = s_AlbedoTextureCache.find(path);
+		if (cached != s_AlbedoTextureCache.end())
+			return cached->second;
+
+		Ref<Texture> texture = Texture::Create(path);
+		if (!texture)
+			FG_CORE_ERROR("Renderer: failed to load PBR albedo texture '{0}'", path);
+		s_AlbedoTextureCache.emplace(path, texture);
+		return texture;
+	}
+
 	void Renderer::ApplyFrameSize(uint32_t width, uint32_t height)
 	{
 		s_Width = width;
 		s_Height = height;
 
+		if (auto* api = RenderCommand::GetRendererAPI())
+			api->ResizeRenderTargets(width, height);
+
 		// The PBR pass draws into the HDR target at its own size, and the
 		// post-processing passes set a viewport from it. Both have to follow the
 		// frame size, or the passes render into and read from targets that no
 		// longer match the framebuffer they are given.
+		const uint32_t renderWidth = VulkanRendererAPI::GetRenderWidth();
+		const uint32_t renderHeight = VulkanRendererAPI::GetRenderHeight();
 		if (s_PbrRenderer && s_PbrRenderer->IsValid())
 		{
-			s_PbrRenderer->SetFrameSize(width, height);
-			s_PbrRenderer->Resize(width, height);
+			s_PbrRenderer->SetFrameSize(renderWidth, renderHeight);
+			s_PbrRenderer->Resize(renderWidth, renderHeight);
 			s_PbrRenderer->SetHDRFramebuffer(
 				VulkanRendererAPI::GetHDRFramebuffer(),
 				VulkanRendererAPI::GetHDRBuffer(),
 				s_PbrRenderer->GetDepthTexture());
 		}
-
-		if (auto* api = RenderCommand::GetRendererAPI())
-			api->ResizeRenderTargets(width, height);
 
 		// The post-processing framebuffers were rebuilt alongside the targets.
 		s_TonemappedFramebuffer = VulkanRendererAPI::GetTonemappedFramebuffer();

@@ -313,6 +313,7 @@ namespace Forge {
 			out << YAML::Key << "AO" << YAML::Value << pbr.AO;
 			out << YAML::Key << "Emissive" << YAML::Value << EncodeVec3(pbr.Emissive);
 			out << YAML::Key << "EmissiveIntensity" << YAML::Value << pbr.EmissiveIntensity;
+			out << YAML::Key << "AlbedoTexturePath" << YAML::Value << pbr.AlbedoTexturePath;
 			out << YAML::EndMap;
 		}
 
@@ -506,6 +507,7 @@ namespace Forge {
 			pbr.AO = GetFloat(materialNode, "AO", pbr.AO);
 			pbr.Emissive = DecodeVec3(materialNode["Emissive"], pbr.Emissive);
 			pbr.EmissiveIntensity = GetFloat(materialNode, "EmissiveIntensity", pbr.EmissiveIntensity);
+			pbr.AlbedoTexturePath = GetString(materialNode, "AlbedoTexturePath");
 		}
 
 		if (HasNode(entityNode, "MeshComponent"))

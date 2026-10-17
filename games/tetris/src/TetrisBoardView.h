@@ -17,6 +17,20 @@ namespace Tetris {
 // only place the two meet. It mirrors the manager's state onto a handful of
 // components (for tools and agents to read) and onto one mesh entity per
 // occupied cell (for the renderer to draw).
+// Shared material tuning so the board and the preview stay visually identical.
+// The blocks are mirror-polished metal: full metallic and the lowest roughness
+// the shader accepts, so the reflection probe shows the surroundings in them.
+// The per-tetromino colour tints the reflection (F0 = albedo at metallic 1)
+// and a small emissive term keeps piece identity readable.
+constexpr float kBlockMetallic = 1.0f;
+constexpr float kBlockRoughness = 0.04f;
+constexpr float kBlockEmissiveIntensity = 0.06f;
+
+// A shared brushed-metal albedo map. It modulates each tetromino colour instead
+// of replacing it, keeping the piece identity readable while giving the blocks
+// a reflective surface pattern.
+constexpr char kBlockAlbedoTexture[] = "resources/textures/metal_blocks.bmp";
+
 class BoardView
 {
 public:

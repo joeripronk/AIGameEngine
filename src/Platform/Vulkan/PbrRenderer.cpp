@@ -7,11 +7,13 @@
 #include "Platform/Vulkan/VulkanVertexArray.h"
 #include "Platform/Vulkan/VulkanVertexBuffer.h"
 #include "Platform/Vulkan/VulkanIndexBuffer.h"
+#include "Platform/Vulkan/VulkanTexture.h"
 
 #include "Forge/Renderer/Mesh.h"
 #include "Forge/Renderer/VertexArray.h"
 #include "Forge/Renderer/ShaderLibrary.h"
 #include "Forge/Renderer/Renderer.h"
+#include "Forge/Renderer/Camera.h"
 
 #include <cstring>
 
@@ -316,9 +318,10 @@ namespace Forge {
 		if (!m_DepthTexture)
 			return false;
 
-		// The swapchain's framebuffers must carry the same depth attachment as
-		// the pipeline's framebuffer format.
-		VulkanRendererAPI::GetSwapchain().SetDepthTexture(m_DepthTexture);
+		// The swapchain framebuffers carry no depth attachment: the Final pass
+		// and ImGui composite without depth testing, and a supersampled depth
+		// would not match the swapchain extent. Depth lives only on the HDR
+		// target the PBR pass draws into.
 
 		return true;
 	}
@@ -372,12 +375,24 @@ namespace Forge {
 		}
 	}
 
-	const PbrRenderer::ObjectDraw* PbrRenderer::PrepareMesh(const Ref<Mesh>& mesh)
+	const PbrRenderer::ObjectDraw* PbrRenderer::PrepareMesh(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
+		nvrhi::ITexture* envTexture)
 	{
 		if (!mesh)
 			return nullptr;
 
-		const Mesh* key = mesh.get();
+		nvrhi::ITexture* albedoTex = nullptr;
+		if (albedoTexture)
+		{
+			auto vulkanTex = std::dynamic_pointer_cast<VulkanTexture>(albedoTexture);
+			if (vulkanTex && vulkanTex->GetTextureHandle())
+				albedoTex = vulkanTex->GetTextureHandle();
+		}
+
+		ObjectDrawKey key;
+		key.m_Mesh = mesh.get();
+		key.m_AlbedoTexture = albedoTex;
+		key.m_EnvTexture = envTexture ? envTexture : m_EnvMapFallback.Get();
 		auto cached = m_DrawCache.find(key);
 		if (cached != m_DrawCache.end())
 			return &cached->second;
@@ -436,8 +451,9 @@ namespace Forge {
 
 		// Binding 2: u_AlbedoTexture, binding 3: u_AlbedoSampler.
 		{
-			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(2, m_WhiteTexture.Get(),
-				m_WhiteTexture->getDesc().format,
+			nvrhi::ITexture* albedoTex = key.m_AlbedoTexture ? key.m_AlbedoTexture : m_WhiteTexture.Get();
+			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(2, albedoTex,
+				albedoTex->getDesc().format,
 				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
 				nvrhi::TextureDimension::Texture2D));
 			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 3));
@@ -467,10 +483,17 @@ namespace Forge {
 		setDesc.bindings.push_back(MakeConstantBufferItem(m_ShadowParamsBuffer.Get(), 7));
 
 		// Binding 8: u_EnvMap, binding 9: u_EnvSampler.
+		//
+		// The SRV covers every slice of the cube: a single-slice range would
+		// silently clamp all six reflection directions onto face 0.
 		{
-			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(8, m_EnvMapFallback.Get(),
-				m_EnvMapFallback->getDesc().format,
-				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
+			nvrhi::ITexture* envTex = key.m_EnvTexture ? key.m_EnvTexture : m_EnvMapFallback.Get();
+			const uint32_t envSlices = envTex->getDesc().dimension == nvrhi::TextureDimension::TextureCube
+				? std::max(1u, envTex->getDesc().arraySize)
+				: 1u;
+			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(8, envTex,
+				envTex->getDesc().format,
+				nvrhi::TextureSubresourceSet(0, 1, 0, envSlices),
 				nvrhi::TextureDimension::TextureCube));
 			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 9));
 		}
@@ -506,6 +529,7 @@ namespace Forge {
 	void PbrRenderer::DrawObject(nvrhi::ICommandList* commandList,
 		nvrhi::FramebufferHandle framebuffer,
 		const Ref<Mesh>& mesh,
+		const Ref<Texture>& albedoTexture,
 		const glm::mat4& transform,
 		const glm::mat3& normalMatrix,
 		const glm::vec3& albedo,
@@ -513,12 +537,20 @@ namespace Forge {
 		float roughness,
 		float ambientOcclusion,
 		const glm::vec3& emissive,
-		float emissiveIntensity)
+		float emissiveIntensity,
+		bool fromReflectionProbe)
 	{
 		if (!commandList || !framebuffer || !IsValid())
 			return;
 
-		const ObjectDraw* draw = PrepareMesh(mesh);
+		// A draw into the probe must not sample the cubemap it is writing, so
+		// probe draws keep the static fallback environment; every other draw
+		// reflects the probe once it exists.
+		nvrhi::ITexture* envTexture = m_EnvMapFallback.Get();
+		if (!fromReflectionProbe && m_ReflectionProbeEnabled)
+			envTexture = m_ReflectionMap.Get();
+
+		const ObjectDraw* draw = PrepareMesh(mesh, albedoTexture, envTexture);
 		if (!draw)
 			return;
 
@@ -541,7 +573,21 @@ namespace Forge {
 		// minZ, maxZ) - X before Y. Passing (0, 0, width, height, ...) instead
 		// leaves the viewport zero-width, and every draw is then clipped away: a
 		// completely black frame, with nothing reported as wrong.
-		nvrhi::Viewport viewport(m_FrameWidth, m_FrameHeight);
+		//
+		// The size comes from the framebuffer's own attachment, not from the
+		// frame size, so a draw into a smaller target (a reflection probe face)
+		// covers its target exactly.
+		float viewportWidth = m_FrameWidth;
+		float viewportHeight = m_FrameHeight;
+		{
+			const auto& fbAttachments = framebuffer->getDesc().colorAttachments;
+			if (!fbAttachments.empty() && fbAttachments[0].texture)
+			{
+				viewportWidth = static_cast<float>(fbAttachments[0].texture->getDesc().width);
+				viewportHeight = static_cast<float>(fbAttachments[0].texture->getDesc().height);
+			}
+		}
+		nvrhi::Viewport viewport(viewportWidth, viewportHeight);
 		state.viewport.addViewportAndScissorRect(viewport);
 
 		// The input layout is baked into the pipeline, so use the pipeline built
@@ -579,6 +625,134 @@ namespace Forge {
 		}
 
 		commandList->drawIndexed(args);
+	}
+
+	// --- Real-time reflection probe ---
+
+	bool PbrRenderer::EnableReflectionProbe(uint32_t size)
+	{
+		if (m_ReflectionProbeEnabled)
+			return true;
+
+		auto device = VulkanRendererAPI::GetStaticDevice();
+		if (!device || size == 0)
+		{
+			FG_CORE_ERROR("PbrRenderer: reflection probe needs a device and a non-zero size");
+			return false;
+		}
+
+		// Renderable + sampleable cube, same colour format as the HDR target so
+		// the one PBR pipeline (baked for m_ColorFormat/D32) is valid on both.
+		nvrhi::TextureDesc cubeDesc;
+		cubeDesc.width = size;
+		cubeDesc.height = size;
+		cubeDesc.format = m_ColorFormat;
+		cubeDesc.dimension = nvrhi::TextureDimension::TextureCube;
+		cubeDesc.arraySize = 6;
+		cubeDesc.mipLevels = 1;
+		cubeDesc.isRenderTarget = true;
+		cubeDesc.isShaderResource = true;
+		cubeDesc.keepInitialState = true;
+		cubeDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		cubeDesc.debugName = "PbrRenderer.ReflectionProbe";
+		m_ReflectionMap = device->createTexture(cubeDesc);
+		if (!m_ReflectionMap)
+		{
+			FG_CORE_ERROR("PbrRenderer: failed to create the reflection probe cubemap");
+			return false;
+		}
+
+		// Depth shared by all six faces (re-cleared per face), same format the
+		// pipeline's framebuffer info declares.
+		nvrhi::TextureDesc depthDesc;
+		depthDesc.width = size;
+		depthDesc.height = size;
+		depthDesc.format = nvrhi::Format::D32;
+		depthDesc.isRenderTarget = true;
+		depthDesc.keepInitialState = true;
+		depthDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		depthDesc.debugName = "PbrRenderer.ReflectionProbeDepth";
+		m_ReflectionDepth = device->createTexture(depthDesc);
+		if (!m_ReflectionDepth)
+		{
+			FG_CORE_ERROR("PbrRenderer: failed to create the reflection probe depth buffer");
+			m_ReflectionMap = nullptr;
+			return false;
+		}
+
+		m_ReflectionFramebuffers.clear();
+		m_ReflectionFramebuffers.reserve(6);
+		for (uint32_t face = 0; face < 6; ++face)
+		{
+			nvrhi::FramebufferDesc fbDesc;
+			fbDesc.addColorAttachment(m_ReflectionMap.Get(),
+				nvrhi::TextureSubresourceSet(0, 1, face, 1));
+			fbDesc.setDepthAttachment(m_ReflectionDepth.Get());
+
+			nvrhi::FramebufferHandle fb = device->createFramebuffer(fbDesc);
+			if (!fb)
+			{
+				FG_CORE_ERROR("PbrRenderer: failed to create reflection probe framebuffer for face {0}", face);
+				m_ReflectionFramebuffers.clear();
+				m_ReflectionMap = nullptr;
+				m_ReflectionDepth = nullptr;
+				return false;
+			}
+			m_ReflectionFramebuffers.push_back(fb);
+		}
+
+		m_ReflectionSize = size;
+		m_ReflectionProbeEnabled = true;
+		FG_CORE_INFO("Reflection probe created: {0}x{0} cubemap", size);
+		return true;
+	}
+
+	void PbrRenderer::RenderReflectionProbe(nvrhi::ICommandList* commandList,
+		const glm::mat4& shadowViewProjection,
+		const glm::vec3& lightDirection,
+		const glm::vec3& lightColor,
+		float lightIntensity,
+		const glm::vec3& ambientLight,
+		const std::vector<ProbeDraw>& draws)
+	{
+		if (!commandList || !m_ReflectionProbeEnabled || draws.empty())
+			return;
+
+		for (uint32_t face = 0; face < 6; ++face)
+		{
+			const nvrhi::FramebufferHandle& fb = m_ReflectionFramebuffers[face];
+			if (!fb)
+				continue;
+
+			// Clear the face and depth, mirroring how UpdateFrame clears the
+			// HDR target before the main pass.
+			commandList->clearTextureFloat(m_ReflectionMap,
+				nvrhi::TextureSubresourceSet(0, 1, face, 1),
+				nvrhi::Color(0.05f, 0.06f, 0.09f, 1.0f));
+			commandList->clearDepthStencilTexture(m_ReflectionDepth,
+				nvrhi::TextureSubresourceSet(0, 1, 0, 1), true, 1.0f, false, 0);
+
+			// This face's camera. The main pass rewrites the buffer with the
+			// real camera in UpdateFrame after the probe, so sharing it is safe.
+			CameraUniforms uniforms{};
+			uniforms.ViewProjection = BuildCubeFaceViewProjection(face, m_ReflectionProbePosition, 0.1f, 120.0f);
+			uniforms.ShadowViewProjection = shadowViewProjection;
+			uniforms.LightDirection = glm::vec4(lightDirection, 0.0f);
+			uniforms.LightColor = glm::vec4(lightColor, lightIntensity);
+			uniforms.CameraPosition = glm::vec4(m_ReflectionProbePosition, 0.0f);
+			uniforms.AmbientLight = glm::vec4(ambientLight, 0.0f);
+			uniforms.SSAOParams = glm::vec4(0.002f, 1.0f, 0.0f, 0.0f);
+			commandList->writeBuffer(m_CameraBuffer, &uniforms, sizeof(uniforms), 0);
+
+			for (const ProbeDraw& draw : draws)
+			{
+				DrawObject(commandList, fb, draw.MeshHandle, draw.AlbedoTexture,
+					draw.Model, draw.NormalMatrix, draw.Albedo,
+					draw.Metallic, draw.Roughness, draw.AO,
+					draw.Emissive, draw.EmissiveIntensity,
+					/*fromReflectionProbe*/ true);
+			}
+		}
 	}
 
 	// --- Shadow pass implementation ---
@@ -1371,7 +1545,9 @@ namespace Forge {
 				cmd->setGraphicsState(state);
 				cmd->draw(nvrhi::DrawArguments{ 4, 1 });
 
-				mipFb->Release();
+				// No Release(): mipFb is owned by its RefCountPtr. ->Release()
+				// on top of the destructor is a double release, and the
+				// lifetime tracker keeps using the object after it dies.
 			}
 		}
 

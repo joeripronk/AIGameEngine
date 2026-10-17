@@ -10,6 +10,8 @@
 
 namespace Forge {
 
+	class Texture;
+
 	class Renderer
 	{
 	public:
@@ -17,6 +19,30 @@ namespace Forge {
 		static void Shutdown();
 
 		static void OnWindowResize(uint32_t width, uint32_t height);
+		// Opt into supersampled rendering. 1 disables it; >1 makes the offscreen
+		// targets larger than the window so the Final pass can downsample them
+		// back onto the swapchain image. Call before Renderer::Init() or while running.
+		static void SetRenderScale(float scale);
+		static float GetRenderScale();
+
+		// Opt into real-time scene reflections. The scene is redrawn from the
+		// probe position into a cubemap each frame and bound as the specular
+		// environment, so polished metal mirrors its surroundings. Returns false
+		// when the device is missing - the scene then renders unreflected
+		// rather than failing.
+		[[nodiscard]]
+		static bool EnableReflectionProbe(uint32_t size = 256);
+		static bool IsReflectionProbeEnabled();
+
+		// Where the reflection probe samples the scene from. Defaults to the
+		// origin; set it near the reflective geometry for believable mirrors.
+		static void SetReflectionProbePosition(const glm::vec3& position);
+
+		// The PBR albedo texture for a path, loaded once and shared by every
+		// pass that draws with it. A failed path stays in the cache as null, so
+		// the load failure is logged once per path rather than per frame, and
+		// the material falls back to its albedo colour.
+		static Ref<Texture> GetAlbedoTexture(const std::string& path);
 
 		static void BeginScene();
 		static void EndScene();
@@ -139,6 +165,7 @@ namespace Forge {
 
 		// The current swapchain image index (set by AcquireSwapchainImage).
 		static uint32_t s_CurrentSwapchainImage;
+		static float s_RenderScale;
 	};
 
 }

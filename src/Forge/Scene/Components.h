@@ -169,6 +169,8 @@ namespace Forge {
 		glm::vec3 Emissive = { 0.0f, 0.0f, 0.0f };
 		float EmissiveIntensity = 0.0f;
 
+		std::string AlbedoTexturePath;
+
 		PBRMaterialComponent() = default;
 		PBRMaterialComponent(const PBRMaterialComponent&) = default;
 	};

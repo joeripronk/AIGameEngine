@@ -5,8 +5,10 @@ using Catch::Approx;
 
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Renderer/CpuTexture.h"
+#include "Forge/Renderer/Camera.h"
 
 #include <set>
+#include <array>
 
 TEST_CASE("Cube primitive has valid topology", "[mesh][primitive]")
 {
@@ -139,6 +141,88 @@ TEST_CASE("CpuTexture handles bad input gracefully", "[texture]")
 {
     REQUIRE(Forge::CpuTexture::Load("definitely_missing.png") == nullptr);
     REQUIRE(Forge::CpuTexture::Load(FORGE_SOURCE_DIR "/README.md") == nullptr);
+}
+
+TEST_CASE("Cube-face view-projections cover the six reflection directions", "[renderer][reflection]")
+{
+    const glm::vec3 origin{ 1.5f, -2.0f, 3.0f };
+    const glm::vec3 forward[6] = {
+        { 1.0f, 0.0f, 0.0f }, { -1.0f, 0.0f, 0.0f },
+        { 0.0f, 1.0f, 0.0f }, { 0.0f, -1.0f, 0.0f },
+        { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f, -1.0f },
+    };
+
+	for (uint32_t face = 0; face < 6; ++face)
+	{
+		const glm::mat4 viewProjection = Forge::BuildCubeFaceViewProjection(face, origin);
+
+		// glm is the OpenGL convention: clip-space w is -view-space z, so a
+		// point in front has positive w and its z lands inside [-1, 1].
+		const glm::vec4 ahead = viewProjection * glm::vec4(origin + forward[face] * 5.0f, 1.0f);
+		REQUIRE(ahead.w == Approx(5.0f));
+		REQUIRE(ahead.z / ahead.w > -1.0f);
+		REQUIRE(ahead.z / ahead.w < 1.0f);
+
+		// A point behind the face has negative w and falls outside the
+		// frustum: it is clipped away, so the face sees only what is ahead.
+		const glm::vec4 behind = viewProjection * glm::vec4(origin - forward[face] * 5.0f, 1.0f);
+		REQUIRE(behind.w == Approx(-5.0f));
+		REQUIRE(behind.z / behind.w > 1.0f);
+	}
+
+    // Faces must be six distinct views, not six transforms of one direction.
+    std::set<std::array<float, 16>> distinct;
+    for (uint32_t face = 0; face < 6; ++face)
+    {
+        const glm::mat4 viewProjection = Forge::BuildCubeFaceViewProjection(face, origin);
+        std::array<float, 16> flattened;
+        for (int col = 0; col < 4; ++col)
+            for (int row = 0; row < 4; ++row)
+                flattened[col * 4 + row] = viewProjection[col][row];
+        distinct.insert(flattened);
+    }
+    REQUIRE(distinct.size() == 6);
+
+    // Out-of-range faces return the identity: a degenerate view that draws
+    // nothing, documented for callers to validate against.
+    REQUIRE(Forge::BuildCubeFaceViewProjection(6u, origin) == glm::mat4(1.0f));
+    REQUIRE(Forge::BuildCubeFaceViewProjection(99u, origin) == glm::mat4(1.0f));
+}
+
+TEST_CASE("Committed metal albedo fixture decodes as a usable texture", "[texture][renderer]")
+{
+    const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/textures/metal_blocks.bmp";
+    auto texture = Forge::CpuTexture::Load(path);
+
+    REQUIRE(texture != nullptr);
+    REQUIRE(texture->IsHDR() == false);
+    REQUIRE(texture->GetWidth() == 256);
+    REQUIRE(texture->GetHeight() == 256);
+    REQUIRE(texture->GetChannels() == 4);
+
+    // The map tints each tetromino albedo, so it must be neutral grey and
+    // actually vary across the surface: a flat buffer decodes fine and still
+    // renders as a featureless block.
+    const uint8_t* bytes = static_cast<const uint8_t*>(texture->GetPixelData());
+    REQUIRE(bytes[0] == 227);
+    REQUIRE(bytes[1] == 227);
+    REQUIRE(bytes[2] == 227);
+    REQUIRE(bytes[3] == 255);
+
+    uint8_t minLuma = 255;
+    uint8_t maxLuma = 0;
+    for (uint32_t y = 0; y < 256; y += 4)
+    {
+        for (uint32_t x = 0; x < 256; x += 4)
+        {
+            const uint8_t* px = bytes + ((size_t)y * 256 + x) * 4;
+            REQUIRE(px[0] == px[1]);
+            REQUIRE(px[1] == px[2]);
+            minLuma = std::min(minLuma, px[0]);
+            maxLuma = std::max(maxLuma, px[0]);
+        }
+    }
+    REQUIRE(maxLuma > minLuma);
 }
 TEST_CASE("Committed HDRI fixture decodes as HDR", "[renderer][hdr]")
 {

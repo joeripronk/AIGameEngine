@@ -723,6 +723,10 @@ TEST_CASE("Keys map to the actions they are documented as", "[tetris][input]")
 	REQUIRE(MapKey(GLFW_KEY_W) == Action::RotateCW);
 	REQUIRE(MapKey(GLFW_KEY_X) == Action::RotateCW);
 	REQUIRE(MapKey(GLFW_KEY_Z) == Action::RotateCCW);
+
+	// V switches the 2D/3D view. That is presentation, not a rule, so it must
+	// reach the app as a callback and never arrive as a rules action.
+	REQUIRE(MapKey(GLFW_KEY_V) == Action::None);
 }
 
 TEST_CASE("Every arrow key is mapped", "[tetris][input]")

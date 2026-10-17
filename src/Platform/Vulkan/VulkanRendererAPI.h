@@ -31,12 +31,29 @@ namespace Forge {
 
 		// Creates (or recreates) every size-dependent render target: the HDR
 		// buffer and its depth, the SSAO buffers, the tonemapped buffer and their
-		// framebuffers. Sized from the swapchain's actual extent, never from a
-		// guess, so each pass's viewport and scissor match its attachment.
+		// framebuffers. width/height are the swapchain's actual extent, never a
+		// guess; the targets are that extent scaled by the render scale, so each
+		// pass's viewport and scissor match the attachment it draws into.
 		static void CreateRenderTargets(uint32_t width, uint32_t height);
 
 		// Same as CreateRenderTargets, but a no-op when the size is unchanged.
+		// width/height are the on-screen extent; the targets themselves are
+		// built at that extent scaled by GetRenderScale().
 		void ResizeRenderTargets(uint32_t width, uint32_t height) override;
+
+		// Supersampling: offscreen targets are created at the swapchain extent
+		// times this scale and the Final pass shrinks the result back onto the
+		// swapchain image, so every edge is resolved from several samples
+		// instead of one. 1 = no supersampling. Clamped to [1, 4].
+		static void SetRenderScale(float scale);
+		static float GetRenderScale();
+
+		// The size of the offscreen render targets: the swapchain extent once
+		// the render scale is applied. Everything drawing into those targets
+		// sizes from these; only the Final pass and presentation use the
+		// swapchain's own extent.
+		static uint32_t GetRenderWidth() { return s_Width; }
+		static uint32_t GetRenderHeight() { return s_Height; }
 
 		void BeginFrame();
 		void EndFrame();
@@ -139,6 +156,8 @@ namespace Forge {
 		static VulkanSwapchain s_Swapchain;
 		static uint32_t s_Width;
 		static uint32_t s_Height;
+		static uint32_t ScaleForRenderTarget(uint32_t extent);
+		static float s_RenderScale;
 
 		// Post-processing framebuffers.
 		static nvrhi::FramebufferHandle s_TonemappedFramebuffer;

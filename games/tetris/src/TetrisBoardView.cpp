@@ -18,6 +18,11 @@ constexpr float kBlock = 1.0f;
 constexpr float kOriginX = -5.0f;
 constexpr float kOriginY = -10.0f;
 
+// Blocks sit flush against the back wall of the well built by TetrisApp
+// (interior spans z -1.2..0, blocks are 0.92 deep), so their side faces and
+// the walls beside them read as a real pit from the angled camera.
+constexpr float kBlockZ = -0.44f;
+
 // Blocks are drawn slightly under a full cell so the grid reads as separate
 // blocks rather than one merged slab.
 constexpr float kBlockScale = 0.92f;
@@ -36,7 +41,7 @@ uint64_t BoardView::CellKey(uint32_t col, uint32_t row)
 
 glm::vec3 BoardView::BoardOrigin()
 {
-	return glm::vec3(kOriginX, kOriginY, 0.0f);
+	return glm::vec3(kOriginX, kOriginY, kBlockZ);
 }
 
 glm::vec3 BoardView::BoardCentre()
@@ -58,7 +63,7 @@ glm::vec3 BoardView::CellToWorld(uint32_t col, uint32_t row)
 {
 	return BoardOrigin() + glm::vec3(
 		(static_cast<float>(col) + 0.5f) * kBlock,
-		(static_cast<float>(row) + 0.5f) * kBlock,
+		(kRows - 1.0f - static_cast<float>(row) + 0.5f) * kBlock,
 		0.0f);
 }
 
@@ -260,8 +265,12 @@ void BoardView::SyncBlockEntities()
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
 			material.Albedo = color;
-			material.Metallic = 0.1f;
-			material.Roughness = 0.35f;
+			material.Metallic = kBlockMetallic;
+			material.Roughness = kBlockRoughness;
+			material.AO = 1.0f;
+			material.AlbedoTexturePath = kBlockAlbedoTexture;
+			material.Emissive = color;
+			material.EmissiveIntensity = kBlockEmissiveIntensity;
 
 			entity.AddComponent<Forge::MeshComponent>().ModelPath = m_BlockMeshPath;
 
@@ -273,7 +282,13 @@ void BoardView::SyncBlockEntities()
 			transform.Translation = CellToWorld(
 				static_cast<uint32_t>(key & 0xFFFFFFFFu),
 				static_cast<uint32_t>(key >> 32u));
-			cached->second.GetComponent<Forge::PBRMaterialComponent>().Albedo = color;
+			auto& cachedMaterial = cached->second.GetComponent<Forge::PBRMaterialComponent>();
+			cachedMaterial.Albedo = color;
+			cachedMaterial.Metallic = kBlockMetallic;
+			cachedMaterial.Roughness = kBlockRoughness;
+			cachedMaterial.AO = 1.0f;
+			cachedMaterial.Emissive = color;
+			cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 		}
 	}
 

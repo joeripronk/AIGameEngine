@@ -153,10 +153,10 @@ TEST_CASE("Shutdown destroys everything the view created", "[tetris][view]")
 
 TEST_CASE("Blocks are placed at the centre of their cell", "[tetris][view]")
 {
-	// The playfield spans 10 by 20 units centred on the world origin, so cell
-	// (0,0) is up and to the right of the board's lower-left corner.
-	REQUIRE(BoardView::CellToWorld(0, 0) == glm::vec3(-4.5f, -9.5f, 0.0f));
-	REQUIRE(BoardView::CellToWorld(9, 19) == glm::vec3(4.5f, 9.5f, 0.0f));
-	REQUIRE(BoardView::BoardCentre() == glm::vec3(0.0f, 0.0f, 0.0f));
+	// The playfield spans 10 by 20 units around the z-offset well, so cell
+	// (0,0) is the top row, one block in from the left.
+	REQUIRE(BoardView::CellToWorld(0, 0) == glm::vec3(-4.5f, 9.5f, -0.44f));
+	REQUIRE(BoardView::CellToWorld(9, 19) == glm::vec3(4.5f, -9.5f, -0.44f));
+	REQUIRE(BoardView::BoardCentre() == glm::vec3(0.0f, 0.0f, -0.44f));
 	REQUIRE(BoardView::BoardSize() == glm::vec3(10.0f, 20.0f, 1.0f));
 }

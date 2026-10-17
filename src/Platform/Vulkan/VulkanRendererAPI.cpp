@@ -65,6 +65,7 @@ namespace Forge {
 	VulkanSwapchain VulkanRendererAPI::s_Swapchain;
 	uint32_t VulkanRendererAPI::s_Width = 0;
 	uint32_t VulkanRendererAPI::s_Height = 0;
+	float VulkanRendererAPI::s_RenderScale = 1.0f;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_TonemappedFramebuffer;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_SSAOFramebuffer;
 	nvrhi::TextureHandle VulkanRendererAPI::s_HDRBuffer;
@@ -84,6 +85,15 @@ namespace Forge {
 	nvrhi::BufferHandle VulkanRendererAPI::s_SSAOUniformBuffer;
 	nvrhi::BufferHandle VulkanRendererAPI::s_HDRUniformBuffer;
 	nvrhi::BufferHandle VulkanRendererAPI::s_FinalUniformBuffer;
+
+	// One axis of a display extent with the render scale applied, rounded so a
+	// scale never drops a whole pixel row/column. At scale 1 this is a copy.
+	uint32_t VulkanRendererAPI::ScaleForRenderTarget(uint32_t extent)
+	{
+		const uint32_t scaled = static_cast<uint32_t>(
+			static_cast<double>(extent) * s_RenderScale + 0.5);
+		return scaled == 0 ? 1u : scaled;
+	}
 
 	bool VulkanRendererAPI::CreateInstance()
 	{
@@ -421,7 +431,12 @@ namespace Forge {
 			return;
 		}
 
-		CreateRenderTargets(GetSwapchain().GetWidth(), GetSwapchain().GetHeight());
+		// The targets carry the render scale; the swapchain itself stays at the
+		// window extent, and the Final pass shrinks the scaled scene back onto
+		// it.
+		CreateRenderTargets(
+			ScaleForRenderTarget(GetSwapchain().GetWidth()),
+			ScaleForRenderTarget(GetSwapchain().GetHeight()));
 	}
 
 	void VulkanRendererAPI::CreateRenderTargets(uint32_t width, uint32_t height)
@@ -583,7 +598,7 @@ namespace Forge {
 		if (!s_Device || width == 0 || height == 0)
 			return;
 
-		if (width == s_Width && height == s_Height)
+		if (ScaleForRenderTarget(width) == s_Width && ScaleForRenderTarget(height) == s_Height)
 			return;
 
 		// Drop the framebuffers before their attachments are replaced. nvrhi
@@ -593,7 +608,17 @@ namespace Forge {
 		s_TonemappedFramebuffer = nullptr;
 		s_SSAOFramebuffer = nullptr;
 
-		CreateRenderTargets(width, height);
+		CreateRenderTargets(ScaleForRenderTarget(width), ScaleForRenderTarget(height));
+	}
+
+	void VulkanRendererAPI::SetRenderScale(float scale)
+	{
+		s_RenderScale = scale > 1.0f ? std::min(scale, 4.0f) : 1.0f;
+	}
+
+	float VulkanRendererAPI::GetRenderScale()
+	{
+	    return s_RenderScale;
 	}
 
 	void VulkanRendererAPI::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
@@ -1319,7 +1344,7 @@ namespace Forge {
 		// constructor is (minX, maxX, minY, maxY, minZ, maxY) - X before Y - so
 		// passing (0, 0, width, height, ...) leaves it zero-width and every draw
 		// is clipped away, which is an entirely black frame with no error.
-		nvrhi::Viewport viewport(s_Width, s_Height);
+		nvrhi::Viewport viewport(GetSwapchain().GetWidth(), GetSwapchain().GetHeight());
 		state.viewport.addViewportAndScissorRect(viewport);
 		state.pipeline = s_FinalPipeline.Get();
 		state.bindings.push_back(finalSet.Get());

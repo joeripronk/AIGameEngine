@@ -33,6 +33,9 @@ namespace Forge {
 		desc.isShaderResource = true;
 		desc.isRenderTarget = !source->IsHDR();
 		desc.debugName = filepath;
+		// nvrhi tracks resource states, and a texture with an unknown initial
+		// state is rejected at bind time: "Unknown prior state of texture".
+		desc.enableAutomaticStateTracking(nvrhi::ResourceStates::ShaderResource);
 
 		auto device = VulkanRendererAPI::GetStaticDevice();
 		if (!device)
@@ -67,11 +70,19 @@ namespace Forge {
 				nvrhi::CommandListParameters params;
 				nvrhi::CommandListHandle commandList = device->createCommandList(params);
 				commandList->open();
+				// The desc enables automatic state tracking, so nvrhi inserts the
+				// CopyDest barrier for the upload and returns the texture to
+				// ShaderResource on its own.
 				commandList->copyTexture(m_Texture, nvrhi::TextureSlice(), staging, nvrhi::TextureSlice());
 				commandList->close();
 				device->executeCommandList(commandList, nvrhi::CommandQueue::Graphics);
 
-				staging->Release();
+				// No Release(): the staging texture is owned by the
+				// RefCountPtr handle, whose destructor releases it. Calling
+				// ->Release() on top of that drives the refcount negative,
+				// the object dies while nvrhi's lifetime tracker still
+				// references it, and the crash lands later, in
+				// runGarbageCollection, far from the line that caused it.
 			}
 		}
 

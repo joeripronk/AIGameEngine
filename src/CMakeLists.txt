@@ -241,6 +241,8 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/VulkanSwapchain.cpp
     Platform/Vulkan/PbrRenderer.cpp
     Platform/Vulkan/VulkanWindow.cpp
+    Platform/Vulkan/ImGuiLayer.cpp
+    Platform/Vulkan/ImGuiLayer.h
 )
 target_include_directories(vulkan
     PRIVATE
@@ -291,6 +293,11 @@ target_link_libraries(vulkan
         ForgeCore
         Vulkan::Vulkan
 )
+
+# ImGuiLayer drives the ImGui GLFW/Vulkan backends, so the imgui target is
+# part of vulkan's public interface: any app including ImGuiLayer.h needs the
+# imgui headers, which the link propagates.
+target_link_libraries(vulkan PUBLIC imgui)
 
 # ---------------------------------------------------------------------------
 # ForgeApp: the platform layer (window + renderer + application shell).

@@ -75,9 +75,14 @@ namespace Forge {
 
 		// Records the draw call for one object. Geometry and its input layout are
 		// uploaded on first use and cached.
+		//
+		// `fromReflectionProbe` draws the object *into* the reflection probe, so
+		// the object must not sample the cubemap that is being written this pass:
+		// probe draws bind the static fallback environment instead.
 		void DrawObject(nvrhi::ICommandList* commandList,
 			nvrhi::FramebufferHandle framebuffer,
 			const Ref<Mesh>& mesh,
+			const Ref<Texture>& albedoTexture,
 			const glm::mat4& transform,
 			const glm::mat3& normalMatrix,
 			const glm::vec3& albedo,
@@ -85,7 +90,47 @@ namespace Forge {
 			float roughness,
 			float ambientOcclusion,
 			const glm::vec3& emissive,
-			float emissiveIntensity);
+			float emissiveIntensity,
+			bool fromReflectionProbe = false);
+
+		// --- Real-time reflection probe ---
+		//
+		// One scene draw per cube face, from a fixed probe position, into a
+		// renderable cubemap that the main pass binds as the specular
+		// environment. Polished metal blocks then mirror the scene around the
+		// probe: walls, borders and the block stack appear in their surfaces.
+		struct ProbeDraw
+		{
+			Ref<Mesh> MeshHandle;
+			Ref<Texture> AlbedoTexture;
+			glm::mat4 Model = glm::mat4(1.0f);
+			glm::mat3 NormalMatrix = glm::mat3(1.0f);
+			glm::vec3 Albedo = glm::vec3(1.0f);
+			glm::vec3 Emissive = glm::vec3(0.0f);
+			float Metallic = 0.0f;
+			float Roughness = 1.0f;
+			float AO = 1.0f;
+			float EmissiveIntensity = 0.0f;
+		};
+
+		// Creates the probe cubemap, its depth buffer and the six face
+		// framebuffers. Call once after Initialize(); the main pass starts
+		// reflecting as soon as it exists.
+		bool EnableReflectionProbe(uint32_t size);
+
+		bool IsReflectionProbeEnabled() const { return m_ReflectionProbeEnabled; }
+
+		void SetReflectionProbePosition(const glm::vec3& position) { m_ReflectionProbePosition = position; }
+
+		// Records the six probe faces: clears each face, records its camera
+		// uniform, and draws every supplied object into it.
+		void RenderReflectionProbe(nvrhi::ICommandList* commandList,
+			const glm::mat4& shadowViewProjection,
+			const glm::vec3& lightDirection,
+			const glm::vec3& lightColor,
+			float lightIntensity,
+			const glm::vec3& ambientLight,
+			const std::vector<ProbeDraw>& draws);
 
 		// Recreates the depth buffer for a new framebuffer size.
 		bool Resize(uint32_t width, uint32_t height);
@@ -154,6 +199,32 @@ namespace Forge {
 			uint32_t indexCount = 0;
 		};
 
+		struct ObjectDrawKey
+		{
+			const Mesh* m_Mesh = nullptr;
+			nvrhi::ITexture* m_AlbedoTexture = nullptr;
+			// A draw that writes the probe samples a different environment than
+			// a draw that reads it, so the env texture is part of the cache key.
+			nvrhi::ITexture* m_EnvTexture = nullptr;
+			bool operator==(const ObjectDrawKey& other) const
+			{
+				return m_Mesh == other.m_Mesh && m_AlbedoTexture == other.m_AlbedoTexture
+					&& m_EnvTexture == other.m_EnvTexture;
+			}
+		};
+
+		struct ObjectDrawKeyHash
+		{
+			size_t operator()(const ObjectDrawKey& key) const
+			{
+				size_t meshHash = std::hash<const Mesh*>{}(key.m_Mesh);
+				size_t texHash = key.m_AlbedoTexture ? std::hash<const nvrhi::ITexture*>{}(key.m_AlbedoTexture) : 0;
+				size_t envHash = key.m_EnvTexture ? std::hash<const nvrhi::ITexture*>{}(key.m_EnvTexture) : 0;
+				size_t mixed = texHash ^ (envHash + 0x9e3779b97f4a7c15ULL + (texHash << 6) + (texHash >> 2));
+				return meshHash ^ (mixed + 0x9e3779b97f4a7c15ULL + (meshHash << 6) + (meshHash >> 2));
+			}
+		};
+
 		bool CreateBindingLayouts();
 		bool CreateSharedResources();
 		// Uses m_ColorFormat, which Initialize sets from the swapchain before
@@ -167,7 +238,8 @@ namespace Forge {
 		nvrhi::IGraphicsPipeline* GetPipelineForLayout(nvrhi::IInputLayout* inputLayout);
 
 		// Builds (or returns the cached) GPU state for a mesh.
-		const ObjectDraw* PrepareMesh(const Ref<Mesh>& mesh);
+		const ObjectDraw* PrepareMesh(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
+			nvrhi::ITexture* envTexture);
 
 		// Shadow draw cache (per mesh: input layout, vertex/index bindings, object buffer, binding set).
 		struct ShadowDraw
@@ -203,6 +275,14 @@ namespace Forge {
 		// Environment map (1x1 white fallback until a real env map is loaded).
 		nvrhi::TextureHandle m_EnvMapFallback;
 
+		// --- Real-time reflection probe ---
+		nvrhi::TextureHandle m_ReflectionMap;
+		nvrhi::TextureHandle m_ReflectionDepth;
+		std::vector<nvrhi::FramebufferHandle> m_ReflectionFramebuffers;
+		uint32_t m_ReflectionSize = 0;
+		bool m_ReflectionProbeEnabled = false;
+		glm::vec3 m_ReflectionProbePosition = glm::vec3(0.0f);
+
 		// ShadowMapParams uniform buffer.
 		nvrhi::BufferHandle m_ShadowParamsBuffer;
 		glm::vec2 m_ShadowMapSize = glm::vec2(2048.0f, 2048.0f);
@@ -234,7 +314,7 @@ namespace Forge {
 		nvrhi::SamplerHandle m_ShadowSampler;
 
 		std::unordered_map<nvrhi::IInputLayout*, nvrhi::GraphicsPipelineHandle> m_PipelineCache;
-		std::unordered_map<const Mesh*, ObjectDraw> m_DrawCache;
+		std::unordered_map<ObjectDrawKey, ObjectDraw, ObjectDrawKeyHash> m_DrawCache;
 
 		nvrhi::Format m_ColorFormat = nvrhi::Format::UNKNOWN;
 

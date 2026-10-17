@@ -4,6 +4,13 @@
 
 namespace Forge {
 
+	// A 90-degree perspective view-projection looking from `origin` along one of
+	// the six cube-face directions: 0 = +X, 1 = -X, 2 = +Y, 3 = -Y, 4 = +Z,
+	// 5 = -Z. Faces outside that range return an identity matrix, which is a
+	// degenerate view that renders nothing - callers must validate the index.
+	glm::mat4 BuildCubeFaceViewProjection(uint32_t face, const glm::vec3& origin,
+		float nearClip = 0.1f, float farClip = 100.0f);
+
 	class Camera
 	{
 	public:
