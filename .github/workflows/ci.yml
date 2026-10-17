@@ -28,13 +28,38 @@ jobs:
       with:
         submodules: recursive
 
+    # Every package here is load-bearing, and configure fails without each one
+    # rather than falling back:
+    #
+    #   libx11-dev      X11/Xlib.h and X11/XKBlib.h. GLFW's X11 backend is on by
+    #                   default on UNIX (GLFW_BUILD_X11), and find_package(X11
+    #                   REQUIRED) is what produced "Could NOT find X11".
+    #   libxrandr-dev   X11/extensions/Xrandr.h    -> FATAL_ERROR otherwise
+    #   libxinerama-dev X11/extensions/Xinerama.h  -> FATAL_ERROR otherwise
+    #   libxcursor-dev  X11/Xcursor/Xcursor.h      -> FATAL_ERROR otherwise
+    #   libxi-dev       X11/extensions/XInput.h    -> FATAL_ERROR otherwise
+    #   libxext-dev     X11/extensions/shape.h     -> FATAL_ERROR otherwise
+    #   libvulkan-dev   satisfies find_package(Vulkan REQUIRED) in
+    #                   src/CMakeLists.txt, so the Vulkan backend can build.
+    #
+    # No Xvfb: ForgeTests and ForgeTetrisTests link ForgeCore, which is built
+    # with FG_NO_VULKAN_RUNTIME, so no test creates a Window and nothing needs a
+    # display.
     - name: Install toolchain
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
           cmake \
-          ninja-build
+          ninja-build \
+          pkg-config \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxext-dev \
+          libvulkan-dev
 
     - name: Configure
       run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
@@ -58,9 +83,31 @@ jobs:
       with:
         submodules: recursive
 
+    # The SDK is needed: src/CMakeLists.txt has find_package(Vulkan REQUIRED),
+    # and without it configure dies with "Could NOT find Vulkan (missing:
+    # Vulkan_LIBRARY Vulkan_INCLUDE_DIR)" even though choco reported success.
+    #
+    # The second step matters as much as the install. Chocolatey sets
+    # VULKAN_SDK in the machine environment, but a step cannot see an
+    # environment variable set by an earlier step, so the path has to be read
+    # from the registry and re-exported here.
     - name: Install Vulkan SDK
+      run: choco install vulkan-sdk -y --no-progress
+
+    - name: Export Vulkan SDK path
+      shell: pwsh
       run: |
-        choco install vulkan-sdk -y --no-progress
+        $sdk = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\SDK' -ErrorAction SilentlyContinue).VulkanSDK
+        if (-not $sdk) {
+          $sdk = Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue |
+                 Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
+        }
+        if (-not $sdk) { throw 'Vulkan SDK installed but not discoverable' }
+
+        "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
+        "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_PATH -Append
+        Add-Content -Path $env:GITHUB_PATH -Value "$sdk/Bin"
+        Write-Host "Vulkan SDK: $sdk"
 
     # Visual Studio is a multi-config generator: the configuration is selected at
     # build time with --config, and Dist has to be declared up front or CMake
@@ -89,6 +136,30 @@ jobs:
       with:
         submodules: recursive
 
+    # Configure failed with "Could NOT find Threads": CMake 3.31 from Homebrew
+    # sits ahead of the image's own CMake on PATH, and its FindThreads probe
+    # rejects Apple Clang's -pthread (CMAKE_HAVE_LIBC_PTHREAD fails, then
+    # "Check if compiler accepts -pthread - no").
+    #
+    # Pinning CMake here matches the version Ubuntu ships and removes the
+    # Homebrew build from the equation. It cannot be worked around in this
+    # project: GLFW and spdlog each call find_package(Threads REQUIRED) too, so
+    # dropping our own call would just move the failure.
+    - name: Pin CMake
+      uses: jwlawson/actions-setup-cmake@v2
+      with:
+        cmake-version: '3.28.6'
+
+    - name: Install Ninja
+      run: brew install ninja
+
+    - name: Report toolchain
+      run: |
+        cmake --version
+        cc --version
+        ninja --version
+        sw_vers
+
     - name: Configure
       run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
@@ -111,13 +182,24 @@ jobs:
       with:
         submodules: recursive
 
+    # Same packages as the linux job, for the same reasons: GLFW's X11 backend
+    # and find_package(Vulkan REQUIRED) both hard-fail at configure without
+    # them. See the linux job for which header each one provides.
     - name: Install toolchain
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
           cmake \
-          ninja-build
+          ninja-build \
+          pkg-config \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxext-dev \
+          libvulkan-dev
 
     - name: Configure
       run: >
@@ -126,8 +208,16 @@ jobs:
         -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g"
         -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
 
+    # -j2, not -j$(nproc). assimp's IFC reader is the heaviest translation unit
+    # in the project and measures 1.27 GB peak RSS on its own, 2.36 GB once ASan
+    # instruments it. One job per core on a 4-core runner is therefore ~5.1 GB
+    # unsanitized and ~9.4 GB sanitized; the second overruns a hosted runner and
+    # the build dies with "Killed signal terminated program cc1plus", which
+    # reads as a compiler crash rather than an out-of-memory one. Two jobs cap
+    # the sanitized worst case near 4.8 GB. The unsanitized jobs keep full
+    # parallelism, where 5.1 GB is within a hosted runner's budget.
     - name: Build
-      run: cmake --build build -j$(nproc)
+      run: cmake --build build -j2
 
     # Leaks are reported separately; a leak should not block a change while the
     # use-after-free class is what needs enforcing.
@@ -148,13 +238,24 @@ jobs:
       with:
         submodules: recursive
 
+    # Same packages as the linux job, for the same reasons: GLFW's X11 backend
+    # and find_package(Vulkan REQUIRED) both hard-fail at configure without
+    # them. See the linux job for which header each one provides.
     - name: Install toolchain
       run: |
         sudo apt-get update
         sudo apt-get install -y \
           build-essential \
           cmake \
-          ninja-build
+          ninja-build \
+          pkg-config \
+          libx11-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          libxext-dev \
+          libvulkan-dev
 
     - name: Configure (Dist)
       run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Dist

@@ -132,10 +132,25 @@ find_package(Threads REQUIRED)
 set(GLFW_BUILD_WAYLAND OFF)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
 
+# Found before nvrhi on purpose. nvrhi reuses an existing Vulkan::Headers (or
+# Vulkan-Headers) target if one exists and otherwise clones Vulkan-Headers from
+# GitHub with FetchContent. Finding Vulkan after nvrhi therefore turned every
+# configure - including CI's - into a network fetch of a copy that nothing else
+# in the build had pinned, and a network failure there reads as an unrelated
+# configure error. The Vulkan backend needs the SDK regardless, so this is the
+# one place it has to be found.
+find_package(Vulkan REQUIRED)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
 
+# fmt as a plain library. Its C++20 module target is off because nothing in
+# this project imports it - there is no `import fmt` and no target links
+# fmt-module - so building it is work whose only effect is to add a fragile
+# compiler path. GCC 15 ICEs in cp/module.cc compiling fmt.cc as a module,
+# which fails the build with an internal compiler error that names neither fmt
+# nor CMake and gives no hint that an unused target is the cause.
+set(FMT_MODULE OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/fmt ${CMAKE_BINARY_DIR}/vendor/fmt)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/miniaudio ${CMAKE_BINARY_DIR}/vendor/miniaudio)
@@ -224,7 +239,8 @@ target_link_libraries(ForgeCore
 
 # Vulkan backend depends on GLFW (window/input), the nvrhi Vulkan device and
 # ForgeCore (for CpuTexture decoding used by VulkanTexture).
-find_package(Vulkan REQUIRED)
+# find_package(Vulkan) already ran above nvrhi, which is what lets nvrhi use
+# these imported targets instead of fetching its own headers.
 target_link_libraries(vulkan
     PRIVATE
         glfw

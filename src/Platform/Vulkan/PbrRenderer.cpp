@@ -44,16 +44,6 @@ namespace Forge {
 			return nvrhi::BindingSetItem::ConstantBuffer(slot, buffer);
 		}
 
-		nvrhi::BindingSetItem MakeTextureItem(nvrhi::ITexture* texture, uint32_t slot)
-		{
-			// The SRV must name a concrete view format; an UNKNOWN value makes
-			// nvrhi's Vulkan backend assert in convertFormat().
-			return nvrhi::BindingSetItem::Texture_SRV(slot, texture,
-				texture->getDesc().format,
-				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
-				nvrhi::TextureDimension::Texture2D);
-		}
-
 		nvrhi::BindingSetItem MakeSamplerItem(nvrhi::ISampler* sampler, uint32_t slot)
 		{
 			return nvrhi::BindingSetItem::Sampler(slot, sampler);
@@ -74,7 +64,7 @@ namespace Forge {
 
 		if (!CreateBindingLayouts())		return false;
 		if (!CreateSharedResources())		return false;
-		if (!CreatePipelines(colorFormat)) return false;
+		if (!CreatePipelines())	return false;
 
 		// Shadow map setup (2048x2048 depth texture).
 		if (!CreateShadowMap(2048, 2048))	return false;
@@ -232,7 +222,7 @@ namespace Forge {
 		return true;
 	}
 
-	bool PbrRenderer::CreatePipelines(nvrhi::Format colorFormat)
+	bool PbrRenderer::CreatePipelines()
 	{
 		auto device = VulkanRendererAPI::GetStaticDevice();
 

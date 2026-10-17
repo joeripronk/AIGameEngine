@@ -156,7 +156,10 @@ namespace Forge {
 
 		bool CreateBindingLayouts();
 		bool CreateSharedResources();
-		bool CreatePipelines(nvrhi::Format colorFormat);
+		// Uses m_ColorFormat, which Initialize sets from the swapchain before
+		// calling this. The pipeline's colour attachment has to match the
+		// framebuffer it is later drawn into.
+		bool CreatePipelines();
 
 		// A pipeline bakes in its vertex input layout, so meshes with different
 		// attribute sets need separate pipelines. Returns (and caches) the one

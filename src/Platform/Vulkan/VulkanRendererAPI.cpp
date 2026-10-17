@@ -879,40 +879,32 @@ namespace Forge {
 		// Simplified - pipeline is stubbed
 	}
 
-	// Helper: create a BindingSetItem for a texture.
+	// Binding-set items are built through nvrhi's own factories rather than by
+	// assigning the members by hand. BindingSetItem has no default member
+	// initialisers, so a hand-built item leaves whatever the stack held in
+	// every field it forgets, and none of that is reported.
+	//
+	// Two of those fields were genuinely wrong here:
+	//
+	//   range   BufferRange(0, 0) declares a zero-byte range. nvrhi's
+	//           EntireBuffer is BufferRange(0, ~0ull), and isEntireBuffer()
+	//           requires byteSize to be ~0ull or the descriptor's size - never
+	//           0 - so the old items claimed to bind no bytes at all.
+	//   unused / rawData / overrideComponentMapping
+	//           never assigned, so the constant-buffer and sampler items carried
+	//           stack garbage alongside an uninitialised type-adjacent value.
+	//
+	// The factories set every field, which is why they are used rather than a
+	// struct that happens to look complete.
 	namespace {
-		nvrhi::BindingSetItem MakeTextureItem(nvrhi::ITexture* texture, uint32_t slot)
-		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = texture;
-			item.slot = slot;
-			item.arrayElement = 0;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = texture->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			return item;
-		}
-
 		nvrhi::BindingSetItem MakeSamplerItem(nvrhi::ISampler* sampler, uint32_t slot)
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = sampler;
-			item.slot = slot;
-			item.arrayElement = 0;
-			item.type = nvrhi::ResourceType::Sampler;
-			return item;
+			return nvrhi::BindingSetItem::Sampler(slot, sampler);
 		}
 
 		nvrhi::BindingSetItem MakeConstantBufferItem(nvrhi::IBuffer* buffer, uint32_t slot)
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = buffer;
-			item.slot = slot;
-			item.arrayElement = 0;
-			item.type = nvrhi::ResourceType::ConstantBuffer;
-			item.range = nvrhi::BufferRange(0, 0);
-			return item;
+			return nvrhi::BindingSetItem::ConstantBuffer(slot, buffer);
 		}
 
 		// A fullscreen quad in NDC space with UVs.

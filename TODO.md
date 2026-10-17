@@ -173,6 +173,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CI/CD pipeline (Linux, Windows, macOS - Debug/Release/Dist + tests)
 - [x] ASan + UBSan CI job (memory errors no test can observe)
 
+> All three platform jobs previously failed at Configure and had never run a
+> single build. The library dependencies are fixed (see Known Issues); the
+> Windows and macOS jobs still need one green run each before these can be
+> called verified rather than configured.
+
 ### ✨ New Features
 - [x] SSAO sample positions uniform array (shader fixed, runtime setup complete)
 - [x] UpdateDescriptorSets fully implemented
@@ -239,3 +244,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | `AudioSourceComponent` was missing from the editor UI | ✅ Fixed - the component existed, serialized, played and was exposed to Lua, but could not be seen, edited or created in the GUI at all; now rendered in the Inspector with a Scene > Create Audio Source item |
 | `SetSoundVolume` was reverted by the next frame | ✅ Fixed - the authored volume is the single source of truth; both the setter and the per-frame spatial recompute compose gain through `ComputeEffectiveGain` |
 | `vendor/*` submodules could not be cloned | ✅ Fixed - the gitlinks were committed without a `.gitmodules`, so `git submodule update --init` failed with `no submodule mapping found` and a fresh clone could not configure at all |
+| CI had never once passed, while being marked done | ✅ Fixed - every run failed at Configure, so the boxes for "CI on all 3 platforms" were claims, not observations |
+| Linux CI installed no X11 headers | ✅ Fixed - GLFW's X11 backend is on by default on UNIX and hard-errors on missing Xrandr/Xinerama/Xcursor/Xi/XShape, so Configure died with "Could NOT find X11"; every header it demands now has its package |
+| Windows CI could not find Vulkan | ✅ Fixed - `choco install vulkan-sdk` reported success, but a later step cannot see an environment variable an earlier step set, so `find_package(Vulkan REQUIRED)` failed; `VULKAN_SDK` is now re-read from the registry and re-exported |
+| macOS CI could not find Threads | ✅ Fixed - Homebrew's CMake 3.31 took precedence over the image's own and its `FindThreads` probe rejects Apple Clang's `-pthread`; CMake is pinned to match the Ubuntu runner. Not reproducible locally, so the job also reports its toolchain |
+| The sanitizers CI job ran out of memory | ✅ Fixed - assimp's IFC reader peaks at 1.27 GB per translation unit, 2.36 GB under ASan, so one job per core on a 4-core runner needed ~9.4 GB and died as `Killed signal terminated program cc1plus`, which reads as a compiler crash rather than an out-of-memory one. That job now builds at `-j2` |
+| Every configure cloned Vulkan-Headers from GitHub | ✅ Fixed - `find_package(Vulkan)` ran *after* `add_subdirectory(nvrhi)`, so nvrhi could not see `Vulkan::Headers` and fell back to FetchContent. Configure now depends on the SDK the project already requires, with no network fetch |
+| Post-process binding sets declared zero-byte ranges | ✅ Fixed - the sampler and constant-buffer items were hand-assembled and set `range = BufferRange(0, 0)`, which fails nvrhi's own `isEntireBuffer()` (it wants `~0ull` or the descriptor size), while `unused`, `rawData` and `overrideComponentMapping` were never assigned at all. They now go through nvrhi's factories |
+| Every build compiled an unused C++20 fmt module | ✅ Fixed - `fmt-module` was built in all configurations with no `import fmt` and no target linking it; GCC 15 ICEs in `cp/module.cc` on it, reported as an internal compiler error naming neither fmt nor CMake. `FMT_MODULE` is now off |
