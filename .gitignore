@@ -65,6 +65,7 @@ vendor/physx/build/
 # Test artifacts
 *.forge
 !resources/scenes/*.forge
+!resources/prefabs/*.forge
 
 # Test artifacts written into the working directory by the test suite
 /bad.rt

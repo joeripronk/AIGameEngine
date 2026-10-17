@@ -1,0 +1,22 @@
+Prefab: Enemy
+Entity:
+  Entity: 1111111111111111111
+  TagComponent:
+    Tag: "Enemy"
+  TransformComponent:
+    Translation: [0, 1, 0]
+    Rotation: [0, 0, 0]
+    Scale: [1, 1, 1]
+  RigidbodyComponent:
+    BodyType: 1
+    FixedRotation: false
+  BoxColliderComponent:
+    Offset: [0, 0, 0]
+    Size: [1, 1, 1]
+    Density: 1.0
+    Friction: 0.5
+    Restitution: 0.0
+  PBRMaterialComponent:
+    Albedo: [0.8, 0.2, 0.2]
+    Metallic: 0.1
+    Roughness: 0.6
