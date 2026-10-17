@@ -9,6 +9,10 @@ using Catch::Approx;
 #include "Forge/Scene/Components.h"
 #include "Forge/Core/Log.h"
 
+#include <filesystem>
+#include <fstream>
+#include <string>
+
 TEST_CASE("ScriptEngine initializes", "[scripting]")
 {
     REQUIRE_NOTHROW(Forge::ScriptEngine::Init());
@@ -453,4 +457,265 @@ TEST_CASE("GetDeltaTime follows each frame rather than a fixed value", "[scripti
     REQUIRE(Forge::ScriptEngine::GetEntityDeltaTime(Forge::Entity()) == Approx(0.0));
 
     Forge::ScriptEngine::OnRuntimeStop();
+}
+
+namespace {
+
+    // Hot reload re-reads files from disk, so these tests own their script
+    // directory and clean it up: a hot-reload test that wrote into
+    // resources/scripts/ would rewrite the shipped fixtures.
+    const std::string kHotReloadDir = "test_hotreload_scripts/";
+
+    void WriteLua(const std::string& path, const std::string& source)
+    {
+        std::ofstream out(path);
+        out << source;
+    }
+
+}  // namespace
+
+TEST_CASE("Hot reload rebuilds live instances from the file on disk", "[scripting][hotreload]")
+{
+    Forge::Log::Init();
+
+    std::error_code ec;
+    std::filesystem::remove_all(kHotReloadDir, ec);
+    std::filesystem::create_directories(kHotReloadDir, ec);
+    const std::string path = kHotReloadDir + "Probe.lua";
+
+    WriteLua(path, R"(
+        local M = {}
+        M.Ticks = 0
+        M.Created = 0
+        function M.OnCreate(entity) M.Created = M.Created + 1 end
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 1 end
+        return M
+    )");
+
+    Forge::ScriptEngine::SetScriptDirectory(kHotReloadDir);
+
+    Forge::Scene scene;
+    auto entity = scene.CreateEntity("Probe");
+    entity.AddComponent<Forge::ScriptComponent>().ClassName = "Probe";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    double ticks = -1.0, created = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Created", created));
+    REQUIRE(created == Approx(1.0));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(1.0));
+
+    // The edited script counts by tens. A reload must replace the running
+    // behaviour, not leave the compiled chunk from the first load in place.
+    WriteLua(path, R"(
+        local M = {}
+        M.Ticks = 0
+        M.Created = 0
+        function M.OnCreate(entity) M.Created = M.Created + 1 end
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 10 end
+        return M
+    )");
+
+    REQUIRE(Forge::ScriptEngine::HotReloadScript(path));
+
+    // Fresh instance: per-entity state restarts, and OnCreate runs again on
+    // the new instance, so Created counts 1 for this instance, not 2.
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(0.0));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Created", created));
+    REQUIRE(created == Approx(1.0));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(10.0));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::ScriptEngine::SetScriptDirectory(FORGE_SOURCE_DIR "/resources/scripts/");
+    std::filesystem::remove_all(kHotReloadDir, ec);
+}
+
+TEST_CASE("A failed hot reload keeps the previous script running", "[scripting][hotreload]")
+{
+    Forge::Log::Init();
+
+    std::error_code ec;
+    std::filesystem::remove_all(kHotReloadDir, ec);
+    std::filesystem::create_directories(kHotReloadDir, ec);
+    const std::string path = kHotReloadDir + "Probe.lua";
+
+    WriteLua(path, R"(
+        local M = {}
+        M.Ticks = 0
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 1 end
+        return M
+    )");
+
+    Forge::ScriptEngine::SetScriptDirectory(kHotReloadDir);
+
+    Forge::Scene scene;
+    auto entity = scene.CreateEntity("Probe");
+    entity.AddComponent<Forge::ScriptComponent>().ClassName = "Probe";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+
+    double ticks = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(2.0));
+
+    // A script that does not compile must not take the working one down
+    // with it: reload reports failure, and the live instance keeps ticking.
+    WriteLua(path, "this is not lua ~~~ ((");
+    REQUIRE_FALSE(Forge::ScriptEngine::HotReloadScript(path));
+
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(2.0));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(3.0));
+
+    // Recovery: fixing the file reloads cleanly, and the new behaviour takes
+    // over - the broken source is not left cached.
+    WriteLua(path, R"(
+        local M = {}
+        M.Ticks = 0
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 100 end
+        return M
+    )");
+    REQUIRE(Forge::ScriptEngine::HotReloadScript(path));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(100.0));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::ScriptEngine::SetScriptDirectory(FORGE_SOURCE_DIR "/resources/scripts/");
+    std::filesystem::remove_all(kHotReloadDir, ec);
+}
+
+TEST_CASE("A removed script file keeps the running script and reports failure", "[scripting][hotreload]")
+{
+    Forge::Log::Init();
+
+    std::error_code ec;
+    std::filesystem::remove_all(kHotReloadDir, ec);
+    std::filesystem::create_directories(kHotReloadDir, ec);
+    const std::string path = kHotReloadDir + "Probe.lua";
+
+    WriteLua(path, R"(
+        local M = {}
+        M.Ticks = 0
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 1 end
+        return M
+    )");
+
+    Forge::ScriptEngine::SetScriptDirectory(kHotReloadDir);
+
+    Forge::Scene scene;
+    auto entity = scene.CreateEntity("Probe");
+    entity.AddComponent<Forge::ScriptComponent>().ClassName = "Probe";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+
+    std::filesystem::remove(path, ec);
+    REQUIRE_FALSE(Forge::ScriptEngine::HotReloadScript(path));
+
+    // Losing a running script to a deleted file is not an upgrade.
+    double ticks = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(1.0));
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "Ticks", ticks));
+    REQUIRE(ticks == Approx(2.0));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::ScriptEngine::SetScriptDirectory(FORGE_SOURCE_DIR "/resources/scripts/");
+    std::filesystem::remove_all(kHotReloadDir, ec);
+}
+
+TEST_CASE("Hot reload outside a runtime session reports failure", "[scripting][hotreload]")
+{
+    Forge::Log::Init();
+
+    REQUIRE_FALSE(Forge::ScriptEngine::IsRuntimeActive());
+    REQUIRE_FALSE(Forge::ScriptEngine::HotReloadScript("anything.lua"));
+}
+
+TEST_CASE("HotReloadAll reloads every live script and counts clean reloads", "[scripting][hotreload]")
+{
+    Forge::Log::Init();
+
+    std::error_code ec;
+    std::filesystem::remove_all(kHotReloadDir, ec);
+    std::filesystem::create_directories(kHotReloadDir, ec);
+    const std::string aPath = kHotReloadDir + "A.lua";
+    const std::string bPath = kHotReloadDir + "B.lua";
+
+    const char* kScriptA = R"(
+        local M = {}
+        M.Ticks = 0
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 1 end
+        return M
+    )";
+
+    WriteLua(aPath, kScriptA);
+    WriteLua(bPath, kScriptA);
+
+    Forge::ScriptEngine::SetScriptDirectory(kHotReloadDir);
+
+    Forge::Scene scene;
+    auto a = scene.CreateEntity("A");
+    a.AddComponent<Forge::ScriptComponent>().ClassName = "A";
+    auto b = scene.CreateEntity("B");
+    b.AddComponent<Forge::ScriptComponent>().ClassName = "B";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+
+    double ticks = -1.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(a, "Ticks", ticks));
+    REQUIRE(ticks == Approx(1.0));
+
+    WriteLua(aPath, R"(
+        local M = {}
+        M.Ticks = 0
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 10 end
+        return M
+    )");
+    WriteLua(bPath, R"(
+        local M = {}
+        M.Ticks = 0
+        function M.OnUpdate(entity, dt) M.Ticks = M.Ticks + 20 end
+        return M
+    )");
+
+    REQUIRE(Forge::ScriptEngine::HotReloadAll() == 2u);
+
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(a, "Ticks", ticks));
+    REQUIRE(ticks == Approx(10.0));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(b, "Ticks", ticks));
+    REQUIRE(ticks == Approx(20.0));  // fresh instances: the old counts go with them
+
+    // One broken file is counted as a failure, and that entity keeps the
+    // script that worked.
+    WriteLua(bPath, "syntax ~~~ ((");
+    REQUIRE(Forge::ScriptEngine::HotReloadAll() == 1u);
+
+    // a rebuilt clean (fresh, +10 per tick), b kept its live instance - the
+    // +20 chunk from the first reload - so it ticks from 20 to 40.
+    scene.OnUpdateRuntime(Forge::Timestep(0.016f));
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(b, "Ticks", ticks));
+    REQUIRE(ticks == Approx(40.0));
+
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::ScriptEngine::SetScriptDirectory(FORGE_SOURCE_DIR "/resources/scripts/");
+    std::filesystem::remove_all(kHotReloadDir, ec);
 }

@@ -7,6 +7,7 @@
 #include "Forge/Assets/AssetRegistry.h"
 #include "Forge/Project/GameExporter.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Scripting/ScriptEngine.h"
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -160,7 +161,7 @@ namespace Forge {
 	void EditorApp::Run()
 	{
 		AssetRegistry::Scan("resources/");
-		WatchAssetTextures();
+		WatchWatchedAssets();
 
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
@@ -662,7 +663,7 @@ namespace Forge {
 		if (ImGui::Button("Refresh"))
 		{
 			AssetRegistry::Scan("resources/");
-			WatchAssetTextures();
+			WatchWatchedAssets();
 		}
 
 		ImGui::Separator();
@@ -915,14 +916,15 @@ namespace Forge {
 		ImGui::PopID();
 	}
 
-	void EditorApp::WatchAssetTextures()
+	void EditorApp::WatchWatchedAssets()
 	{
 		m_AssetWatcher.Clear();
 
 		// The renderer reloads texture assets through its own signature
 		// check; the watcher is what tells the editor (and the log) that the
-		// file on disk changed at all.
-		for (AssetType type : { AssetType::Texture, AssetType::HDR })
+		// file on disk changed at all. Scripts are watched too, because a
+		// changed .lua is hot-reloaded through ScriptEngine below.
+		for (AssetType type : { AssetType::Texture, AssetType::HDR, AssetType::Script })
 		{
 			for (const AssetMetadata& asset : AssetRegistry::GetAssetsOfType(type))
 				m_AssetWatcher.Watch(asset.Path);
@@ -946,12 +948,25 @@ namespace Forge {
 			m_Notification = event.Path + " " + AssetWatcher::ChangeToString(event.Kind);
 			m_NotificationIsError = false;
 			m_NotificationFramesRemaining = kNotificationFrames;
+
+			// Hot reload only matters while a runtime session is live;
+			// outside playback the script is (re)loaded on the next Play.
+			if (ClassifyAsset(event.Path) == AssetType::Script &&
+				ScriptEngine::IsRuntimeActive())
+			{
+				const bool reloaded = ScriptEngine::HotReloadScript(event.Path);
+				m_Notification = reloaded
+					? "Hot reloaded " + event.Path
+					: "Hot reload FAILED for " + event.Path + " - previous script keeps running";
+				m_NotificationIsError = !reloaded;
+				m_NotificationFramesRemaining = kNotificationFrames;
+			}
 		}
 
 		// New or removed files change the registry itself; re-scan and watch
 		// whatever is there now so appearances are reported too.
 		AssetRegistry::Scan("resources/");
-		WatchAssetTextures();
+		WatchWatchedAssets();
 	}
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)

@@ -13,6 +13,7 @@ extern "C" {
 }
 
 #include <fstream>
+#include <set>
 #include <sstream>
 
 namespace Forge {
@@ -21,6 +22,7 @@ namespace Forge {
 	Scene* ScriptEngine::s_ActiveScene = nullptr;
 	std::string ScriptEngine::s_ScriptDirectory = "resources/scripts/";
 	std::unordered_map<uint32_t, int> ScriptEngine::s_EntityScripts;
+	std::unordered_map<uint32_t, std::string> ScriptEngine::s_EntityScriptPaths;
 	std::unordered_map<uint32_t, double> ScriptEngine::s_EntityDeltaTimes;
 	double ScriptEngine::s_LastDeltaTime = 0.0;
 	std::unordered_map<std::string, std::string> ScriptEngine::s_ScriptSourceCache;
@@ -988,6 +990,7 @@ namespace Forge {
 		}
 
 		s_EntityScripts.clear();
+		s_EntityScriptPaths.clear();
 		s_ScriptSourceCache.clear();
 		s_ActiveScene = nullptr;
 
@@ -1063,6 +1066,14 @@ namespace Forge {
 
 		s_ActiveScene = scene;
 		s_EntityScripts.clear();
+		s_EntityScriptPaths.clear();
+
+		// The source cache exists so many entities spawning from one file
+		// read it once per session. Held across sessions it answers a new
+		// Play with the previous session's file - editing a script between
+		// play/stop/play would have no effect on the next run. A new session
+		// reads the files as they are on disk now.
+		s_ScriptSourceCache.clear();
 
 		// Delta times are per-frame, per-session state. Left over from a
 		// previous run they would make a script's first OnCreate see the last
@@ -1090,11 +1101,7 @@ namespace Forge {
 			Entity entity{ e, scene };
 			auto& sc = entity.GetComponent<ScriptComponent>();
 
-			std::string directory = s_ScriptDirectory;
-			if (!directory.empty() && directory.back() != '/' && directory.back() != '\\')
-				directory += '/';
-
-			std::string filepath = directory + sc.ClassName + ".lua";
+			std::string filepath = ResolveScriptPath(sc.ClassName);
 			std::string error;
 			if (!LoadScriptForEntity(entity, filepath, &error))
 			{
@@ -1123,6 +1130,105 @@ namespace Forge {
 		}
 	}
 
+	std::string ScriptEngine::ResolveScriptPath(const std::string& className)
+	{
+		std::string directory = s_ScriptDirectory;
+		if (!directory.empty() && directory.back() != '/' && directory.back() != '\\')
+			directory += '/';
+		return directory + className + ".lua";
+	}
+
+	bool ScriptEngine::HotReloadScript(const std::string& filepath)
+	{
+		// Hot reload rebuilds live instances; outside a runtime session
+		// there are none, and reporting success for nothing reloaded would
+		// be the report-success-by-default failure this codebase has been
+		// bitten by.
+		if (!s_LuaState || !s_ActiveScene)
+		{
+			FG_CORE_WARN("Hot reload of '{0}' requested with no active runtime session", filepath);
+			return false;
+		}
+
+		std::vector<uint32_t> bound;
+		for (const auto& [id, path] : s_EntityScriptPaths)
+		{
+			if (path == filepath)
+				bound.push_back(id);
+		}
+
+		// The cache must not answer with the previous source: drop it
+		// before reading, so the reload verifies the file on disk rather
+		// than assuming it matches what is already in memory.
+		s_ScriptSourceCache.erase(filepath);
+
+		std::ifstream file(filepath);
+		if (!file.is_open())
+		{
+			// The live instances stay running: losing a working script to a
+			// deleted file is not an upgrade.
+			FG_CORE_WARN("Hot reload of '{0}' failed: file not readable - previous scripts keep running", filepath);
+			return false;
+		}
+
+		std::stringstream ss;
+		ss << file.rdbuf();
+		s_ScriptSourceCache[filepath] = ss.str();
+
+		if (bound.empty())
+			return true;  // Nothing bound to this file; nothing to rebuild.
+
+		size_t rebuilt = 0;
+		bool allOk = true;
+		for (uint32_t id : bound)
+		{
+			Entity entity{ static_cast<entt::entity>(id), s_ActiveScene };
+			if (!entity)
+			{
+				// The entity died without its script being released; the
+				// map entry goes with it.
+				s_EntityScriptPaths.erase(id);
+				continue;
+			}
+
+			std::string error;
+			if (!LoadScriptForEntity(entity, filepath, &error))
+			{
+				// LoadScriptForEntity only swaps the instance after every
+				// check passes, so this entity keeps running the script
+				// that worked.
+				FG_CORE_ERROR("Hot reload of '{0}' failed for entity '{1}': {2} - previous script keeps running",
+					filepath, entity.GetName(), error);
+				allOk = false;
+				continue;
+			}
+
+			CallEntityFunction(entity, "OnCreate");
+			++rebuilt;
+		}
+
+		FG_CORE_INFO("Hot reloaded '{0}': {1} instance(s) rebuilt", filepath, rebuilt);
+		return allOk;
+	}
+
+	size_t ScriptEngine::HotReloadAll()
+	{
+		std::set<std::string> paths;
+		for (const auto& [id, path] : s_EntityScriptPaths)
+		{
+			(void)id;
+			paths.insert(path);
+		}
+
+		size_t reloaded = 0;
+		for (const auto& path : paths)
+		{
+			if (HotReloadScript(path))
+				++reloaded;
+		}
+		return reloaded;
+	}
+
 	void ScriptEngine::OnRuntimeStop()
 	{
 		if (!s_LuaState)
@@ -1148,6 +1254,7 @@ namespace Forge {
 			luaL_unref(s_LuaState, LUA_REGISTRYINDEX, ref);
 		}
 		s_EntityScripts.clear();
+		s_EntityScriptPaths.clear();
 		s_ActiveScene = nullptr;
 
 		lua_pushnil(s_LuaState);
@@ -1261,6 +1368,7 @@ namespace Forge {
 		ReleaseEntityScript((uint32_t)(entt::entity)entity);
 		int ref = luaL_ref(s_LuaState, LUA_REGISTRYINDEX);
 		s_EntityScripts[(uint32_t)(entt::entity)entity] = ref;
+		s_EntityScriptPaths[(uint32_t)(entt::entity)entity] = filepath;
 		return true;
 	}
 
@@ -1479,6 +1587,7 @@ namespace Forge {
 		// Erased alongside the script, or the per-entity delta outlives the
 		// entity it belonged to and is never reclaimed for the session.
 		s_EntityDeltaTimes.erase(entityID);
+		s_EntityScriptPaths.erase(entityID);
 	}
 
 	double ScriptEngine::GetEntityDeltaTime(Entity entity)

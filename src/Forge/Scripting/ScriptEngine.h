@@ -49,9 +49,41 @@ namespace Forge {
 		// The scene currently exposed to scripts (nullptr between runtimes).
 		static Scene* GetActiveScene() { return s_ActiveScene; }
 
+		// Predicate: a runtime session is live, so hot reloads have entities
+		// to rebind. Safe to poll, safe to ignore.
+		static bool IsRuntimeActive() { return s_ActiveScene != nullptr; }
+
 		// Directory scripts are resolved from. Defaults to "resources/scripts/".
 		static void SetScriptDirectory(const std::string& directory) { s_ScriptDirectory = directory; }
 		static const std::string& GetScriptDirectory() { return s_ScriptDirectory; }
+
+		// The path a class name resolves to, as OnRuntimeStart loads it.
+		static std::string ResolveScriptPath(const std::string& className);
+
+		// --- Hot reload (the Hazel script-reload workflow) ------------------
+
+		// Re-reads the file and rebuilds every live script instance bound to
+		// it, calling OnCreate on each fresh instance. Per-instance state
+		// starts clean by design: the chunk runs again, which is the whole
+		// point of editing a script while the game runs.
+		//
+		// Reload is verified, not assumed: a file that cannot be read, a
+		// chunk that fails to compile or run, or a chunk that stops returning
+		// a table keeps that entity's previous instance running - the same
+		// rule as the texture cache, where a failed reload keeps the texture
+		// that worked. Returns false when any bound instance failed to reload,
+		// naming each one in the log.
+		//
+		// True with nothing bound is honest: the file is no longer cached, and
+		// there was nothing to rebuild. Outside a runtime session there are no
+		// instances, so this reports failure rather than pretending.
+		[[nodiscard]]
+		static bool HotReloadScript(const std::string& filepath);
+
+		// Hot reloads every script file the live session currently uses.
+		// Returns how many files reloaded cleanly; the caller counts that
+		// against the files it asked about.
+		static size_t HotReloadAll();
 
 		// --- Tooling / embedding API (also used by tests and the editor) ----
 
@@ -120,6 +152,9 @@ namespace Forge {
 
 		// entity id -> luaL_ref into the registry for that entity's script table
 		static std::unordered_map<uint32_t, int> s_EntityScripts;
+		// entity id -> the file its instance was built from, so a hot reload
+		// can find the instances bound to a changed file
+		static std::unordered_map<uint32_t, std::string> s_EntityScriptPaths;
 		// class name -> luaL_ref for the compiled source chunk (reused per spawn)
 		static std::unordered_map<std::string, std::string> s_ScriptSourceCache;
 

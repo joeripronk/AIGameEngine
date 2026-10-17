@@ -44,7 +44,7 @@ namespace Forge {
 		// pattern): a texture rewritten on disk is re-decoded by the renderer
 		// cache on the next frame, and the change is reported here so the log
 		// says why the viewport changed.
-		void WatchAssetTextures();
+		void WatchWatchedAssets();
 		void PollAssetHotReloads(float dt);
 
 		AssetWatcher m_AssetWatcher;
