@@ -2,6 +2,8 @@
 
 #include "TetrisOverlay.h"
 
+#include "Forge/UI/UI.h"
+
 #include <vendor/imgui/imgui.h>
 
 #include <sstream>
@@ -28,7 +30,7 @@ void OverlayLayer::OnImGuiRender()
 	ImGui::Separator();
 
 	ImGui::SetCursorPosX(12.0f);
-	ImGui::PushStyleColor(ImGuiCol_Text, {0.75f, 0.80f, 0.85f, 0.90f});
+	Forge::UI::ScopedStyleColor helpColor(ImGuiCol_Text, { 0.75f, 0.80f, 0.85f, 0.90f });
 
 	ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8.0f);
 	ImGui::Text("  Move:");
@@ -65,7 +67,6 @@ void OverlayLayer::OnImGuiRender()
 	ImGui::SameLine();
 	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "V (2D/3D)");
 
-	ImGui::PopStyleColor();
 	ImGui::End();
 
 	// Top-right corner: game status
@@ -133,7 +134,7 @@ void OverlayLayer::OnImGuiRender()
 	ImGui::End();
 }
 
-void OverlayLayer::OnUpdate(float /*ts*/)
+void OverlayLayer::OnUpdate(Forge::Timestep /*ts*/)
 {
 	// Update cached state from the manager each frame.
 	if (m_Manager)

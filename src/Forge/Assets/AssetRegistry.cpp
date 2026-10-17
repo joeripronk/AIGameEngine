@@ -43,17 +43,25 @@ namespace Forge {
 	void AssetRegistry::Scan(const std::string& rootDirectory)
 	{
 		s_Assets.clear();
-		s_Root = rootDirectory;
+
+		std::string root = rootDirectory;
+		if (root.empty())
+		{
+			const std::filesystem::path assets = Project::GetAssetDirectory();
+			root = assets.empty() ? "resources" : assets.string();
+		}
+
+		s_Root = root;
 
 		std::error_code ec;
-		if (!std::filesystem::exists(rootDirectory, ec))
+		if (!std::filesystem::exists(root, ec))
 		{
-			FG_CORE_WARN("AssetRegistry root does not exist: {0}", rootDirectory);
+			FG_CORE_WARN("AssetRegistry root does not exist: {0}", root);
 			return;
 		}
 
-		ScanRecursive(rootDirectory);
-		FG_CORE_INFO("AssetRegistry indexed {0} assets under {1}", s_Assets.size(), rootDirectory);
+		ScanRecursive(root);
+		FG_CORE_INFO("AssetRegistry indexed {0} assets under {1}", s_Assets.size(), root);
 	}
 
 	void AssetRegistry::ScanRecursive(const std::filesystem::path& directory)

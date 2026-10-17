@@ -4,6 +4,7 @@
 #include "TetrisApp.h"
 
 #include "Forge/Core/Log.h"
+#include "Forge/Core/Time.h"
 #include "Forge/Events/ApplicationEvent.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Scene/Components.h"
@@ -421,7 +422,7 @@ void TetrisApp::SyncPreview()
 
 void TetrisApp::Run()
 {
-	float lastFrameTime = static_cast<float>(glfwGetTime());
+	float lastFrameTime = static_cast<float>(Forge::Time::GetTime());
 
 	// Headless verification (CI, screenshots) needs the process to end on its
 	// own, because no window-close event ever arrives without a user. Unset by
@@ -437,7 +438,7 @@ void TetrisApp::Run()
 	while (IsRunning())
 	{
 		FG_PROFILE_SCOPE("Frame");
-		const float time = static_cast<float>(glfwGetTime());
+		const float time = static_cast<float>(Forge::Time::GetTime());
 		const float frameTime = time - lastFrameTime;
 		lastFrameTime = time;
 

@@ -3,9 +3,12 @@
 #include "editor/src/EditorApp.h"
 
 #include "Forge/Core/Log.h"
+#include "Forge/Core/Time.h"
+#include "Forge/UI/UI.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Assets/AssetRegistry.h"
 #include "Forge/Project/GameExporter.h"
+#include "Forge/Project/Project.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scripting/ScriptEngine.h"
 
@@ -34,12 +37,33 @@ namespace Forge {
 		glm::vec3 g_GizmoStartValue;
 	}
 
-	EditorApp::EditorApp()
-		: Application(ApplicationSpecification{ "Forge Editor", "", { 0, nullptr } })
+	EditorApp::EditorApp(const ApplicationCommandLineArgs& args)
+		: Application(ApplicationSpecification{ "Forge Editor", "", args })
 	{
 		Renderer::Init();
 
 		CreateDefaultScene();
+
+		// --project names the project to work in, which is what says where the
+		// assets are and which scene was open last. Without it the editor is
+		// just an empty scene over whatever `resources` happens to hold.
+		if (const std::string project = Application::GetArgumentValue(args, "--project"); !project.empty())
+		{
+			if (!Project::Load(project))
+			{
+				FG_ERROR("Could not open project '{0}'", project);
+			}
+			else
+			{
+				FG_INFO("Opened project '{0}'", project);
+
+				// Reopening the scene the work was left in is the entire
+				// reason a project file records one.
+				const std::string editorScene = Project::GetEditorScenePath().string();
+				if (!editorScene.empty() && !m_Editor.OpenScene(editorScene))
+					FG_ERROR("Could not open project scene '{0}'", editorScene);
+			}
+		}
 
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
@@ -160,14 +184,15 @@ namespace Forge {
 
 	void EditorApp::Run()
 	{
-		AssetRegistry::Scan("resources/");
+		// An empty root scans the active project's asset directory.
+		AssetRegistry::Scan();
 		WatchWatchedAssets();
 
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
 		{
 			FG_PROFILE_SCOPE("Frame");
-			float time = (float)glfwGetTime();
+			float time = (float)Time::GetTime();
 			Timestep timestep = time - lastFrameTime;
 			lastFrameTime = time;
 
@@ -266,11 +291,12 @@ namespace Forge {
 
 		ImGui::Begin("##Notification", nullptr, flags);
 
-		ImGui::PushStyleColor(ImGuiCol_Text, m_NotificationIsError
+		// Scoped, so the Dismiss early-return below cannot leave the colour
+		// pushed into the next window drawn this frame.
+		Forge::UI::ScopedStyleColor color(ImGuiCol_Text, m_NotificationIsError
 			? ImVec4(1.0f, 0.45f, 0.45f, 1.0f)
 			: ImVec4(0.55f, 0.9f, 0.6f, 1.0f));
 		ImGui::TextUnformatted(m_Notification.c_str());
-		ImGui::PopStyleColor();
 
 		if (ImGui::Button("Dismiss"))
 		{
@@ -300,12 +326,29 @@ namespace Forge {
 			}
 
 			ImGui::Separator();
+			// A project records the start scene, so a distributed runtime knows
+			// what to open. It is saved from the editor rather than authored by
+			// hand, which keeps the two from drifting apart.
+			if (ImGui::MenuItem("Save Project..."))
+			{
+				const bool saved = m_Editor.SaveProject("project.forgeproject");
+				Notify(saved ? "Project saved" : "Failed to save project", !saved);
+			}
+
+			if (ImGui::MenuItem("Open Project..."))
+			{
+				const bool opened = m_Editor.OpenProject("project.forgeproject");
+				Notify(opened ? "Opened project" : "Failed to open project", !opened);
+			}
+
+			ImGui::Separator();
 			if (ImGui::MenuItem("Export Game..."))
 			{
 				GameExporter::Options opts;
 				opts.OutputDirectory = "dist/";
 				opts.ScenePath = "resources/scenes/editor.forge";
-				opts.ResourcesDirectory = "resources/";
+				// The resource root is left to the project: repeating it here
+				// is how an export ends up shipping the wrong tree.
 				opts.RuntimeExecutable = "bin/ForgeRuntime";
 				opts.GameName = "MyGame";
 
@@ -436,7 +479,43 @@ namespace Forge {
 
 		if (entity.HasComponent<CameraComponent>())
 		{
-			ImGui::Checkbox("Primary Camera##camera", &entity.GetComponent<CameraComponent>().Primary);
+			auto& camera = entity.GetComponent<CameraComponent>();
+
+			ImGui::Text("Camera");
+			if (ImGui::Checkbox("Primary Camera##camera", &camera.Primary) && camera.Primary)
+			{
+				// Marking one camera primary demotes the others: two primaries
+				// leave "the primary camera" with no defined answer. The checkbox
+				// can only be reached on an entity that has the component, so a
+				// failure here would mean the scene changed under the inspector.
+				if (!m_Editor.GetScene()->SetPrimaryCamera(entity))
+					Notify("Could not make this the primary camera", true);
+			}
+
+			const char* projections[] = { "Perspective", "Orthographic" };
+			int currentProjection = (int)camera.Type;
+			if (ImGui::Combo("Projection##camera", &currentProjection, projections, IM_ARRAYSIZE(projections)))
+			{
+				camera.Type = (CameraComponent::ProjectionType)currentProjection;
+				camera.UpdateProjection();
+			}
+
+			// Each projection has the parameters it uses; showing the other
+			// one's invites editing a field that does nothing.
+			if (camera.Type == CameraComponent::ProjectionType::Orthographic)
+			{
+				if (ImGui::DragFloat("Orthographic Size##camera", &camera.OrthographicSize, 0.1f))
+					camera.UpdateProjection();
+			}
+			else if (ImGui::DragFloat("Field of View##camera", &camera.FieldOfView, 0.5f))
+			{
+				camera.UpdateProjection();
+			}
+
+			ImGui::DragFloat("Near Clip##camera", &camera.NearClip, 0.01f);
+			ImGui::DragFloat("Far Clip##camera", &camera.FarClip, 1.0f);
+			if (ImGui::DragFloat("Aspect Ratio##camera", &camera.AspectRatio, 0.01f))
+				camera.UpdateProjection();
 		}
 
 		if (entity.HasComponent<RigidbodyComponent>())
@@ -617,6 +696,13 @@ namespace Forge {
 	{
 		ImGui::Begin("Viewport");
 
+		// The camera's projection has to be built for the panel it draws into.
+		// It was fixed at 16:9 for the life of the editor, while gizmo picking
+		// used the panel's real size - so every drag picked somewhere other
+		// than where the gizmo was drawn.
+		const ImVec2 panelSize = ImGui::GetContentRegionAvail();
+		m_Editor.GetCamera().SetViewportSize(panelSize.x, panelSize.y);
+
 		m_Viewport.Render(m_Editor.GetScene().get(), m_Editor.GetViewProjection());
 
 		if (m_Viewport.GetRenderTexture())
@@ -662,7 +748,8 @@ namespace Forge {
 
 		if (ImGui::Button("Refresh"))
 		{
-			AssetRegistry::Scan("resources/");
+			// An empty root scans the active project's asset directory.
+		AssetRegistry::Scan();
 			WatchWatchedAssets();
 		}
 
@@ -965,14 +1052,14 @@ namespace Forge {
 
 		// New or removed files change the registry itself; re-scan and watch
 		// whatever is there now so appearances are reported too.
-		AssetRegistry::Scan("resources/");
+		// An empty root scans the active project's asset directory.
+		AssetRegistry::Scan();
 		WatchWatchedAssets();
 	}
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)
 	{
-		(void)args;
-		return new EditorApp();
+		return new EditorApp(args);
 	}
 
 }

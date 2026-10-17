@@ -34,6 +34,24 @@ namespace Forge {
 		return ConfiguredLogLevel();
 	}
 
+	void Log::Shutdown()
+	{
+		// Drop through spdlog's registry first, so a later Init() re-registers
+		// cleanly instead of hitting the "already exists" early-out with a
+		// logger whose sinks have already been torn down.
+		if (s_CoreLogger)
+		{
+			spdlog::drop(s_CoreLogger->name());
+			s_CoreLogger = nullptr;
+		}
+
+		if (s_ClientLogger)
+		{
+			spdlog::drop(s_ClientLogger->name());
+			s_ClientLogger = nullptr;
+		}
+	}
+
 	void Log::Init()
 	{
 		// Check if loggers already exist (idempotent initialization)

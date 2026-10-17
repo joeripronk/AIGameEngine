@@ -3,36 +3,37 @@
 #include "TetrisInputLayer.h"
 
 #include "Forge/Events/KeyEvent.h"
-
-#include <GLFW/glfw3.h>
+#include "Forge/Core/KeyCodes.h"
 
 namespace Tetris {
 
 Action MapKey(int keyCode)
 {
+	using namespace Forge;
+
 	switch (keyCode)
 	{
-	case GLFW_KEY_LEFT:
-	case GLFW_KEY_A: return Action::MoveLeft;
+	case Key::Left:
+	case Key::A: return Action::MoveLeft;
 
-	case GLFW_KEY_RIGHT:
-	case GLFW_KEY_D: return Action::MoveRight;
+	case Key::Right:
+	case Key::D: return Action::MoveRight;
 
-	case GLFW_KEY_DOWN:
-	case GLFW_KEY_S: return Action::SoftDrop;
+	case Key::Down:
+	case Key::S: return Action::SoftDrop;
 
-	case GLFW_KEY_SPACE: return Action::HardDrop;
+	case Key::Space: return Action::HardDrop;
 
-	case GLFW_KEY_UP:
-	case GLFW_KEY_W:
-	case GLFW_KEY_X: return Action::RotateCW;
+	case Key::Up:
+	case Key::W:
+	case Key::X: return Action::RotateCW;
 
-	case GLFW_KEY_Z: return Action::RotateCCW;
+	case Key::Z: return Action::RotateCCW;
 
-	case GLFW_KEY_P:
-	case GLFW_KEY_ESCAPE: return Action::TogglePause;
+	case Key::P:
+	case Key::Escape: return Action::TogglePause;
 
-	case GLFW_KEY_R: return Action::Restart;
+	case Key::R: return Action::Restart;
 
 	default: return Action::None;
 	}

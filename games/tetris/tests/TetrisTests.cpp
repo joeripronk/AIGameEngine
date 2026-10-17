@@ -7,10 +7,9 @@ using Catch::Approx;
 #include "TetrisComponents.h"
 #include "TetrisInputLayer.h"
 
+#include "Forge/Core/KeyCodes.h"
+
 // As in fgpch.h: no OpenGL headers on a Vulkan engine. This file includes
-// GLFW directly rather than through the precompiled header, so it has to say so.
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -709,39 +708,39 @@ TEST_CASE("Restart clears a game over", "[tetris][gameover]")
 
 TEST_CASE("Keys map to the actions they are documented as", "[tetris][input]")
 {
-	REQUIRE(MapKey(GLFW_KEY_LEFT) == Action::MoveLeft);
-	REQUIRE(MapKey(GLFW_KEY_RIGHT) == Action::MoveRight);
-	REQUIRE(MapKey(GLFW_KEY_DOWN) == Action::SoftDrop);
-	REQUIRE(MapKey(GLFW_KEY_SPACE) == Action::HardDrop);
-	REQUIRE(MapKey(GLFW_KEY_UP) == Action::RotateCW);
-	REQUIRE(MapKey(GLFW_KEY_P) == Action::TogglePause);
-	REQUIRE(MapKey(GLFW_KEY_R) == Action::Restart);
+	REQUIRE(MapKey(Forge::Key::Left) == Action::MoveLeft);
+	REQUIRE(MapKey(Forge::Key::Right) == Action::MoveRight);
+	REQUIRE(MapKey(Forge::Key::Down) == Action::SoftDrop);
+	REQUIRE(MapKey(Forge::Key::Space) == Action::HardDrop);
+	REQUIRE(MapKey(Forge::Key::Up) == Action::RotateCW);
+	REQUIRE(MapKey(Forge::Key::P) == Action::TogglePause);
+	REQUIRE(MapKey(Forge::Key::R) == Action::Restart);
 
-	REQUIRE(MapKey(GLFW_KEY_A) == Action::MoveLeft);
-	REQUIRE(MapKey(GLFW_KEY_D) == Action::MoveRight);
-	REQUIRE(MapKey(GLFW_KEY_S) == Action::SoftDrop);
-	REQUIRE(MapKey(GLFW_KEY_W) == Action::RotateCW);
-	REQUIRE(MapKey(GLFW_KEY_X) == Action::RotateCW);
-	REQUIRE(MapKey(GLFW_KEY_Z) == Action::RotateCCW);
+	REQUIRE(MapKey(Forge::Key::A) == Action::MoveLeft);
+	REQUIRE(MapKey(Forge::Key::D) == Action::MoveRight);
+	REQUIRE(MapKey(Forge::Key::S) == Action::SoftDrop);
+	REQUIRE(MapKey(Forge::Key::W) == Action::RotateCW);
+	REQUIRE(MapKey(Forge::Key::X) == Action::RotateCW);
+	REQUIRE(MapKey(Forge::Key::Z) == Action::RotateCCW);
 
 	// V switches the 2D/3D view. That is presentation, not a rule, so it must
 	// reach the app as a callback and never arrive as a rules action.
-	REQUIRE(MapKey(GLFW_KEY_V) == Action::None);
+	REQUIRE(MapKey(Forge::Key::V) == Action::None);
 }
 
 TEST_CASE("Every arrow key is mapped", "[tetris][input]")
 {
 	// The runtime's old input path polled from GLFW_KEY_SPACE upwards, so all
 	// three arrows - the keys the game is played with - never reached it.
-	REQUIRE(MapKey(GLFW_KEY_LEFT) != Action::None);
-	REQUIRE(MapKey(GLFW_KEY_RIGHT) != Action::None);
-	REQUIRE(MapKey(GLFW_KEY_DOWN) != Action::None);
-	REQUIRE(MapKey(GLFW_KEY_UP) != Action::None);
+	REQUIRE(MapKey(Forge::Key::Left) != Action::None);
+	REQUIRE(MapKey(Forge::Key::Right) != Action::None);
+	REQUIRE(MapKey(Forge::Key::Down) != Action::None);
+	REQUIRE(MapKey(Forge::Key::Up) != Action::None);
 }
 
 TEST_CASE("An unmapped key does nothing", "[tetris][input]")
 {
-	REQUIRE(MapKey(GLFW_KEY_F12) == Action::None);
+	REQUIRE(MapKey(Forge::Key::F12) == Action::None);
 	REQUIRE(MapKey(-1) == Action::None);
 }
 

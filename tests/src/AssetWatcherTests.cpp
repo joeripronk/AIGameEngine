@@ -257,11 +257,18 @@ TEST_CASE("Albedo textures hot-reload from disk", "[renderer][assets]")
 	REQUIRE(same.get() == small.get());
 
 	// Rewriting the file re-decodes: the new dimensions are observable.
-	WriteBmp(file, 4, 2);
+	//
+	// The rewrite must change the file's *size* as well as its contents: a
+	// signature is size plus last-write time, and a filesystem's timestamp
+	// granularity is not fine enough to distinguish two writes microseconds
+	// apart (both land in the same tick), so a same-size rewrite is
+	// indistinguishable from an unchanged file by design - see
+	// "FileSignature ignores a rewrite that restores size and timestamp".
+	WriteBmp(file, 4, 3);
 	Forge::Ref<Forge::Texture> large = Forge::Renderer::GetAlbedoTexture(path);
 	REQUIRE(large);
 	REQUIRE(large->GetWidth() == 4u);
-	REQUIRE(large->GetHeight() == 2u);
+	REQUIRE(large->GetHeight() == 3u);
 	REQUIRE(large.get() != small.get());
 
 	// A reload that fails (the file was deleted) keeps the texture that

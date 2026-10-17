@@ -6,6 +6,7 @@
 #include "Forge/Renderer/EditorCamera.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
+#include "Forge/Project/Project.h"
 
 #include <vector>
 
@@ -67,6 +68,23 @@ namespace Forge {
 		// --- Camera -----------------------------------------------------------
 		EditorCamera& GetCamera() { return m_Camera; }
 		const glm::mat4& GetViewProjection() const { return m_Camera.GetViewProjectionMatrix(); }
+
+		// --- Project ----------------------------------------------------------
+		// A project records where the assets are and which scene the game starts
+		// in. An agent that builds a game needs both to be able to save the
+		// result as something a runtime can open, not just a scene file.
+		Ref<Project> NewProject(const std::string& name = "Untitled");
+		[[nodiscard]] bool OpenProject(const std::string& path);
+		[[nodiscard]] bool SaveProject(const std::string& path) const;
+
+		// Null when no project file is open, which is a legitimate state for a
+		// headless agent that only wants to edit a scene.
+		const ProjectConfig* GetProjectConfig() const;
+
+		// Resolves a project-relative path (an asset, a scene) to something
+		// openable. Falls back to the path itself when no project is open, so
+		// the same call works before and after a project is created.
+		[[nodiscard]] std::string ResolveProjectPath(const std::string& relative) const;
 
 		// --- Asset / prefab ---------------------------------------------------
 		[[nodiscard]] Entity InstantiatePrefab(const std::string& prefabName, bool usePosition = false, const glm::vec3& position = glm::vec3(0.0f));

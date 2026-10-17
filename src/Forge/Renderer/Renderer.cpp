@@ -37,6 +37,22 @@
 
 namespace Forge {
 
+	namespace {
+
+		// One upload per model path, holding the CPU mesh it came from so the key
+		// can never name freed memory (a raw-pointer key would be handed the next
+		// mesh allocated at the same address and drawn under the wrong entity's
+		// transform). Cleared in Renderer::Shutdown, with the other GPU resources.
+		struct UploadedMesh
+		{
+			Ref<CpuMesh> Source;
+			Ref<class Mesh> Upload;
+		};
+
+		std::unordered_map<std::string, UploadedMesh> s_UploadedMeshes;
+
+	}  // namespace
+
 	Scope<Renderer::SceneData> Renderer::s_SceneData = CreateScope<Renderer::SceneData>();
 	ShaderLibrary Renderer::s_ShaderLibrary;
 	uint32_t Renderer::s_Width = 1920;
@@ -246,6 +262,7 @@ namespace Forge {
 		// Released here rather than at static destruction so the GPU buffers go
 		// away while the Vulkan device is still alive.
 		s_DefaultCube = nullptr;
+		s_UploadedMeshes.clear();
 	}
 
 	bool Renderer::CaptureSwapchainImage(uint32_t imageIndex, const std::string& path)
@@ -270,22 +287,12 @@ namespace Forge {
 			return;
 		}
 
-		// Find the primary camera and the first directional light.
-		Entity cameraEntity;
-		bool hasCamera = false;
-
-		auto cameras = scene->GetAllEntitiesWith<CameraComponent, TransformComponent>();
-		for (auto handle : cameras)
-		{
-			if (cameras.get<CameraComponent>(handle).Primary)
-			{
-				cameraEntity = Entity(handle, scene);
-				hasCamera = true;
-				break;
-			}
-		}
-
-		if (!hasCamera)
+		// The primary camera, resolved the one way the engine resolves it. This
+		// used to be a second, inline copy of that search - and it did not
+		// require a TransformComponent, so the renderer could pick a camera that
+		// the rest of the engine would not have picked for the same scene.
+		Entity cameraEntity = scene->GetPrimaryCameraEntity();
+		if (!cameraEntity)
 		{
 			FG_CORE_WARN("RenderScene: no primary camera; nothing to draw");
 			return;
@@ -387,6 +394,36 @@ namespace Forge {
 		auto meshEntities = scene->GetAllEntitiesWith<MeshComponent, TransformComponent>();
 		uint32_t drawn = 0;
 
+		// The component holds the CPU geometry (the engine core imports it, so a
+		// broken model path is reported where the entity was authored) and the
+		// GPU mesh is derived from it here, because uploading needs a device.
+		auto uploadMesh = [](MeshComponent& component) -> Ref<Mesh>
+		{
+			if (component.Mesh)
+				return component.Mesh;
+
+			if (!component.CpuMeshData)
+				return nullptr;
+
+			auto it = s_UploadedMeshes.find(component.ModelPath);
+			if (it != s_UploadedMeshes.end() && it->second.Source == component.CpuMeshData)
+			{
+				component.Mesh = it->second.Upload;
+				return component.Mesh;
+			}
+
+			// The material authored on the entity overrides the imported one; the
+			// renderer's per-draw parameters are read from the PBR component below,
+			// so the upload only carries geometry.
+			Ref<Mesh> uploaded = Mesh::CreateFromCpu(component.CpuMeshData.get(), Material{});
+			if (!uploaded)
+				return nullptr;
+
+			s_UploadedMeshes[component.ModelPath] = UploadedMesh{ component.CpuMeshData, uploaded };
+			component.Mesh = uploaded;
+			return component.Mesh;
+		};
+
 		struct DrawRecord
 		{
 			Ref<Mesh> MeshHandle;
@@ -406,10 +443,10 @@ namespace Forge {
 
 		for (auto handle : meshEntities)
 		{
-			const auto& meshComponent = meshEntities.get<MeshComponent>(handle);
+			auto& meshComponent = meshEntities.get<MeshComponent>(handle);
 			const auto& transform = meshEntities.get<TransformComponent>(handle);
 
-			Ref<Mesh> mesh = getMesh(meshComponent.Mesh);
+			Ref<Mesh> mesh = getMesh(uploadMesh(meshComponent));
 			if (!mesh)
 				continue;
 
@@ -732,43 +769,6 @@ namespace Forge {
 		}
 	}
 
-	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform)
-	{
-		if (!shader || !vertexArray)
-			return;
-
-		shader->Bind();
-		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
-		shader->SetMat4("u_Transform", transform);
-
-		vertexArray->Bind();
-		RenderCommand::DrawIndexed(vertexArray);
-	}
-
-	void Renderer::Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture)
-	{
-		if (!shader || !vertexArray)
-			return;
-
-		(void)albedoTexture;
-		shader->Bind();
-		shader->SetMat4("u_ViewProjection", s_SceneData->ViewProjectionMatrix);
-		shader->SetMat4("u_Transform", transform);
-		shader->SetFloat3("u_Albedo", glm::vec3(1.0f));
-		shader->SetFloat("u_Metallic", 0.0f);
-		shader->SetFloat("u_Roughness", 0.5f);
-		shader->SetFloat("u_AO", 1.0f);
-		shader->SetFloat3("u_Emissive", glm::vec3(0.0f));
-		shader->SetFloat("u_EmissiveIntensity", 0.0f);
-		shader->SetFloat("u_LightIntensity", 1.0f);
-		shader->SetFloat3("u_LightColor", glm::vec3(1.0f));
-		shader->SetFloat3("u_LightDirection", glm::vec3(0.0f, -1.0f, 0.0f));
-		shader->SetFloat3("u_AmbientLight", glm::vec3(0.02f, 0.02f, 0.02f));
-
-		vertexArray->Bind();
-		RenderCommand::DrawIndexed(vertexArray);
-	}
-
 	void Renderer::BeginShadowPass(class Scene* scene)
 	{
 		if (!s_CommandList || !s_PbrRenderer || !s_PbrRenderer->IsValid())
@@ -830,14 +830,6 @@ namespace Forge {
 		// Shadow pass is complete; the shadow map is now ready for the PBR pass.
 	}
 
-	void Renderer::RenderShadowScene(class Scene* scene)
-	{
-		// Shadow pass is handled by BeginShadowPass / EndShadowPass pair.
-		// This method is a convenience wrapper.
-		BeginShadowPass(scene);
-		EndShadowPass();
-	}
-
 	void Renderer::BeginSSAOPass()
 	{
 		FG_PROFILE_FUNCTION();
@@ -892,10 +884,6 @@ namespace Forge {
 	{
 	}
 
-	void Renderer::SubmitFinal()
-	{
-		// Final pass is handled by BeginFinalPass / EndFinalPass pair.
-	}
-	}
+}
 
 #endif // FG_NO_VULKAN_RUNTIME

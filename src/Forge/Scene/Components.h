@@ -54,6 +54,13 @@ namespace Forge {
 
 	struct CameraComponent
 	{
+		// The Hazel SceneCamera projection type. Perspective is a 3D world seen
+		// from a point; orthographic is parallel projection, which is what a 2D
+		// overlay, a minimap or an isometric view needs. Without it a scene has
+		// no way to express "show this without perspective", and the renderer
+		// was perspective-only as a consequence.
+		enum class ProjectionType { Perspective = 0, Orthographic = 1 };
+
 		glm::mat4 ProjectionMatrix;
 		glm::mat4 ViewMatrix;
 		glm::mat4 ViewProjectionMatrix;
@@ -61,10 +68,16 @@ namespace Forge {
 		bool Primary = true;
 
 		// Projection parameters (kept so the projection can be rebuilt on resize).
-		float FieldOfView = 45.0f;   // degrees
+		ProjectionType Type = ProjectionType::Perspective;
+		float FieldOfView = 45.0f;   // degrees, perspective only
 		float NearClip = 0.1f;
 		float FarClip = 1000.0f;
 		float AspectRatio = 16.0f / 9.0f;
+
+		// Vertical extent of the orthographic frustum in world units. The
+		// horizontal extent follows from AspectRatio, so the frustum keeps the
+		// viewport's shape instead of stretching the view to fit it.
+		float OrthographicSize = 10.0f;
 
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
@@ -72,6 +85,14 @@ namespace Forge {
 		// (Re)build the projection matrix from the stored parameters.
 		void UpdateProjection()
 		{
+			if (Type == ProjectionType::Orthographic)
+			{
+				const float halfHeight = OrthographicSize * 0.5f;
+				const float halfWidth = halfHeight * AspectRatio;
+				ProjectionMatrix = glm::ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, NearClip, FarClip);
+				return;
+			}
+
 			ProjectionMatrix = glm::perspective(glm::radians(FieldOfView), AspectRatio, NearClip, FarClip);
 		}
 	};
@@ -153,7 +174,22 @@ namespace Forge {
 	struct MeshComponent
 	{
 		std::string ModelPath;
+
+		// The imported geometry, loaded on the CPU when the component is added.
+		//
+		// MeshComponent::ModelPath used to be written by the serializer and read
+		// back, and then never used: nothing loaded it, so an entity saved from
+		// a model rendered a unit cube. Importing here - on the component, not
+		// in the renderer - is what makes the path mean something, and it also
+		// means a broken model path is reported when the entity is created
+		// rather than silently on some later frame.
+		Ref<class CpuMesh> CpuMeshData;
+
+		// The uploaded mesh. Filled in by the renderer from CpuMeshData, which
+		// is the only part of this that needs a graphics device - and is
+		// therefore not something the engine can do headlessly.
 		Ref<class Mesh> Mesh;
+
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
 
 		MeshComponent() = default;

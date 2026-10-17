@@ -405,8 +405,14 @@ TEST_CASE("Reverb works in place", "[audio][reverb]")
 		const float value = std::sin(static_cast<float>(frame) * 0.02f) * 0.5f;
 		shared[frame * 2] = value;
 		shared[(frame * 2) + 1] = value;
-		separate = shared;
 	}
+
+	// Copied once, after the signal is written. Copying it inside the loop was
+	// redundant - the vector is the same every iteration - and at -O2 GCC 13
+	// reports the inlined vector assignment as a buffer overflow, which -Werror
+	// then turns into a Release build failure for a test file nobody had built
+	// at that optimisation level locally.
+	separate = shared;
 
 	std::vector<float> expected(frames * 2, 0.0f);
 	a.Process(separate.data(), expected.data(), frames);

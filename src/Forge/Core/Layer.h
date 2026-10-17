@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Forge/Core/Timestep.h"
+
 #include <string>
 
 namespace Forge {
@@ -14,7 +16,11 @@ namespace Forge {
 
 		virtual void OnAttach() {}
 		virtual void OnDetach() {}
-		virtual void OnUpdate(float ts) { (void)ts; }
+
+		// Timestep, not a bare float: the frame loop has one, and handing layers
+		// a float meant the unit was implicit at the one place it mattered. A
+		// layer that wants milliseconds asks Timestep::GetMilliseconds().
+		virtual void OnUpdate(Timestep ts) { (void)ts; }
 		virtual void OnImGuiRender() {}
 		virtual void OnEvent(class Event& event) { (void)event; }
 

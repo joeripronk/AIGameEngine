@@ -7,10 +7,6 @@
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Renderer/CpuMesh.h"
 
-#include <assimp/Importer.hpp>
-#include <assimp/scene.h>
-#include <assimp/postprocess.h>
-
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
 namespace Forge {
@@ -65,150 +61,32 @@ namespace Forge {
 
 	Ref<Mesh> Mesh::Create(const std::string& filepath)
 	{
-		Assimp::Importer importer;
-		const aiScene* scene = importer.ReadFile(filepath,
-			aiProcess_Triangulate |
-			aiProcess_FlipUVs |
-			aiProcess_GenNormals |
-			aiProcess_CalcTangentSpace |
-			aiProcess_JoinIdenticalVertices |
-			aiProcess_OptimizeMeshes);
-
-		if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-		{
-			FG_CORE_ERROR("Assimp failed to load: {0}", filepath);
+		// One importer, shared with the headless path (CpuMesh::LoadFromFile).
+		// This used to carry its own copy of the assimp walk, and the two copies
+		// disagreed: this one omitted the base vertex every mesh's indices need,
+		// so a file with two meshes indexed past the end of the vertex buffer,
+		// and ignored the node transforms that place the parts of a model.
+		ImportedModel model;
+		if (!MeshImport::ImportModel(filepath, model))
 			return nullptr;
-		}
 
-		std::vector<Vertex> vertices;
-		std::vector<uint32_t> indices;
 		Material material;
+		material.Albedo = model.Albedo;
+		material.Metallic = model.Metallic;
+		material.Roughness = model.Roughness;
+		material.AO = model.AO;
 
-		// Process all meshes in the scene
-		for (uint32_t i = 0; i < scene->mNumMeshes; i++)
-		{
-			aiMesh* mesh = scene->mMeshes[i];
+		// A model file names its textures; the importer reports the paths
+		// resolved beside it. A texture that fails to load is reported by Texture
+		// itself, and the material keeps working without it.
+		if (!model.AlbedoTexturePath.empty())
+			material.AlbedoTexture = Texture::Create(model.AlbedoTexturePath);
+		if (!model.NormalTexturePath.empty())
+			material.NormalTexture = Texture::Create(model.NormalTexturePath);
+		if (!model.MetallicRoughnessTexturePath.empty())
+			material.MetallicRoughnessTexture = Texture::Create(model.MetallicRoughnessTexturePath);
 
-			// Extract vertices
-			for (uint32_t j = 0; j < mesh->mNumVertices; j++)
-			{
-				Vertex vertex;
-				vertex.Position = glm::vec3(
-					mesh->mVertices[j].x,
-					mesh->mVertices[j].y,
-					mesh->mVertices[j].z);
-
-				vertex.Normal = glm::vec3(
-					mesh->mNormals[j].x,
-					mesh->mNormals[j].y,
-					mesh->mNormals[j].z);
-
-				if (mesh->mTextureCoords[0])
-				{
-					vertex.UV = glm::vec2(
-						mesh->mTextureCoords[0][j].x,
-						mesh->mTextureCoords[0][j].y);
-				}
-				else
-				{
-					vertex.UV = glm::vec2(0.0f, 0.0f);
-				}
-
-				if (mesh->mTangents)
-				{
-					vertex.Tangent = glm::vec3(
-						mesh->mTangents[j].x,
-						mesh->mTangents[j].y,
-						mesh->mTangents[j].z);
-				}
-				else
-				{
-					vertex.Tangent = glm::vec3(0.0f, 1.0f, 0.0f);
-				}
-
-				if (mesh->mBitangents)
-				{
-					vertex.Bitangent = glm::vec3(
-						mesh->mBitangents[j].x,
-						mesh->mBitangents[j].y,
-						mesh->mBitangents[j].z);
-				}
-				else
-				{
-					vertex.Bitangent = glm::vec3(0.0f, 0.0f, 1.0f);
-				}
-
-				vertices.push_back(vertex);
-			}
-
-			// Extract indices
-			for (uint32_t j = 0; j < mesh->mNumFaces; j++)
-			{
-				aiFace& face = mesh->mFaces[j];
-				FG_CORE_ASSERT_MSG(face.mNumIndices == 3, "Face must have exactly 3 indices");
-				indices.push_back(face.mIndices[0]);
-				indices.push_back(face.mIndices[1]);
-				indices.push_back(face.mIndices[2]);
-			}
-
-			// Extract material
-			if (mesh->mMaterialIndex != (uint32_t)-1)
-			{
-				aiMaterial* aiMat = scene->mMaterials[mesh->mMaterialIndex];
-
-				aiColor3D color(0.0f, 0.0f, 0.0f);
-				if (aiMat->Get(AI_MATKEY_COLOR_DIFFUSE, color) == AI_SUCCESS)
-				{
-					material.Albedo = glm::vec3(color.r, color.g, color.b);
-				}
-
-				float metallic = 0.0f;
-				if (aiMat->Get(AI_MATKEY_METALLIC_FACTOR, metallic) == AI_SUCCESS)
-				{
-					material.Metallic = metallic;
-				}
-
-				float roughness = 0.5f;
-				if (aiMat->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == AI_SUCCESS)
-				{
-					material.Roughness = roughness;
-				}
-
-				float shininess = 0.0f;
-				if (aiMat->Get(AI_MATKEY_SHININESS, shininess) == AI_SUCCESS)
-				{
-					material.AO = shininess / 255.0f;
-				}
-
-				// Load textures
-				aiString path;
-				if (aiMat->GetTexture(aiTextureType_DIFFUSE, 0, &path) == AI_SUCCESS)
-				{
-					std::string texPath = filepath.substr(0, filepath.find_last_of("/\\") + 1) + path.C_Str();
-					material.AlbedoTexture = Texture::Create(texPath);
-				}
-
-				if (aiMat->GetTexture(aiTextureType_METALNESS, 0, &path) == AI_SUCCESS)
-				{
-					std::string texPath = filepath.substr(0, filepath.find_last_of("/\\") + 1) + path.C_Str();
-					material.MetallicRoughnessTexture = Texture::Create(texPath);
-				}
-
-				if (aiMat->GetTexture(aiTextureType_NORMALS, 0, &path) == AI_SUCCESS)
-				{
-					std::string texPath = filepath.substr(0, filepath.find_last_of("/\\") + 1) + path.C_Str();
-					material.NormalTexture = Texture::Create(texPath);
-				}
-			}
-		}
-
-		if (vertices.empty())
-		{
-			FG_CORE_ERROR("Mesh has no vertices: {0}", filepath);
-			return nullptr;
-		}
-
-		return CreateRef<VulkanMesh>(vertices, indices, material);
+		return CreateRef<VulkanMesh>(model.Vertices, model.Indices, material);
 	}
 
 }

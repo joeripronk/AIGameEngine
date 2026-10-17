@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Platform/Vulkan/ImGuiLayer.h"
+#include "Forge/UI/UI.h"
 
 #include "imgui.h"
 
@@ -73,4 +74,42 @@ TEST_CASE("ImGuiLayer detaches cleanly after a context-only attach", "[renderer]
 	layer.NewFrame();
 	layer.Render();
 	layer.OnDetach();
+}
+
+TEST_CASE("ScopedStyleColor pops on every path out of a scope", "[renderer][imgui]")
+{
+	ImGui::CreateContext();
+
+	const ImVec4 original = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+	const ImVec4 highlight(1.0f, 0.0f, 0.0f, 1.0f);
+
+	{
+		Forge::UI::ScopedStyleColor color(ImGuiCol_Text, highlight);
+		REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).x == 1.0f);
+
+		// The point of the object: an early return - or any other way out of
+		// the scope - still pops. ImGui asserts on an unmatched pop at the end
+		// of the frame, and a leaked colour would tint every later window.
+	}
+
+	REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).x == original.x);
+	REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).w == original.w);
+
+	// The predicate form pushes nothing when the condition is false, and still
+	// pops nothing - so a colour chosen by a branch needs no branch around it.
+	{
+		Forge::UI::ScopedStyleColor skipped(ImGuiCol_Text, highlight, false);
+		REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).x == original.x);
+	}
+
+	REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).x == original.x);
+
+	// The packed-colour overload is the same contract.
+	{
+		Forge::UI::ScopedStyleColor packed(ImGuiCol_Text, IM_COL32(0, 255, 0, 255));
+		REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).y > 0.9f);
+	}
+	REQUIRE(ImGui::GetStyleColorVec4(ImGuiCol_Text).y == original.y);
+
+	ImGui::DestroyContext();
 }

@@ -3,6 +3,8 @@
 #include "runtime/src/RuntimeApp.h"
 
 #include "Forge/Core/Log.h"
+#include "Forge/Core/Time.h"
+#include "Forge/Project/Project.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scene/SceneSerializer.h"
@@ -23,15 +25,33 @@ namespace Forge {
 	{
 		Renderer::Init();
 
-		// Determine the scene to load: the first user argument (argv[1];
-		// argv[0] is the program name) takes precedence.
-		std::string scenePath = kDefaultScene;
+		// A project file names the scene the game starts in. It is loaded first
+		// so the start scene is available; a failure is logged by Project and
+		// leaves the fallback below in charge.
+		if (const std::string project = Application::GetArgumentValue(args, "--project"); !project.empty())
+		{
+			if (Project::Load(project))
+				FG_CORE_INFO("Runtime: loaded project '{0}'", project);
+			else
+				FG_CORE_ERROR("Runtime: could not load project '{0}'", project);
+		}
+
+		// Determine the scene to load. Precedence: an explicit scene argument
+		// (argv[1]; argv[0] is the program name), then the project's start
+		// scene, then the engine's own test scene.
+		std::string scenePath;
 		if (GetSpecification().CommandLineArgs.Count > 1)
 		{
 			std::string candidate = GetSpecification().CommandLineArgs[1];
-			if (!candidate.empty())
+			if (!candidate.empty() && candidate[0] != '-')
 				scenePath = candidate;
 		}
+
+		if (scenePath.empty())
+			scenePath = Project::GetStartScenePath().string();
+
+		if (scenePath.empty())
+			scenePath = kDefaultScene;
 
 		if (!LoadScene(scenePath))
 			CreateFallbackScene();
@@ -88,7 +108,7 @@ namespace Forge {
 
 	void RuntimeApp::Run()
 	{
-		float lastFrameTime = (float)glfwGetTime();
+		float lastFrameTime = (float)Time::GetTime();
 		float frameAccumulator = 0.0f;
 		const float fixedStep = 1.0f / 60.0f;
 		uint64_t frameCount = 0;
@@ -96,7 +116,7 @@ namespace Forge {
 		while (IsRunning())
 		{
 			FG_PROFILE_SCOPE("Frame");
-			float time = (float)glfwGetTime();
+			float time = (float)Time::GetTime();
 			float frameTime = time - lastFrameTime;
 			lastFrameTime = time;
 

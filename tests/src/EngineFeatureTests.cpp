@@ -56,7 +56,16 @@ namespace {
 		tc.Rotation = { 10.0f, 20.0f, 30.0f };
 		tc.Scale = { 2.0f, 2.0f, 2.0f };
 
-		entity.AddComponent<Forge::CameraComponent>().Primary = true;
+		auto& camera = entity.AddComponent<Forge::CameraComponent>();
+		camera.Primary = true;
+		// Deliberately not the default: the runtime format has to carry a
+		// projection the scene did not use before.
+		camera.Type = Forge::CameraComponent::ProjectionType::Orthographic;
+		camera.OrthographicSize = 24.0f;
+		camera.NearClip = 0.5f;
+		camera.FarClip = 250.0f;
+		camera.AspectRatio = 2.0f;
+		camera.UpdateProjection();
 		entity.AddComponent<Forge::ScriptComponent>().ClassName = "FullScript";
 
 		auto& rb = entity.AddComponent<Forge::RigidbodyComponent>();
@@ -95,6 +104,18 @@ namespace {
 		pbr.AO = 0.5f;
 		pbr.Emissive = { 0.0f, 0.0f, 1.0f };
 		pbr.EmissiveIntensity = 2.0f;
+		pbr.AlbedoTexturePath = "textures/full_albedo.png";
+
+		auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+		audio.SourcePath = "audio/full.wav";
+		audio.Volume = 0.35f;
+		audio.Pitch = 1.25f;
+		audio.Loop = true;
+		audio.PlayOnStart = false;
+		audio.Bus = Forge::AudioBus::Music;
+		audio.Spatial = true;
+		audio.MinDistance = 2.0f;
+		audio.MaxDistance = 40.0f;
 
 		auto& mesh = entity.AddComponent<Forge::MeshComponent>();
 		mesh.ModelPath = "models/full.gltf";
@@ -213,6 +234,33 @@ TEST_CASE("Runtime serialization round-trips every component", "[serializer][run
 
 	auto& mesh = entity.GetComponent<Forge::MeshComponent>();
 	REQUIRE(mesh.ModelPath == "models/full.gltf");
+
+	// The camera's projection and its parameters: dropped here, every runtime
+	// camera reverted to a default perspective and the scene it shipped from
+	// was not the scene that ran.
+	const auto& camera = entity.GetComponent<Forge::CameraComponent>();
+	REQUIRE(camera.Type == Forge::CameraComponent::ProjectionType::Orthographic);
+	REQUIRE(camera.OrthographicSize == Approx(24.0f));
+	REQUIRE(camera.NearClip == Approx(0.5f));
+	REQUIRE(camera.FarClip == Approx(250.0f));
+	REQUIRE(camera.AspectRatio == Approx(2.0f));
+
+	// An albedo texture the runtime dropped leaves every object flat-coloured.
+	REQUIRE(entity.GetComponent<Forge::PBRMaterialComponent>().AlbedoTexturePath
+		== "textures/full_albedo.png");
+
+	// Audio had no flag bit at all, so the whole layer vanished from a runtime
+	// scene - every sound in the game was silently gone.
+	const auto& audio = entity.GetComponent<Forge::AudioSourceComponent>();
+	REQUIRE(audio.SourcePath == "audio/full.wav");
+	REQUIRE(audio.Volume == Approx(0.35f));
+	REQUIRE(audio.Pitch == Approx(1.25f));
+	REQUIRE(audio.Loop);
+	REQUIRE(audio.PlayOnStart == false);
+	REQUIRE(audio.Bus == Forge::AudioBus::Music);
+	REQUIRE(audio.Spatial);
+	REQUIRE(audio.MinDistance == Approx(2.0f));
+	REQUIRE(audio.MaxDistance == Approx(40.0f));
 }
 
 TEST_CASE("Runtime serialization rejects corrupt files", "[serializer][runtime][feature]")

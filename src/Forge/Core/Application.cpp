@@ -3,6 +3,7 @@
 #include "Forge/Core/Layer.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Debug/Instrumentor.h"
+#include "Forge/Core/Time.h"
 
 #include <algorithm>
 
@@ -38,26 +39,37 @@ namespace Forge {
 		}
 	}
 
-	std::string Application::ProfilePathFromArgs(const ApplicationCommandLineArgs& args)
+	std::string Application::GetArgumentValue(const ApplicationCommandLineArgs& args, const std::string& option)
 	{
 		for (int i = 0; i < args.Count; ++i)
 		{
 			const std::string arg = args[i];
 
-			if (arg == "--profile")
+			if (arg == option)
 			{
-				// The next argument names the file only if it is not another
-				// option.
+				// The next argument names the value only if it is not another
+				// option: `--profile --other` must not swallow `--other`.
 				if (i + 1 < args.Count && args[i + 1][0] != '-')
 					return args[i + 1];
-				return "profile.json";
+				return {};
 			}
 
-			if (arg.rfind("--profile=", 0) == 0)
-			{
-				const std::string path = arg.substr(10);
-				return path.empty() ? "profile.json" : path;
-			}
+			if (arg.rfind(option + "=", 0) == 0)
+				return arg.substr(option.size() + 1);
+		}
+		return {};
+	}
+
+	std::string Application::ProfilePathFromArgs(const ApplicationCommandLineArgs& args)
+	{
+		// An explicit path wins; a bare --profile gets the conventional name.
+		if (const std::string path = GetArgumentValue(args, "--profile"); !path.empty())
+			return path;
+
+		for (int i = 0; i < args.Count; ++i)
+		{
+			if (std::string(args[i]) == "--profile")
+				return "profile.json";
 		}
 		return {};
 	}
@@ -105,7 +117,7 @@ namespace Forge {
 		{
 			FG_PROFILE_SCOPE("Frame");
 
-			float time = (float)glfwGetTime();
+			float time = (float)Time::GetTime();
 			Timestep timestep = time - m_LastFrameTime;
 			m_LastFrameTime = time;
 

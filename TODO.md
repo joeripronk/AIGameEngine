@@ -118,6 +118,45 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       session truncates the first, concurrent threads serialise whole events,
       unopenable path reports failure)
 
+### Hazel parity (upstream `TheCherno/Hazel`)
+- [x] `Core/Timer.h` + an engine clock (`Time::GetTime`) that tests can replace
+- [x] `Core/Input.h` + `KeyCodes.h` / `MouseCodes.h` (values verified against GLFW)
+- [x] `Core/FileSystem` whole-file read/write, adopted by every loader that had
+      its own copy
+- [x] `LayerStack` detaches layers it pops or destroys; `PopLayer` / `PopOverlay`
+      search only their own region; `Layer::OnUpdate` takes a `Timestep`
+- [x] `UI::ScopedStyleColor` (RAII ImGui style push/pop)
+- [x] `Project` / `ProjectSerializer` — a `.forgeproject` file, `--project` in
+      both applications, and the asset root the exporter and asset registry take
+      their defaults from
+- [x] Orthographic projection (`CameraComponent::ProjectionType`,
+      `OrthographicSize`) with serialization and an inspector widget
+- [x] `EditorCamera::SetViewportSize` and a zoom level the projection uses
+- [ ] Sprite / 2D renderer (`Renderer2D`, `SpriteRendererComponent`) and text.
+      Not ported as-is: a texture-array binding set and an MSDF atlas pipeline
+      nothing in the engine, the editor or Tetris currently renders. The useful
+      slice is `Texture::Bind(slot)` plus draw-call statistics.
+
+### Fixed while comparing against Hazel
+- [x] A saved scene never loaded `MeshComponent::ModelPath`, so every modelled
+      entity rendered as a unit cube
+- [x] `Mesh::Create` omitted the base vertex every mesh's indices need, and
+      ignored node transforms: multi-mesh models indexed past the vertex buffer
+      and collapsed into the origin. One importer now serves both paths, and
+      bounds-checks before reporting success
+- [x] `Scene::Copy` / `DuplicateEntity` silently dropped
+      `EnvironmentMapComponent`, `AudioSourceComponent` and `NativeScriptComponent`
+- [x] The runtime `.rt` format dropped camera parameters, a material's albedo
+      texture and the entire audio component
+- [x] The simulation rendered: `Scene::RenderScene` opened and closed the
+      command list the application had opened
+- [x] Primary-camera resolution was duplicated, and two cameras could both be
+      primary
+- [x] `FG_ERROR` and friends dereferenced a null client logger before
+      `Log::Init`, killing the caller of a failure path
+- [x] `ReverbTests` failed to compile at `-O2` (GCC's `stringop-overflow`
+      false positive on a loop-invariant vector copy), so Release was not green
+
 ---
 
 ## 🔨 In Progress
@@ -314,4 +353,14 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | Staging textures were released twice | ✅ Fixed - `VulkanTexture` and the shadow mip pass called `->Release()` on objects owned by nvrhi's `RefCountPtr`; the refcount went negative, the object died while the lifetime tracker still referenced it, and the crash surfaced later in `runGarbageCollection`, far from the line that caused it |
 | The albedo cache never reloaded and never retried | ✅ Fixed - a texture edited on disk was never reflected in the viewport, and a failed load (missing file) was cached as a permanent null for the session, so an asset created later by a tool was invisible until restart. The cache now carries a `FileSignature`; a changed signature re-decodes, a failed load retries as soon as the file exists, a failed reload keeps the last working texture, and the replaced GPU texture is evicted from the PBR draw cache before it dies |
 | `HEAD` did not compile after the WIP commit | ✅ Fixed - the commit snapshotted `ViewportRenderer` mid-edit with an unmatched brace, so the default-cube PBR loop referenced out-of-scope variables; the three hand-rolled albedo-texture caches are now one `Renderer::GetAlbedoTexture`, which also logs a failed load once per path instead of once per frame |
+| A saved scene never loaded its models | ✅ Fixed - `MeshComponent::ModelPath` was written and read but nothing imported it, so every modelled entity rendered a unit cube; the model is imported on the component hook, by the serializers after assignment, and by `entity:SetString("Mesh", "ModelPath", ...)` |
+| `Mesh::Create` produced corrupt geometry for multi-mesh files | ✅ Fixed - each mesh's indices were appended without the vertex offset, and node transforms were never applied; one importer now serves the headless and GPU paths, offsets indices, applies transforms and rejects an out-of-range index |
+| Duplicating an entity dropped three components | ✅ Fixed - `EnvironmentMapComponent`, `AudioSourceComponent` and `NativeScriptComponent` were in neither copy list; both paths now share `Scene::CopyComponentsTo` |
+| The runtime scene format dropped authored data | ✅ Fixed - camera parameters, a material's albedo texture and the whole audio component never reached a `.rt` file; each addition is behind its own flag bit so older files still load |
+| The simulation opened and closed the render command list | ✅ Fixed - `Scene::RenderScene` is gone; the application owns the frame and calls `Renderer::RenderScene` |
+| "The primary camera" had no single answer | ✅ Fixed - the renderer had its own inline copy of the search, and any number of cameras could be marked primary; `Scene::GetPrimaryCameraEntity` is the one resolver and `SetPrimaryCamera` demotes the rest |
+| `FG_ERROR` crashed the caller of a failure path | ✅ Fixed - the client log macros, unlike the core ones, dereferenced a null logger, so logging before `Log::Init` (a headless tool, a static initialiser) took the process down |
+| The editor camera's projection ignored the panel | ✅ Fixed - the aspect ratio was fixed at 16:9 for the life of the editor while gizmo picking used the real viewport, so every drag picked in the wrong place; zoom level was stored and never used |
+| Release did not compile | ✅ Fixed - `ReverbTests` tripped GCC's `stringop-overflow` false positive on a loop-invariant vector copy at `-O2`, and `-Werror` made it a build failure |
+| The albedo hot-reload test failed on a fast machine | ✅ Fixed - it rewrote a file with identical byte size inside one filesystem timestamp tick, which a size+timestamp signature cannot see; the rewrite now changes the size |
 | The Lua source cache outlived the session | ✅ Fixed - `s_ScriptSourceCache` was only cleared at `Shutdown`, so editing a script and pressing Play again answered with the previous session's file; a session now reads its scripts from disk, and the cache only serves repeated spawns within that session |

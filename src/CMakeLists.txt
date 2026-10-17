@@ -28,6 +28,15 @@ target_sources(ForgeCore
         Forge/Core/UUID.h
         Forge/Core/UUID.cpp
         Forge/Core/Timestep.h
+        Forge/Core/Time.h
+        Forge/Core/Time.cpp
+        Forge/Core/Timer.h
+        Forge/Core/FileSystem.h
+        Forge/Core/FileSystem.cpp
+        Forge/Core/KeyCodes.h
+        Forge/Core/MouseCodes.h
+        Forge/Core/Input.h
+        Forge/Core/Input.cpp
         Forge/Core/Layer.h
         Forge/Core/Layer.cpp
         Forge/Core/LayerStack.h
@@ -68,6 +77,10 @@ target_sources(ForgeCore
         Forge/Assets/AssetWatcher.cpp
         Forge/Project/GameExporter.h
         Forge/Project/GameExporter.cpp
+        Forge/Project/Project.h
+        Forge/Project/Project.cpp
+        Forge/Project/ProjectSerializer.h
+        Forge/Project/ProjectSerializer.cpp
         Forge/Physics/Physics.h
         Forge/Physics/Physics.cpp
         Forge/Scripting/ScriptEngine.h
@@ -245,6 +258,7 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/VulkanWindow.cpp
     Platform/Vulkan/ImGuiLayer.cpp
     Platform/Vulkan/ImGuiLayer.h
+    Forge/UI/UI.h
 )
 target_include_directories(vulkan
     PRIVATE
@@ -326,7 +340,6 @@ target_sources(ForgeApp
         Forge/Renderer/Shader.cpp
         Forge/Renderer/ShaderLibrary.h
         Forge/Renderer/ShaderLibrary.cpp
-        Forge/Renderer/Shaders.h
         Forge/Renderer/ViewportRenderer.h
         Forge/Renderer/ViewportRenderer.cpp
         Forge/Renderer/VertexArray.h

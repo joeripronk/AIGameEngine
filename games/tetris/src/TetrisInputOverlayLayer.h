@@ -40,7 +40,7 @@ public:
 		m_InputLayer.OnEvent(event);
 	}
 
-	void OnUpdate(float ts) override
+	void OnUpdate(Forge::Timestep ts) override
 	{
 		m_OverlayLayer.OnUpdate(ts);
 	}

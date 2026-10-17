@@ -27,6 +27,7 @@ target_sources(ForgeTests
         src/ScriptingTests.cpp
         src/SerializationTests.cpp
         src/ExportTests.cpp
+        src/ProjectTests.cpp
         src/AudioTests.cpp
         src/ReverbTests.cpp
         src/BuildConfigTests.cpp

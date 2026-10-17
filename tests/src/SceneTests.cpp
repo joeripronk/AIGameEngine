@@ -7,6 +7,7 @@ using Catch::Approx;
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scene/SceneSerializer.h"
+#include "Forge/Renderer/CpuMesh.h"
 
 #include <yaml-cpp/yaml.h>
 #include <fstream>
@@ -318,4 +319,181 @@ TEST_CASE("Scene serialization round-trip", "[scene][serializer]")
     auto& deserializedTC1 = deserializedEntity1.GetComponent<Forge::TransformComponent>();
     REQUIRE(deserializedTC1.Translation == glm::vec3(1.0f, 2.0f, 3.0f));
     REQUIRE(deserializedTC1.Scale == glm::vec3(2.0f, 2.0f, 2.0f));
+}
+
+namespace {
+    // An entity carrying every component the engine defines. Duplication and
+    // scene copy are supposed to preserve all of them, and the only way that
+    // stays true as components are added is for a test to notice when one is
+    // left out.
+    Forge::Entity MakeFullyLoadedEntity(Forge::Scene& scene, const std::string& name)
+    {
+        Forge::Entity entity = scene.CreateEntity(name);
+
+        entity.GetComponent<Forge::TagComponent>().Tag = name + "Tag";
+        entity.GetComponent<Forge::TransformComponent>().Translation = { 1.0f, 2.0f, 3.0f };
+
+        entity.AddComponent<Forge::CameraComponent>().FieldOfView = 33.0f;
+        entity.AddComponent<Forge::ScriptComponent>().ClassName = "SomeScript";
+        entity.AddComponent<Forge::RigidbodyComponent>().FixedRotation = true;
+        entity.AddComponent<Forge::BoxColliderComponent>().Size = { 2.0f, 2.0f, 2.0f };
+        entity.AddComponent<Forge::SphereColliderComponent>().Radius = 3.0f;
+        entity.AddComponent<Forge::LightComponent>().Intensity = 7.0f;
+        entity.AddComponent<Forge::PBRMaterialComponent>().Metallic = 0.6f;
+        entity.AddComponent<Forge::MeshComponent>().ModelPath = "models/thing.glb";
+        entity.AddComponent<Forge::EnvironmentMapComponent>().Path = "environment/sunset.hdr";
+
+        auto& audio = entity.AddComponent<Forge::AudioSourceComponent>();
+        audio.SourcePath = "audio/thing.wav";
+        audio.Volume = 0.25f;
+
+        return entity;
+    }
+
+    void RequireEveryComponentCopied(Forge::Entity entity)
+    {
+        REQUIRE(entity.HasComponent<Forge::TagComponent>());
+        REQUIRE(entity.HasComponent<Forge::TransformComponent>());
+        REQUIRE(entity.HasComponent<Forge::CameraComponent>());
+        REQUIRE(entity.HasComponent<Forge::ScriptComponent>());
+        REQUIRE(entity.HasComponent<Forge::RigidbodyComponent>());
+        REQUIRE(entity.HasComponent<Forge::BoxColliderComponent>());
+        REQUIRE(entity.HasComponent<Forge::SphereColliderComponent>());
+        REQUIRE(entity.HasComponent<Forge::LightComponent>());
+        REQUIRE(entity.HasComponent<Forge::PBRMaterialComponent>());
+        REQUIRE(entity.HasComponent<Forge::MeshComponent>());
+        REQUIRE(entity.HasComponent<Forge::EnvironmentMapComponent>());
+        REQUIRE(entity.HasComponent<Forge::AudioSourceComponent>());
+
+        REQUIRE(entity.GetComponent<Forge::CameraComponent>().FieldOfView == Approx(33.0f));
+        REQUIRE(entity.GetComponent<Forge::TransformComponent>().Translation == glm::vec3(1.0f, 2.0f, 3.0f));
+        REQUIRE(entity.GetComponent<Forge::LightComponent>().Intensity == Approx(7.0f));
+        REQUIRE(entity.GetComponent<Forge::PBRMaterialComponent>().Metallic == Approx(0.6f));
+        REQUIRE(entity.GetComponent<Forge::MeshComponent>().ModelPath == "models/thing.glb");
+        REQUIRE(entity.GetComponent<Forge::EnvironmentMapComponent>().Path == "environment/sunset.hdr");
+        REQUIRE(entity.GetComponent<Forge::AudioSourceComponent>().SourcePath == "audio/thing.wav");
+        REQUIRE(entity.GetComponent<Forge::AudioSourceComponent>().Volume == Approx(0.25f));
+    }
+}
+
+TEST_CASE("Duplicating an entity copies every component", "[scene][entity][copy]")
+{
+    Forge::Scene scene;
+    Forge::Entity original = MakeFullyLoadedEntity(scene, "Full");
+
+    Forge::Entity copy = scene.DuplicateEntity(original);
+    REQUIRE(copy);
+    REQUIRE(copy != original);
+
+    // A duplicate is a new entity: its own UUID, its own identity.
+    REQUIRE(copy.GetUUID() != original.GetUUID());
+
+    RequireEveryComponentCopied(copy);
+}
+
+TEST_CASE("Scene::Copy preserves every component", "[scene][copy]")
+{
+    Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+    Forge::Entity original = MakeFullyLoadedEntity(*scene, "Full");
+    const Forge::UUID originalId = original.GetUUID();
+
+    Forge::Ref<Forge::Scene> copy = scene->Copy(scene);
+    REQUIRE(copy);
+
+    // Found by UUID: the helper re-tags the entity, so its name is not "Full".
+    Forge::Entity copied = copy->GetEntityByUUID(originalId);
+    REQUIRE(copied);
+    RequireEveryComponentCopied(copied);
+
+    // A scene copy preserves UUIDs, so it can be saved and reopened as the same
+    // scene rather than a different one.
+    REQUIRE(copied.GetUUID() == originalId);
+}
+
+TEST_CASE("Scene::Copy reports a missing source", "[scene][copy]")
+{
+    Forge::Scene scene;
+    REQUIRE(scene.Copy(Forge::Ref<Forge::Scene>()) == nullptr);
+}
+
+TEST_CASE("The primary camera is resolved once, in authoring order", "[scene][camera]")
+{
+    Forge::Scene scene;
+
+    // No camera yet.
+    REQUIRE(!scene.GetPrimaryCameraEntity());
+    REQUIRE(scene.GetAllCameraEntities().empty());
+
+    Forge::Entity first = scene.CreateEntity("First");
+    first.AddComponent<Forge::CameraComponent>();
+    Forge::Entity second = scene.CreateEntity("Second");
+    second.AddComponent<Forge::CameraComponent>();
+
+    // Both default to primary, and that is ambiguous by construction: the
+    // answer is the first one in authoring order, not whichever the registry
+    // happened to yield.
+    REQUIRE(scene.GetPrimaryCameraEntity() == first);
+    REQUIRE(scene.GetAllCameraEntities().size() == 2u);
+
+    // Choosing the other one demotes the first, so "the primary camera" has an
+    // answer that an author chose.
+    REQUIRE(scene.SetPrimaryCamera(second));
+    REQUIRE(scene.GetPrimaryCameraEntity() == second);
+    REQUIRE(second.GetComponent<Forge::CameraComponent>().Primary);
+    REQUIRE(first.GetComponent<Forge::CameraComponent>().Primary == false);
+
+    // An entity without a camera cannot be made primary.
+    Forge::Entity notACamera = scene.CreateEntity("Cube");
+    REQUIRE_FALSE(scene.SetPrimaryCamera(notACamera));
+    REQUIRE_FALSE(scene.SetPrimaryCamera(Forge::Entity()));
+    REQUIRE(scene.GetPrimaryCameraEntity() == second);
+}
+
+TEST_CASE("A mesh component imports the model it names", "[scene][mesh]")
+{
+    Forge::Scene scene;
+
+    // No path is a legitimate state - the entity may get geometry another way -
+    // and is not an error.
+    Forge::Entity empty = scene.CreateEntity("NoModel");
+    auto& noModel = empty.AddComponent<Forge::MeshComponent>();
+    REQUIRE(noModel.CpuMeshData == nullptr);
+
+    // A path that does not resolve is reported, and leaves the component empty
+    // rather than pretending it imported something.
+    Forge::Entity missing = scene.CreateEntity("MissingModel");
+    auto& badModel = missing.AddComponent<Forge::MeshComponent>();
+    badModel.ModelPath = "no_such_model.gltf";
+    REQUIRE(badModel.CpuMeshData == nullptr);
+
+    // The real thing. The path is assigned after the component exists, so the
+    // import is asked for explicitly - which is the same call a script makes
+    // when it sets ModelPath at run time.
+    Forge::Entity model = scene.CreateEntity("Model");
+    auto& mesh = model.AddComponent<Forge::MeshComponent>();
+    mesh.ModelPath = std::string(FORGE_SOURCE_DIR) + "/resources/models/two_parts.gltf";
+    REQUIRE(scene.ImportMeshData(model));
+
+    REQUIRE(mesh.CpuMeshData);
+    REQUIRE(mesh.CpuMeshData->GetVertices().size() == 6u);
+    REQUIRE(mesh.CpuMeshData->GetIndices().size() == 6u);
+    for (uint32_t index : mesh.CpuMeshData->GetIndices())
+        REQUIRE(index < mesh.CpuMeshData->GetVertices().size());
+}
+
+TEST_CASE("Setting a mesh path after the fact imports it too", "[scene][mesh]")
+{
+    // A script setting ModelPath goes through the component, so the engine has
+    // to notice the change - otherwise the entity keeps the geometry it had (a
+    // unit cube) and the path looks like it worked.
+    Forge::Scene scene;
+    Forge::Entity entity = scene.CreateEntity("LateModel");
+    auto& mesh = entity.AddComponent<Forge::MeshComponent>();
+    REQUIRE(mesh.CpuMeshData == nullptr);
+
+    mesh.ModelPath = std::string(FORGE_SOURCE_DIR) + "/resources/models/cube.glb";
+    REQUIRE(scene.ImportMeshData(entity));
+
+    REQUIRE(mesh.CpuMeshData);
+    REQUIRE(!mesh.CpuMeshData->GetVertices().empty());
 }

@@ -1,6 +1,8 @@
 #include "fgpch.h"
 #include "Forge/Scripting/ScriptEngine.h"
 #include "Forge/Audio/AudioEngine.h"
+#include "Forge/Core/Time.h"
+#include "Forge/Core/FileSystem.h"
 
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
@@ -321,7 +323,19 @@ namespace Forge {
 				}
 				return false;   // unknown bus name: reject rather than ignore
 			}
-			if (comp == "Mesh" && entity.HasComponent<MeshComponent>() && field == "ModelPath") { entity.GetComponent<MeshComponent>().ModelPath = value; return true; }
+			if (comp == "Mesh" && entity.HasComponent<MeshComponent>() && field == "ModelPath") {
+				entity.GetComponent<MeshComponent>().ModelPath = value;
+
+				// Importing here is what stops a script from looking like it
+				// worked: the path is what the entity renders, and a script that
+				// set one left the old geometry in place.
+				if (Scene* scene = entity.GetScene(); scene && !scene->ImportMeshData(entity))
+				{
+					FG_CORE_ERROR("entity:SetString: could not import mesh model '{0}'", value);
+					return false;
+				}
+				return true;
+			}
 			if (comp == "Tag" && field == "Tag") { entity.GetComponent<TagComponent>().Tag = value; return true; }
 			return false;
 		}
@@ -925,7 +939,7 @@ namespace Forge {
 
 		int LuaGetTime(lua_State* L)
 		{
-			lua_pushnumber(L, (double)glfwGetTime());
+			lua_pushnumber(L, Time::GetTime());
 			return 1;
 		}
 
@@ -1162,8 +1176,8 @@ namespace Forge {
 		// than assuming it matches what is already in memory.
 		s_ScriptSourceCache.erase(filepath);
 
-		std::ifstream file(filepath);
-		if (!file.is_open())
+		std::string source;
+		if (!FileSystem::ReadTextFile(filepath, source))
 		{
 			// The live instances stay running: losing a working script to a
 			// deleted file is not an upgrade.
@@ -1171,9 +1185,7 @@ namespace Forge {
 			return false;
 		}
 
-		std::stringstream ss;
-		ss << file.rdbuf();
-		s_ScriptSourceCache[filepath] = ss.str();
+		s_ScriptSourceCache[filepath] = source;
 
 		if (bound.empty())
 			return true;  // Nothing bound to this file; nothing to rebuild.
@@ -1325,17 +1337,13 @@ namespace Forge {
 		}
 		else
 		{
-			std::ifstream file(filepath);
-			if (!file.is_open())
+			if (!FileSystem::ReadTextFile(filepath, source))
 			{
 				if (errorOut)
 					*errorOut = "could not open " + filepath;
 				return false;
 			}
 
-			std::stringstream ss;
-			ss << file.rdbuf();
-			source = ss.str();
 			s_ScriptSourceCache[filepath] = source;
 		}
 

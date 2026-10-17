@@ -1,5 +1,6 @@
 #include "fgpch.h"
 #include "Forge/Renderer/CpuTexture.h"
+#include "Forge/Core/FileSystem.h"
 
 #include <stb_image.h>
 
@@ -17,41 +18,32 @@ namespace Forge {
 		int width = 0, height = 0, channels = 0;
 
 		// Load the whole file into memory so we can inspect its format header and
-		// avoid depending on the stb_image file-IO helper variants.
-		FILE* file = fopen(filepath.c_str(), "rb");
-		if (!file)
+		// avoid depending on the stb_image file-IO helper variants. An empty
+		// file is rejected here rather than in FileSystem: whether a
+		// zero-byte asset is usable is this decoder's decision.
+		std::vector<uint8_t> buffer;
+		if (!FileSystem::ReadFile(filepath, buffer))
 		{
-			FG_CORE_ERROR("CpuTexture: could not open '{0}'", filepath);
+			FG_CORE_ERROR("CpuTexture: could not read '{0}'", filepath);
 			return nullptr;
 		}
 
-		fseek(file, 0, SEEK_END);
-		long size = ftell(file);
-		fseek(file, 0, SEEK_SET);
-		if (size <= 0)
+		if (buffer.empty())
 		{
-			fclose(file);
 			FG_CORE_ERROR("CpuTexture: '{0}' is empty", filepath);
 			return nullptr;
 		}
 
-		std::vector<unsigned char> buffer((size_t)size);
-		size_t read = fread(buffer.data(), 1, (size_t)size, file);
-		fclose(file);
-		if (read != (size_t)size)
-		{
-			FG_CORE_ERROR("CpuTexture: failed to read '{0}'", filepath);
-			return nullptr;
-		}
+		const int size = static_cast<int>(buffer.size());
 
-		bool isHDR = stbi_is_hdr_from_memory(buffer.data(), (int)size) != 0;
+		bool isHDR = stbi_is_hdr_from_memory(buffer.data(), size) != 0;
 
 		auto texture = CreateRef<CpuTexture>();
 		texture->m_IsHDR = isHDR;
 
 		if (isHDR)
 		{
-			float* data = stbi_loadf_from_memory(buffer.data(), (int)size, &width, &height, &channels, 3);
+			float* data = stbi_loadf_from_memory(buffer.data(), size, &width, &height, &channels, 3);
 			if (!data)
 			{
 				FG_CORE_ERROR("CpuTexture: stb_image failed to decode HDR '{0}': {1}", filepath, stbi_failure_reason());
@@ -64,7 +56,7 @@ namespace Forge {
 		}
 		else
 		{
-			unsigned char* data = stbi_load_from_memory(buffer.data(), (int)size, &width, &height, &channels, 4);
+			unsigned char* data = stbi_load_from_memory(buffer.data(), size, &width, &height, &channels, 4);
 			if (!data)
 			{
 				FG_CORE_ERROR("CpuTexture: stb_image failed to decode '{0}': {1}", filepath, stbi_failure_reason());

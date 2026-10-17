@@ -4,6 +4,7 @@
 #include "Forge/Scene/Entity.h"
 
 #include "Forge/Scene/Components.h"
+#include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
 #include "Forge/Physics/Physics.h"
@@ -239,10 +240,10 @@ namespace Forge {
 			}
 		}
 
-		// Render
-#if !defined(FG_NO_VULKAN_RUNTIME)
-		RenderScene();
-#endif
+		// Rendering is not the scene's job: the application owns the frame and
+		// calls Renderer::RenderScene. Doing it here re-opened the command list
+		// the application had already opened, closed it, and then recorded the
+		// real frame into a closed list.
 	}
 
 	void Scene::OnUpdateSimulation(Timestep ts)
@@ -261,19 +262,11 @@ namespace Forge {
 			}
 		}
 
-		// Render
-#if !defined(FG_NO_VULKAN_RUNTIME)
-		RenderScene();
-#endif
 	}
 
 	void Scene::OnUpdateEditor(Timestep ts)
 	{
 		(void)ts;
-		// Render
-#if !defined(FG_NO_VULKAN_RUNTIME)
-		RenderScene();
-#endif
 	}
 
 	void Scene::OnViewportResize(uint32_t width, uint32_t height)
@@ -298,16 +291,74 @@ namespace Forge {
 		}
 	}
 
+	bool Scene::ImportMeshData(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<MeshComponent>())
+		{
+			FG_CORE_ERROR("ImportMeshData: entity has no MeshComponent");
+			return false;
+		}
+
+		MeshComponent& component = entity.GetComponent<MeshComponent>();
+
+		// An empty path is not a failure: the entity has geometry supplied some
+		// other way, or none yet.
+		if (component.ModelPath.empty())
+			return false;
+
+		if (component.CpuMeshData)
+			return true;
+
+		component.CpuMeshData = CpuMesh::LoadFromFile(component.ModelPath);
+		if (!component.CpuMeshData)
+		{
+			FG_CORE_ERROR("Entity '{0}': could not import model '{1}'", entity.GetName(), component.ModelPath);
+			return false;
+		}
+
+		// A new import invalidates whatever was uploaded from the old one.
+		component.Mesh = nullptr;
+
+		FG_CORE_INFO("Entity '{0}': imported '{1}' ({2} vertices)",
+			entity.GetName(), component.ModelPath, component.CpuMeshData->GetVertices().size());
+		return true;
+	}
+
 	Entity Scene::GetPrimaryCameraEntity()
 	{
-		auto view = m_Registry.view<CameraComponent>();
-		for (auto entity : view)
+		// Authoring order, not registry iteration order: with two cameras marked
+		// primary the answer has to be the same every run.
+		for (Entity entity : GetEntitiesInOrder())
 		{
-			const auto& camera = view.get<CameraComponent>(entity);
-			if (camera.Primary)
-				return Entity{entity, this};
+			if (entity.HasComponent<CameraComponent>() && entity.GetComponent<CameraComponent>().Primary)
+				return entity;
 		}
 		return {};
+	}
+
+	std::vector<Entity> Scene::GetAllCameraEntities() const
+	{
+		std::vector<Entity> cameras;
+		for (Entity entity : GetEntitiesInOrder())
+		{
+			if (entity.HasComponent<CameraComponent>())
+				cameras.push_back(entity);
+		}
+		return cameras;
+	}
+
+	bool Scene::SetPrimaryCamera(Entity camera)
+	{
+		if (!camera || !camera.HasComponent<CameraComponent>())
+		{
+			FG_CORE_ERROR("SetPrimaryCamera: entity has no CameraComponent");
+			return false;
+		}
+
+		for (Entity other : GetAllCameraEntities())
+			other.GetComponent<CameraComponent>().Primary = (other == camera);
+
+		return true;
 	}
 
 	void Scene::Step(int frames)
@@ -335,51 +386,72 @@ namespace Forge {
 		return entities;
 	}
 
+	// One list of copied components, shared by duplication and scene copy.
+	//
+	// These used to be two hand-maintained lists, and they had already drifted:
+	// EnvironmentMapComponent, AudioSourceComponent and NativeScriptComponent
+	// were in neither, so duplicating an entity silently dropped its environment
+	// probe, its sound and its native behaviour. Two lists cannot both be right
+	// for as long as adding a component means remembering two edits; one cannot
+	// drift at all, because it is the only list.
+	template<typename T>
+	void CopyComponentIfPresent(Entity from, Entity to)
+	{
+		if (from.HasComponent<T>())
+			to.AddOrReplaceComponent<T>(from.GetComponent<T>());
+	}
+
+	void Scene::CopyComponentsTo(Entity from, Entity to)
+	{
+		CopyComponentIfPresent<TagComponent>(from, to);
+		CopyComponentIfPresent<TransformComponent>(from, to);
+		CopyComponentIfPresent<CameraComponent>(from, to);
+		CopyComponentIfPresent<ScriptComponent>(from, to);
+		CopyComponentIfPresent<RigidbodyComponent>(from, to);
+		CopyComponentIfPresent<BoxColliderComponent>(from, to);
+		CopyComponentIfPresent<SphereColliderComponent>(from, to);
+		CopyComponentIfPresent<LightComponent>(from, to);
+		CopyComponentIfPresent<PBRMaterialComponent>(from, to);
+		CopyComponentIfPresent<MeshComponent>(from, to);
+		CopyComponentIfPresent<EnvironmentMapComponent>(from, to);
+		CopyComponentIfPresent<AudioSourceComponent>(from, to);
+
+		// The native binding is copied, not the live instance: two entities
+		// sharing one ScriptableEntity would share its state, and the original
+		// keeps the instance it was already running.
+		if (from.HasComponent<NativeScriptComponent>())
+		{
+			const NativeScriptComponent& original = from.GetComponent<NativeScriptComponent>();
+			NativeScriptComponent& copy = to.AddOrReplaceComponent<NativeScriptComponent>();
+			copy.InstantiateScript = original.InstantiateScript;
+			copy.DestroyScript = original.DestroyScript;
+		}
+
+		// IDComponent is deliberately not copied: the copy is a new entity and
+		// keeps the UUID CreateEntity assigned it.
+	}
+
 	Entity Scene::DuplicateEntity(Entity entity)
 	{
 		FG_CORE_ASSERT_MSG(entity, "Cannot duplicate an invalid entity!");
 
-		// Create a fresh entity (new UUID) and deep-copy every component.
+		// A fresh entity with a new UUID, and every component the original had.
 		Entity newEntity = CreateEntity(entity.GetName());
-
-		if (entity.HasComponent<TagComponent>())
-			newEntity.GetComponent<TagComponent>() = entity.GetComponent<TagComponent>();
-
-		if (entity.HasComponent<TransformComponent>())
-			newEntity.GetComponent<TransformComponent>() = entity.GetComponent<TransformComponent>();
-
-		if (entity.HasComponent<CameraComponent>())
-			newEntity.AddOrReplaceComponent<CameraComponent>(entity.GetComponent<CameraComponent>());
-
-		if (entity.HasComponent<ScriptComponent>())
-			newEntity.AddOrReplaceComponent<ScriptComponent>(entity.GetComponent<ScriptComponent>());
-
-		if (entity.HasComponent<RigidbodyComponent>())
-			newEntity.AddOrReplaceComponent<RigidbodyComponent>(entity.GetComponent<RigidbodyComponent>());
-
-		if (entity.HasComponent<BoxColliderComponent>())
-			newEntity.AddOrReplaceComponent<BoxColliderComponent>(entity.GetComponent<BoxColliderComponent>());
-
-		if (entity.HasComponent<SphereColliderComponent>())
-			newEntity.AddOrReplaceComponent<SphereColliderComponent>(entity.GetComponent<SphereColliderComponent>());
-
-		if (entity.HasComponent<LightComponent>())
-			newEntity.AddOrReplaceComponent<LightComponent>(entity.GetComponent<LightComponent>());
-
-		if (entity.HasComponent<PBRMaterialComponent>())
-			newEntity.AddOrReplaceComponent<PBRMaterialComponent>(entity.GetComponent<PBRMaterialComponent>());
-
-		if (entity.HasComponent<MeshComponent>())
-			newEntity.AddOrReplaceComponent<MeshComponent>(entity.GetComponent<MeshComponent>());
+		this->CopyComponentsTo(entity, newEntity);
 
 		return newEntity;
 	}
 
 	Ref<Scene> Scene::Copy(Ref<Scene> other)
 	{
+		if (!other)
+		{
+			FG_CORE_ERROR("Scene::Copy: no scene to copy");
+			return nullptr;
+		}
+
 		auto copy = CreateRef<Scene>();
 
-		// Copy entities with all components
 		auto view = other->m_Registry.view<IDComponent>();
 		for (auto entityID : view)
 		{
@@ -387,71 +459,12 @@ namespace Forge {
 			if (!originalEntity)
 				continue;
 
-			// Create entity with preserved UUID. This already adds the
-			// IDComponent, TransformComponent and TagComponent, so those are
-			// assigned in-place below rather than added again.
-			auto id = originalEntity.GetComponent<IDComponent>().ID;
+			// The UUID is preserved, so a copy can be saved and reopened as the
+			// same scene rather than a new one.
+			const auto id = originalEntity.GetComponent<IDComponent>().ID;
 			Entity newEntity = copy->CreateEntityWithUUID(id, originalEntity.GetName());
 
-			// Copy TagComponent (already present, assign in place)
-			if (originalEntity.HasComponent<TagComponent>())
-			{
-				newEntity.GetComponent<TagComponent>() = originalEntity.GetComponent<TagComponent>();
-			}
-
-			// Copy TransformComponent (already present, assign in place)
-			if (originalEntity.HasComponent<TransformComponent>())
-			{
-				newEntity.GetComponent<TransformComponent>() = originalEntity.GetComponent<TransformComponent>();
-			}
-
-			// Copy CameraComponent
-			if (originalEntity.HasComponent<CameraComponent>())
-			{
-				newEntity.AddComponent<CameraComponent>(originalEntity.GetComponent<CameraComponent>());
-			}
-
-			// Copy ScriptComponent
-			if (originalEntity.HasComponent<ScriptComponent>())
-			{
-				newEntity.AddComponent<ScriptComponent>(originalEntity.GetComponent<ScriptComponent>());
-			}
-
-			// Copy RigidbodyComponent
-			if (originalEntity.HasComponent<RigidbodyComponent>())
-			{
-				newEntity.AddComponent<RigidbodyComponent>(originalEntity.GetComponent<RigidbodyComponent>());
-			}
-
-			// Copy BoxColliderComponent
-			if (originalEntity.HasComponent<BoxColliderComponent>())
-			{
-				newEntity.AddComponent<BoxColliderComponent>(originalEntity.GetComponent<BoxColliderComponent>());
-			}
-
-			// Copy SphereColliderComponent
-			if (originalEntity.HasComponent<SphereColliderComponent>())
-			{
-				newEntity.AddComponent<SphereColliderComponent>(originalEntity.GetComponent<SphereColliderComponent>());
-			}
-
-			// Copy LightComponent
-			if (originalEntity.HasComponent<LightComponent>())
-			{
-				newEntity.AddComponent<LightComponent>(originalEntity.GetComponent<LightComponent>());
-			}
-
-			// Copy PBRMaterialComponent
-			if (originalEntity.HasComponent<PBRMaterialComponent>())
-			{
-				newEntity.AddComponent<PBRMaterialComponent>(originalEntity.GetComponent<PBRMaterialComponent>());
-			}
-
-			// Copy MeshComponent
-			if (originalEntity.HasComponent<MeshComponent>())
-			{
-				newEntity.AddComponent<MeshComponent>(originalEntity.GetComponent<MeshComponent>());
-			}
+			copy->CopyComponentsTo(originalEntity, newEntity);
 		}
 
 		return copy;
@@ -823,92 +836,6 @@ namespace Forge {
 		}
 	}
 
-#if !defined(FG_NO_VULKAN_RUNTIME)
-
-	void Scene::RenderScene()
-	{
-		// Get primary camera
-		auto cameraEntity = GetPrimaryCameraEntity();
-		if (!cameraEntity)
-			return;
-
-		auto& camera = cameraEntity.GetComponent<CameraComponent>();
-		auto& transform = cameraEntity.GetComponent<TransformComponent>();
-
-		// Update camera view matrix from transform. Rotation is stored in
-		// radians (see TransformComponent::GetTransform).
-		glm::mat4 rotation = glm::toMat4(glm::quat(transform.Rotation));
-		glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.Translation);
-
-		camera.ViewMatrix = glm::inverse(translation * rotation);
-		camera.ViewProjectionMatrix = camera.ProjectionMatrix * camera.ViewMatrix;
-
-		// Begin scene
-		Renderer::BeginScene();
-
-		// Set view projection matrix in shader
-		{
-			auto pbrShader = Renderer::GetShaderLibrary().Get("PBR");
-			if (pbrShader)
-			{
-				pbrShader->SetMat4("u_ViewProjection", camera.ViewProjectionMatrix);
-			}
-		}
-
-		// Render all mesh entities
-		auto meshView = m_Registry.view<TransformComponent, MeshComponent>();
-		for (auto entity : meshView)
-		{
-			auto& transformComp = meshView.get<TransformComponent>(entity);
-			auto& meshComp = meshView.get<MeshComponent>(entity);
-
-			if (!meshComp.Mesh)
-			{
-				// Load mesh from file
-				meshComp.Mesh = Mesh::Create(meshComp.ModelPath);
-			}
-
-			if (meshComp.Mesh)
-			{
-				Renderer::Submit(
-					Renderer::GetShaderLibrary().Get("PBR"),
-					meshComp.Mesh->GetVertexArray(),
-					transformComp.GetTransform()
-				);
-			}
-		}
-
-		// Render entities with PBR material but no mesh (use default cube)
-		static Ref<Mesh> defaultCube;
-		auto materialView = m_Registry.view<TransformComponent, PBRMaterialComponent>();
-		for (auto entity : materialView)
-		{
-			// Skip entities that already have a MeshComponent (they were drawn above).
-			if (m_Registry.all_of<MeshComponent>(entity))
-				continue;
-
-			auto& transformComp = materialView.get<TransformComponent>(entity);
-			auto& pbrComp = materialView.get<PBRMaterialComponent>(entity);
-
-			if (!defaultCube)
-			{
-				Ref<CpuMesh> cpuCube = Primitives::CreateCube(1.0f);
-				defaultCube = Mesh::CreateFromCpu(cpuCube.get(), Material{});
-			}
-
-			Renderer::Submit(
-				Renderer::GetShaderLibrary().Get("PBR"),
-				defaultCube->GetVertexArray(),
-				transformComp.GetTransform()
-			);
-		}
-
-		// End scene
-		Renderer::EndScene();
-	}
-
-#endif // FG_NO_VULKAN_RUNTIME
-
 	template<>
 	void Scene::OnComponentAdded<IDComponent>(Entity entity, IDComponent& component)
 	{
@@ -1033,7 +960,12 @@ namespace Forge {
 	template<>
 	void Scene::OnComponentAdded<MeshComponent>(Entity entity, MeshComponent& component)
 	{
-		(void)entity; (void)component;
+		// Import the model the component names. An empty path is legitimate (the
+		// entity has geometry supplied some other way, or none yet), but a path
+		// that does not resolve is a mistake worth saying out loud: it used to
+		// produce a unit cube at run time and nothing else.
+		(void)component;
+		(void)ImportMeshData(entity);
 	}
 
 	void Scene::OnComponentAdded(Entity entity, EnvironmentMapComponent& component)

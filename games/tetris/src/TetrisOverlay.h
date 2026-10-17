@@ -17,7 +17,7 @@ public:
 	void OnImGuiRender() override;
 
 	// Update cached values each frame so we always display current state.
-	void OnUpdate(float ts) override;
+	void OnUpdate(Forge::Timestep ts) override;
 
 	// Refresh display when the game state changes (start, restart, game over).
 	void RefreshState();

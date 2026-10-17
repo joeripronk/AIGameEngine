@@ -65,6 +65,12 @@ namespace Forge {
 		UUID GetUUID() { return GetComponent<IDComponent>().ID; }
 		const std::string& GetName() { return GetComponent<TagComponent>().Tag; }
 
+		// The scene this entity belongs to. Scripting needs it: a script that
+		// changes something the scene maintains - a mesh model path, say - has
+		// to tell the scene, and reaching the scene through a friend of Entity
+		// is not something a caller outside the engine can do.
+		Scene* GetScene() const { return m_Scene; }
+
 		bool operator==(const Entity& other) const
 		{
 			return m_EntityHandle == other.m_EntityHandle && m_Scene == other.m_Scene;

@@ -5,31 +5,27 @@
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
 
-#include <fstream>
+#include "Forge/Core/FileSystem.h"
 
 namespace Forge {
 
 	namespace {
 
-		bool LoadSPIRV(const std::string& path, std::vector<char>& out)
+		bool LoadSPIRV(const std::string& path, std::vector<uint8_t>& out)
 		{
-			std::ifstream stream(path, std::ios::binary | std::ios::ate);
-			if (!stream.is_open())
+			if (!FileSystem::ReadFile(path, out))
 			{
-				FG_CORE_ERROR("VulkanShader: cannot open SPIR-V '{0}'", path);
+				FG_CORE_ERROR("VulkanShader: cannot read SPIR-V '{0}'", path);
 				return false;
 			}
 
-			std::streamsize size = stream.tellg();
-			stream.seekg(0, std::ios::beg);
-			out.resize((size_t)size);
-			if (size > 0 && !stream.read(out.data(), size))
+			if (out.empty())
 			{
-				FG_CORE_ERROR("VulkanShader: failed to read SPIR-V '{0}'", path);
+				FG_CORE_ERROR("VulkanShader: SPIR-V '{0}' is empty", path);
 				return false;
 			}
 
-			return !out.empty();
+			return true;
 		}
 
 	}
@@ -44,7 +40,7 @@ namespace Forge {
 			return;
 		}
 
-		std::vector<char> vertexCode, fragmentCode;
+		std::vector<uint8_t> vertexCode, fragmentCode;
 		if (!LoadSPIRV(vertexSpvPath, vertexCode) || !LoadSPIRV(fragmentSpvPath, fragmentCode))
 		{
 			FG_CORE_ERROR("VulkanShader '{0}': failed to load SPIR-V modules", name);

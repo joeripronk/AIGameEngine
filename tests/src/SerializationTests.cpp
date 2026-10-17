@@ -18,6 +18,9 @@ using Catch::Approx;
 #include <vector>
 
 #include "Forge/Core/Base.h"
+#include "Forge/Core/FileSystem.h"
+#include "Forge/Scene/SceneSerializer.h"
+#include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
@@ -106,6 +109,115 @@ TEST_CASE("CameraComponent round-trips every field", "[serialization][roundtrip]
 	REQUIRE(rcam.NearClip == Approx(0.25f));
 	REQUIRE(rcam.FarClip == Approx(4321.0f));
 	REQUIRE(rcam.AspectRatio == Approx(2.35f));
+	REQUIRE(rcam.Type == Forge::CameraComponent::ProjectionType::Perspective);
+}
+
+TEST_CASE("An orthographic camera round-trips and builds an orthographic projection",
+	"[serialization][roundtrip][camera]")
+{
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	auto entity = scene->CreateEntity("OrthoCamera");
+
+	auto& camera = entity.AddComponent<Forge::CameraComponent>();
+	camera.Type = Forge::CameraComponent::ProjectionType::Orthographic;
+	camera.OrthographicSize = 8.0f;
+	camera.AspectRatio = 2.0f;
+	camera.NearClip = -1.0f;
+	camera.FarClip = 1.0f;
+	camera.UpdateProjection();
+
+	Forge::Ref<Forge::Scene> reloaded;
+	REQUIRE(RoundTrip(scene, "ortho_camera.forge", reloaded));
+	auto e = reloaded->FindEntityByName("OrthoCamera");
+	REQUIRE(e);
+
+	const auto& rcam = e.GetComponent<Forge::CameraComponent>();
+	REQUIRE(rcam.Type == Forge::CameraComponent::ProjectionType::Orthographic);
+	REQUIRE(rcam.OrthographicSize == Approx(8.0f));
+	REQUIRE(rcam.AspectRatio == Approx(2.0f));
+
+	// Orthographic projection maps the frustum to clip space linearly: the
+	// vertical extent is OrthographicSize and the horizontal extent follows the
+	// aspect ratio, so a 2x1 view is twice as wide rather than stretched.
+	const glm::mat4& projection = rcam.ProjectionMatrix;
+	REQUIRE(projection[0][0] == Approx(1.0f / 8.0f));
+	REQUIRE(projection[1][1] == Approx(1.0f / 4.0f));
+	// Depth is mapped linearly across [NearClip, FarClip]: -2/(far - near).
+	REQUIRE(projection[2][2] == Approx(-2.0f / (1.0f - -1.0f)));
+
+	// A perspective camera is unaffected by the orthographic size, so an
+	// entity that switches projection gets the projection it asked for rather
+	// than the one it was left with.
+	camera.Type = Forge::CameraComponent::ProjectionType::Perspective;
+	camera.FieldOfView = 60.0f;
+	camera.UpdateProjection();
+	REQUIRE(projection != camera.ProjectionMatrix);
+}
+
+TEST_CASE("A scene written before projection types still loads as perspective",
+	"[serialization][camera]")
+{
+	// No Projection key at all: absence has to mean the only projection that
+	// existed when the file was written.
+	const std::string path = "legacy_camera.forge";
+	REQUIRE(Forge::FileSystem::WriteTextFile(path,
+		"Scene: Legacy\n"
+		"Entities:\n"
+		"  - Entity: 1\n"
+		"    CameraComponent:\n"
+		"      Primary: true\n"
+		"      FieldOfView: 60\n"));
+
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer loader(scene);
+	REQUIRE(loader.Deserialize(path));
+
+	auto e = scene->FindEntityByName("Entity");
+	REQUIRE(e);
+	REQUIRE(e.HasComponent<Forge::CameraComponent>());
+	REQUIRE(e.GetComponent<Forge::CameraComponent>().Type
+		== Forge::CameraComponent::ProjectionType::Perspective);
+
+	// A projection name this build does not know falls back rather than
+	// failing the whole load.
+	REQUIRE(Forge::FileSystem::WriteTextFile(path,
+		"Scene: Legacy\n"
+		"Entities:\n"
+		"  - Entity: 1\n"
+		"    CameraComponent:\n"
+		"      Primary: true\n"
+		"      Projection: Holographic\n"));
+
+	Forge::Ref<Forge::Scene> unknown = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer unknownLoader(unknown);
+	REQUIRE(unknownLoader.Deserialize(path));
+	REQUIRE(unknown->FindEntityByName("Entity").GetComponent<Forge::CameraComponent>().Type
+		== Forge::CameraComponent::ProjectionType::Perspective);
+}
+
+TEST_CASE("A loaded scene imports the models its meshes name", "[serialization][roundtrip][mesh]")
+{
+    // The defect this pins: the serializer wrote ModelPath and read it back, and
+    // nothing imported it - so an entity saved from a model rendered a unit cube
+    // forever, with no warning anywhere.
+    Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+    auto entity = scene->CreateEntity("Modelled");
+    entity.AddComponent<Forge::MeshComponent>().ModelPath =
+        std::string(FORGE_SOURCE_DIR) + "/resources/models/two_parts.gltf";
+
+    Forge::Ref<Forge::Scene> reloaded;
+    REQUIRE(RoundTrip(scene, "modelled.forge", reloaded));
+
+    auto e = reloaded->FindEntityByName("Modelled");
+    REQUIRE(e);
+    REQUIRE(e.GetComponent<Forge::MeshComponent>().ModelPath ==
+        std::string(FORGE_SOURCE_DIR) + "/resources/models/two_parts.gltf");
+
+    const auto& mesh = e.GetComponent<Forge::MeshComponent>();
+    REQUIRE(mesh.CpuMeshData);
+    REQUIRE(mesh.CpuMeshData->GetVertices().size() == 6u);
+    for (uint32_t index : mesh.CpuMeshData->GetIndices())
+        REQUIRE(index < mesh.CpuMeshData->GetVertices().size());
 }
 
 TEST_CASE("ScriptComponent round-trips its class name", "[serialization][roundtrip]")

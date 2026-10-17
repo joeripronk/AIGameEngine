@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Forge/Core/Base.h"
+#include "Forge/Project/Project.h"
 
 #include <filesystem>
 #include <string>
@@ -40,10 +41,15 @@ namespace Forge {
 	// Scans a directory tree and indexes every supported asset. The registry is
 	// window-independent so it backs both the ImGui asset browser and headless
 	// AI tooling.
+	//
+	// An empty root scans the active project's asset directory, falling back
+	// to `resources` when no project is open. A caller that knows the root says
+	// so; a caller that does not would otherwise have to hardcode the one
+	// directory name the engine happens to use.
 	class AssetRegistry
 	{
 	public:
-		static void Scan(const std::string& rootDirectory);
+		static void Scan(const std::string& rootDirectory = "");
 		static void Clear() { s_Assets.clear(); s_Root.clear(); }
 
 		static const std::vector<AssetMetadata>& GetAllAssets() { return s_Assets; }

@@ -1,5 +1,6 @@
 #include "fgpch.h"
 #include "Forge/Project/GameExporter.h"
+#include "Forge/Project/Project.h"
 
 #include <filesystem>
 #include <fstream>
@@ -86,6 +87,21 @@ namespace Forge {
 
 	bool GameExporter::Export(const Options& options)
 	{
+		// An empty option means "whatever the project says", not "nothing":
+		// the scene and the resource root are project facts, and asking the
+		// caller to repeat them is how an export ends up shipping the wrong
+		// scene. With no project open the historical defaults apply.
+		const std::string scenePath = options.ScenePath.empty()
+			? Project::GetStartScenePath().string()
+			: options.ScenePath;
+
+		std::string resourcesDirectory = options.ResourcesDirectory;
+		if (resourcesDirectory.empty())
+		{
+			const std::filesystem::path assets = Project::GetAssetDirectory();
+			resourcesDirectory = assets.empty() ? std::string("resources/") : assets.string();
+		}
+
 		std::string output = options.OutputDirectory;
 		if (!output.empty() && output.back() != '/' && output.back() != '\\')
 			output += '/';
@@ -107,16 +123,16 @@ namespace Forge {
 			return false;
 		}
 
-		if (!options.ScenePath.empty() && !std::filesystem::is_regular_file(options.ScenePath, ec))
+		if (!scenePath.empty() && !std::filesystem::is_regular_file(scenePath, ec))
 		{
-			FG_CORE_ERROR("Export failed: scene not found: {0}", options.ScenePath);
+			FG_CORE_ERROR("Export failed: scene not found: {0}", scenePath);
 			return false;
 		}
 
-		if (!options.ResourcesDirectory.empty()
-			&& !std::filesystem::is_directory(options.ResourcesDirectory, ec))
+		if (!resourcesDirectory.empty()
+			&& !std::filesystem::is_directory(resourcesDirectory, ec))
 		{
-			FG_CORE_ERROR("Export failed: resources directory not found: {0}", options.ResourcesDirectory);
+			FG_CORE_ERROR("Export failed: resources directory not found: {0}", resourcesDirectory);
 			return false;
 		}
 
@@ -135,15 +151,15 @@ namespace Forge {
 		}
 
 		// 2. Copy the scene.
-		if (!options.ScenePath.empty())
+		if (!scenePath.empty())
 		{
-			const std::string sceneName = std::filesystem::path(options.ScenePath).filename().string();
-			if (!CopyFile(options.ScenePath, output + sceneName))
+			const std::string sceneName = std::filesystem::path(scenePath).filename().string();
+			if (!CopyFile(scenePath, output + sceneName))
 				return false;
 		}
 
 		// 3. Copy resources (scripts, prefabs, models, textures, HDRIs).
-		if (!options.ResourcesDirectory.empty() && !CopyDirectory(options.ResourcesDirectory, output + "resources"))
+		if (!resourcesDirectory.empty() && !CopyDirectory(resourcesDirectory, output + "resources"))
 			return false;
 
 		FG_CORE_INFO("Exported game '{0}' to {1}", options.GameName, output);

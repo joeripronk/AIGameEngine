@@ -2,7 +2,6 @@
 
 #include "Forge/Renderer/RenderCommand.h"
 #include "Forge/Renderer/Shader.h"
-#include "Forge/Renderer/Shaders.h"
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
 
@@ -76,17 +75,10 @@ namespace Forge {
 			s_InitialHeight = height;
 		}
 
-		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
-		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture);
-
 		// Draws every entity in `scene` that has a MeshComponent and a primary
 		// camera, using the PBR shader, into the given swapchain framebuffer.
 		// Must be called between BeginScene() and EndScene().
 		static void RenderScene(class Scene* scene, uint32_t swapchainImage);
-
-		// Renders every entity with a MeshComponent to the shadow map.
-		// Must be called between BeginShadowPass() and EndShadowPass().
-		static void RenderShadowScene(class Scene* scene);
 
 		// Post-processing passes: SSAO, HDR tonemapping, final composite.
 		// These must be called between BeginScene() and EndScene(), after RenderScene().
@@ -96,7 +88,6 @@ namespace Forge {
 		static void EndHDRPass();
 		static void BeginFinalPass();
 		static void EndFinalPass();
-		static void SubmitFinal();
 
 		// Reads the given swapchain image back to the CPU and writes it as a
 		// binary PPM. Used to verify rendering without a windowing system.

@@ -9,6 +9,9 @@ using Catch::Approx;
 
 #include <set>
 #include <array>
+#include <string>
+
+#include <glm/glm.hpp>
 
 TEST_CASE("Cube primitive has valid topology", "[mesh][primitive]")
 {
@@ -266,4 +269,95 @@ TEST_CASE("Committed HDRI fixture decodes as HDR", "[renderer][hdr]")
 
     // `allFinite` already covers every channel: a decode that left one plane
     // corrupt would flip it while the others looked fine.
+}
+
+TEST_CASE("Model import offsets each mesh's indices and applies node transforms",
+	"[mesh][import]")
+{
+    // resources/models/two_parts.gltf: two meshes, two triangles, the second
+    // under a node translated +5 on X.
+    //
+    // Both halves of this were broken at once. Indices are per-mesh, so the
+    // second triangle's indices (0,1,2) have to be offset by the first mesh's
+    // vertex count; without that they pointed at the first triangle's vertices
+    // - or past the end of the buffer. And a model places its parts with node
+    // transforms, which the importer ignored, stacking both triangles on top of
+    // each other.
+    const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/models/two_parts.gltf";
+
+    Forge::ImportedModel model;
+    REQUIRE(Forge::MeshImport::ImportModel(path, model));
+
+    REQUIRE(model.Vertices.size() == 6u);
+    REQUIRE(model.Indices.size() == 6u);
+
+    // Every index addresses a vertex that exists. This is the property that
+    // makes the draw call defined behaviour rather than a read of whatever
+    // happened to be next in the buffer.
+    for (uint32_t index : model.Indices)
+        REQUIRE(index < model.Vertices.size());
+
+    // The second triangle's indices point at the *second* triangle's vertices.
+    glm::vec3 min = model.Vertices[0].Position;
+    glm::vec3 max = model.Vertices[0].Position;
+    for (const auto& vertex : model.Vertices)
+    {
+        min = glm::min(min, vertex.Position);
+        max = glm::max(max, vertex.Position);
+    }
+
+    // Without the node transform both triangles would span x in [0, 1] and the
+    // bounds would prove nothing; with it the model is 6 units wide.
+    REQUIRE(min.x == Approx(0.0f));
+    REQUIRE(max.x == Approx(6.0f));
+
+    // The first mesh's triangle sits at the origin; the second at +5.
+    REQUIRE(model.Vertices[model.Indices[3]].Position.x == Approx(5.0f));
+    REQUIRE(model.Vertices[model.Indices[4]].Position.x == Approx(6.0f));
+    REQUIRE(model.Vertices[model.Indices[5]].Position.x == Approx(5.0f));
+
+    // Normals stay unit length after the transform, or lighting is wrong.
+    for (const auto& vertex : model.Vertices)
+        REQUIRE(glm::length(vertex.Normal) == Approx(1.0f));
+}
+
+TEST_CASE("Model import reads the material the file declares", "[mesh][import]")
+{
+    const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/models/two_parts.gltf";
+
+    Forge::ImportedModel model;
+    REQUIRE(Forge::MeshImport::ImportModel(path, model));
+
+    // The base colour comes from the same import that produced the geometry, so
+    // a model cannot come back with geometry and no material at all.
+    REQUIRE(model.Albedo.r == Approx(1.0f));
+    REQUIRE(model.Albedo.b == Approx(0.0f));
+
+    // The PBR factors come from the same material. This is also what proves the
+    // *first* mesh's material is the one that wins: the second mesh declares a
+    // different colour and different factors, and reading the last instead left
+    // a model with the parts in the wrong order wearing the wrong material.
+    REQUIRE(model.Metallic == Approx(0.25f));
+    REQUIRE(model.Roughness == Approx(0.75f));
+    REQUIRE(model.AO == Approx(1.0f));
+
+    // A model with no texture names no path, rather than an empty string that
+    // a loader would try to open and fail.
+    REQUIRE(model.AlbedoTexturePath.empty());
+}
+
+TEST_CASE("Model import reports failure instead of importing nothing", "[mesh][import]")
+{
+    Forge::ImportedModel model;
+    REQUIRE_FALSE(Forge::MeshImport::ImportModel("no_such_model.gltf", model));
+    REQUIRE(model.Vertices.empty());
+
+    // The committed fixture here is an empty glTF document: a file that parses
+    // and contains no geometry. That is a failure, not an empty model.
+    REQUIRE_FALSE(Forge::MeshImport::ImportModel(
+        std::string(FORGE_SOURCE_DIR) + "/test_asset_scan/model.gltf", model));
+    REQUIRE(model.Vertices.empty());
+
+    // CpuMesh::LoadFromFile is the same importer behind a convenience wrapper.
+    REQUIRE(Forge::CpuMesh::LoadFromFile("no_such_model.gltf") == nullptr);
 }

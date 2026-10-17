@@ -7,8 +7,7 @@
 	#include "Platform/Vulkan/VulkanShader.h"
 #endif
 
-#include <fstream>
-#include <sstream>
+#include "Forge/Core/FileSystem.h"
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
@@ -16,17 +15,12 @@ namespace Forge {
 
 	Ref<Shader> Shader::Create(const std::string& filepath)
 	{
-		// Read shader file
-		std::ifstream stream(filepath);
-		if (!stream.is_open())
+		std::string content;
+		if (!FileSystem::ReadTextFile(filepath, content))
 		{
 			FG_CORE_ERROR("Failed to open shader file: {0}", filepath);
 			return nullptr;
 		}
-
-		std::stringstream ss;
-		ss << stream.rdbuf();
-		std::string content = ss.str();
 
 		return Create("Shader", content);
 	}

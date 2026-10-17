@@ -58,6 +58,15 @@ namespace Forge {
 
 		void SubmitToMainThread(const std::function<void()>& function);
 
+		// The value of a command line option, in either spelling the engine
+		// accepts: `--option value` and `--option=value`. Empty when the option
+		// is absent.
+		//
+		// `--profile` needed this parsing, and so does `--project`; two copies
+		// of the same scan is how one of them ends up disagreeing about which
+		// spelling works.
+		static std::string GetArgumentValue(const ApplicationCommandLineArgs& args, const std::string& option);
+
 		// Accessors for runtime/editor
 		bool IsRunning() const { return m_Running; }
 		float GetLastFrameTime() const { return m_LastFrameTime; }

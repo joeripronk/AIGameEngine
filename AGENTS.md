@@ -9,10 +9,13 @@ Forge Engine is a production-grade 3D game engine built with C++ and CMake. It f
 ```
 ForgeEngine/
 ├── src/Forge/          # Core engine library (static lib)
-│   ├── Core/           # Base, Logging, Window, Layers, Application
+│   ├── Core/           # Base, Logging, Time, Timer, Files, Input, Layers, Application
 │   ├── Events/         # Event system
-│   ├── Renderer/       # Rendering pipeline (Vulkan/nvrhi)
+│   ├── Renderer/       # Rendering pipeline (Vulkan/nvrhi), CPU mesh/texture import
 │   ├── Scene/          # ECS (entt-based)
+│   ├── Editor/         # Window-independent editor model + gizmo maths
+│   ├── Project/        # Project file, game export
+│   ├── UI/             # ImGui RAII helpers
 │   ├── Physics/        # Physics integration
 │   ├── Scripting/      # Lua scripting
 │   ├── Audio/          # Audio (miniaudio)
@@ -111,6 +114,74 @@ FG_INFO("Message");
 FG_ERROR("Error: {0}", value);
 ```
 
+Every macro checks the logger exists. Code logs from constructors and static
+initialisers, which run before `Log::Init` and in tools that never call it, so
+an unguarded macro turned a *failure path* into a null dereference —
+`EditorContext::SaveProject` reporting "no project is open" killed the process
+that called it. `Log::Shutdown()` drops both loggers and is reversible:
+`Init()` afterwards brings logging back.
+
+### Time
+
+One clock, `Forge::Time::GetTime()`, answers every "how long since" question:
+the frame loop's delta time, `Timer`, the Lua `GetTime()` global. Nothing calls
+`glfwGetTime()` directly.
+
+```cpp
+Forge::Timer timer;                 // Hazel Timer, on the engine clock
+const float elapsed = timer.Elapsed();
+const float millis  = timer.ElapsedMillis();
+
+// Tests replace the clock instead of sleeping:
+Forge::Time::SetSource([]() { return fakeSeconds; });
+```
+
+`SetSource` exists so timing is measurable rather than hoped for, and so Core
+does not need a windowing library to know what time it is.
+
+### Input
+
+Events remain how input arrives; `Input` is how it is *held*:
+
+```cpp
+Input::IsKeyPressed(Key::W);            // Key:: / Mouse:: are the platform's
+Input::IsMouseButtonPressed(Mouse::ButtonLeft);   // codes, verified in tests
+const glm::vec2 cursor = Input::GetMousePosition();
+```
+
+With no window there is no state to report, so every query answers false /
+zero rather than reading a null handle. `KeyCodes.h` and `MouseCodes.h` exist
+so gameplay code never names `GLFW_KEY_*`; their values *are* GLFW's, and
+CoreTests asserts the whole enum against it, because one transcription error is
+a key that silently does nothing.
+
+### Files
+
+`FileSystem` is the only thing that opens a file:
+
+```cpp
+std::vector<uint8_t> bytes;
+if (!FileSystem::ReadFile(path, bytes))     // logged; false on any failure
+    return false;
+
+if (!FileSystem::WriteTextFile(path, text)) // checks the stream after flushing
+    return false;
+```
+
+`bool` means the bytes moved. A zero-byte file reads successfully and yields
+nothing — whether an empty asset is usable is the caller's decision. Four
+loaders each had their own copy of this dance and disagreed about what failure
+meant; there is one now.
+
+### Layers
+
+`Layer::OnUpdate` takes a `Timestep`, not a bare float. `LayerStack` owns its
+layers: popping or destroying one calls `OnDetach()` first, `PopLayer` searches
+only the layer region and `PopOverlay` only the overlay region (front to back,
+so the *oldest* matching overlay goes). Those two searches used to cover the
+whole stack, which let `PopLayer` remove an overlay and quietly drift the insert
+index that decides where the next layer lands.
+
 ### Event System
 
 ```cpp
@@ -176,6 +247,55 @@ Entities:
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
 ```
+
+Every reader is tolerant: a missing key falls back to the component's default
+and a field this build does not know is ignored, so an older file keeps
+loading. `SerializeRuntime` writes the binary `.rt` form, whose per-component
+payloads are a fixed layout — so a **new field needs its own flag bit**, not
+another value in an existing sequence. An old file has none of the new bits set
+and reads back with defaults; that is why adding the audio component, the
+camera projection and a material's albedo texture did not need a version bump.
+
+### Copying an entity
+
+`Scene::DuplicateEntity` and `Scene::Copy` both go through
+`Scene::CopyComponentsTo`, which is the **only** list of copied components. It
+used to be two hand-maintained lists, and they had already drifted:
+`EnvironmentMapComponent`, `AudioSourceComponent` and `NativeScriptComponent`
+were in neither, so duplicating an entity silently dropped its environment
+probe, its sound and its native behaviour. Two lists cannot both be right for
+as long as adding a component means remembering two edits.
+
+### Meshes
+
+`MeshComponent::ModelPath` means what it says: `Scene::OnComponentAdded`
+imports the model into `MeshComponent::CpuMeshData`, and the serializer calls
+`Scene::ImportMeshData` after assigning a path it read from a file (assigning
+is not adding, so the hook does not run). `Renderer` uploads the CPU mesh once
+per entity, caching by the CPU mesh so ten entities naming one model upload it
+once. A path that does not resolve is logged where it is set, because an
+unimported model renders as a unit cube and looks like a rendering bug.
+
+`MeshImport::ImportModel` is the single assimp importer, shared by the headless
+`CpuMesh::LoadFromFile` and the GPU `Mesh::Create`. It applies each mesh's node
+transform and offsets each mesh's indices by the vertices already appended —
+without either, a multi-mesh model collapses into the origin and indexes past
+the end of its vertex buffer. Imported indices are checked against the vertex
+count before the importer reports success.
+
+### Cameras
+
+`CameraComponent::ProjectionType` is perspective or orthographic, with
+`OrthographicSize` as the vertical extent in world units. A camera marked
+`Primary` is resolved by `Scene::GetPrimaryCameraEntity`, in authoring order,
+by everything — renderer, audio listener and editor; `Scene::SetPrimaryCamera`
+demotes the others, because two primaries leave "the primary camera" with no
+defined answer.
+
+`EditorCamera::SetViewportSize` keeps the projection's aspect ratio equal to
+the panel it draws into. It did not exist, so the projection stayed at the
+16:9 it was constructed with while gizmo picking used the panel's real size:
+every drag picked somewhere other than where the gizmo was drawn.
 
 ## Testing
 
@@ -299,12 +419,65 @@ editor.DestroyEntity(entity);
 // Prefabs
 editor.InstantiatePrefab("Enemy", /*usePosition*/ true, { 3.0f, 0.0f, 3.0f });
 
+// Projects (where the assets live, which scene the game starts in)
+auto project = editor.NewProject("My Game");
+project->GetConfig().StartScene = "scenes/level.forge";
+editor.SaveProject("MyGame.forgeproject");
+editor.ResolveProjectPath("textures/albedo.png");
+
 // Playback (drive it manually for deterministic simulation)
 editor.Play();
 editor.Pause();
 editor.Step(1);
 editor.Update(Forge::Timestep(1.0f / 60.0f));
 editor.Stop();
+```
+
+## Projects
+
+A project file (`.forgeproject`) says where a project's assets are and which
+scene it starts in. Until there was one, `resources/` was a literal repeated in
+every subsystem that loads a file, and the editor had no place to record the
+scene it was last editing.
+
+```cpp
+ProjectConfig config;
+config.Name = "My Game";
+config.StartScene  = "scenes/level.forge";   // relative to the asset directory
+config.EditorScene = "scenes/authoring.forge";
+Forge::Ref<Forge::Project> project = Forge::Project::New(config);
+Forge::Project::Save(project, "MyGame.forgeproject");
+
+Forge::Project::Load("MyGame.forgeproject");
+Forge::Project::GetAssetDirectory();                     // <project dir>/resources
+Forge::Project::GetAssetFileSystemPath("models/cube.glb");
+Forge::Project::GetEditorScenePath();
+```
+
+Every path in the file is relative, so a project can be moved or checked out
+anywhere. An absolute `AssetDirectory` is rejected: it is the one thing that
+makes a project unmovable.
+
+Both applications take `--project <file>` (`--project=<file>` also works), and
+`Application::GetArgumentValue` parses either spelling for every option. The
+editor reopens the project's editor scene; the runtime opens its start scene.
+An explicit scene argument still wins over the project's.
+
+**With no project open is a legitimate state** — a headless tool, a unit test, a
+game running a bundled scene. The static helpers log and return empty paths
+rather than asserting as Hazel's do; `Project::HasActive()` is there for callers
+that want to ask first. `AssetRegistry::Scan()` and `GameExporter` take their
+defaults from the active project, so a caller never repeats what the project
+already says.
+
+`EditorContext` exposes it to agents:
+
+```cpp
+editor.NewProject("My Game");
+project->GetConfig().StartScene = "scenes/level.forge";
+editor.SaveProject("MyGame.forgeproject");
+editor.OpenProject("MyGame.forgeproject");
+editor.ResolveProjectPath("textures/albedo.png");
 ```
 
 ## Build Architecture
@@ -328,6 +501,15 @@ editor.Stop();
 4. **SSAO Pass**: Screen-space ambient occlusion
 5. **Tonemapping Pass**: ACES tonemapping, convert to LDR
 6. **Final Pass**: Composite SSAO, output to swapchain
+
+### Who draws
+
+The application draws, not the scene. `Scene::RenderScene` used to open and
+close the renderer's command list from inside `OnUpdateRuntime` — a second
+`open()` on a list the application had already opened, a `close()` and
+`execute`, and then the real frame recorded into a closed list. Both are gone:
+the application calls `Renderer::RenderScene`, and the simulation touches no
+renderer state at all.
 
 ### Shader Types
 
@@ -811,6 +993,11 @@ entity:SetFloat: no component field 'BoxCollider.Frikshun'
 
 Scripts written before this ignore the answer and keep working unchanged.
 Getters return `nil` on an unknown field, which Lua already handles naturally.
+
+`SetString("Mesh", "ModelPath", path)` imports the model and reports whether
+it worked: the path is what the entity renders, so a script that set one and
+left the old geometry in place would look exactly like a script that had set it
+correctly.
 
 ### Available API
 

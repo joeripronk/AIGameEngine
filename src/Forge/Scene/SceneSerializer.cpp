@@ -5,6 +5,8 @@
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 
+#include "Forge/Core/FileSystem.h"
+
 #include <fstream>
 
 #include <yaml-cpp/yaml.h>
@@ -237,6 +239,9 @@ namespace Forge {
 			out << YAML::Key << "NearClip" << YAML::Value << cameraComponent.NearClip;
 			out << YAML::Key << "FarClip" << YAML::Value << cameraComponent.FarClip;
 			out << YAML::Key << "AspectRatio" << YAML::Value << cameraComponent.AspectRatio;
+			out << YAML::Key << "Projection" << YAML::Value
+				<< (cameraComponent.Type == CameraComponent::ProjectionType::Orthographic ? "Orthographic" : "Perspective");
+			out << YAML::Key << "OrthographicSize" << YAML::Value << cameraComponent.OrthographicSize;
 			out << YAML::EndMap;
 		}
 
@@ -404,21 +409,12 @@ namespace Forge {
 			}
 		}
 
-		std::ofstream fout(filepath);
-		if (!fout.is_open())
+		// FileSystem::WriteTextFile checks the stream after flushing, so a
+		// failure on the way to disk (full volume, permissions) is reported
+		// rather than leaving a truncated scene file behind a true.
+		if (!FileSystem::WriteTextFile(filepath, out.c_str()))
 		{
-			FG_CORE_ERROR("Failed to open scene file for writing: {0}", filepath);
-			return false;
-		}
-
-		fout << out.c_str();
-		fout.flush();
-
-		// A stream can fail on flush (full disk, permissions) long after the
-		// open succeeded, and a truncated scene file is worse than none.
-		if (!fout.good())
-		{
-			FG_CORE_ERROR("Failed while writing scene file: {0}", filepath);
+			FG_CORE_ERROR("Failed to write scene file: {0}", filepath);
 			return false;
 		}
 
@@ -447,6 +443,16 @@ namespace Forge {
 			camera.NearClip = GetFloat(cameraNode, "NearClip", camera.NearClip);
 			camera.FarClip = GetFloat(cameraNode, "FarClip", camera.FarClip);
 			camera.AspectRatio = GetFloat(cameraNode, "AspectRatio", camera.AspectRatio);
+			camera.OrthographicSize = GetFloat(cameraNode, "OrthographicSize", camera.OrthographicSize);
+
+			// A scene written before projection types existed has no Projection
+			// key and must keep working: absence means perspective, and a name
+			// this build does not know falls back to it rather than failing the
+			// whole load.
+			const std::string projection = GetString(cameraNode, "Projection", "Perspective");
+			camera.Type = projection == "Orthographic"
+				? CameraComponent::ProjectionType::Orthographic
+				: CameraComponent::ProjectionType::Perspective;
 			camera.UpdateProjection();
 		}
 
@@ -516,6 +522,13 @@ namespace Forge {
 			auto& mesh = deserializedEntity.AddComponent<MeshComponent>();
 			mesh.ModelPath = GetString(meshNode, "ModelPath");
 			mesh.Scale = DecodeVec3(meshNode["Scale"], mesh.Scale);
+
+			// The path is assigned rather than added, so the hook that imports
+			// the model does not run. Without this, every entity in a loaded
+			// scene that named a model rendered a unit cube instead. A failure is
+			// logged by the import itself; the scene still loads, because one
+			// missing model should not cost the whole scene.
+			(void)deserializedEntity.GetScene()->ImportMeshData(deserializedEntity);
 		}
 
 		if (HasNode(entityNode, "EnvironmentMapComponent"))
@@ -663,6 +676,16 @@ namespace Forge {
 		constexpr uint32_t FlagPBR = BIT(8);
 		constexpr uint32_t FlagMesh = BIT(9);
 		constexpr uint32_t FlagEnvMap = BIT(10);
+		constexpr uint32_t FlagAudio = BIT(11);
+
+		// Optional field groups inside a component. The per-component payloads
+		// above are a fixed layout, so a field added to one of them would make
+		// every previously written file unreadable. Each addition therefore gets
+		// its own bit: an old file simply has none of them set and reads back
+		// with the component's defaults, which is the whole reason a version
+		// bump was not needed.
+		constexpr uint32_t FlagCameraProjection = BIT(12);
+		constexpr uint32_t FlagPBRAlbedoTexture = BIT(13);
 
 		uint32_t GetComponentFlags(Entity entity)
 		{
@@ -678,6 +701,13 @@ namespace Forge {
 			flags |= entity.HasComponent<PBRMaterialComponent>() ? FlagPBR : 0;
 			flags |= entity.HasComponent<MeshComponent>() ? FlagMesh : 0;
 			flags |= entity.HasComponent<EnvironmentMapComponent>() ? FlagEnvMap : 0;
+			flags |= entity.HasComponent<AudioSourceComponent>() ? FlagAudio : 0;
+			flags |= (entity.HasComponent<CameraComponent>()
+				&& entity.GetComponent<CameraComponent>().Type != CameraComponent::ProjectionType::Perspective)
+				? FlagCameraProjection : 0;
+			flags |= (entity.HasComponent<PBRMaterialComponent>()
+				&& !entity.GetComponent<PBRMaterialComponent>().AlbedoTexturePath.empty())
+				? FlagPBRAlbedoTexture : 0;
 			return flags;
 		}
 
@@ -711,8 +741,10 @@ namespace Forge {
 			if (!entity)
 				continue;
 
+			const uint32_t flags = GetComponentFlags(entity);
+
 			Write<uint64_t>(stream, (uint64_t)entity.GetUUID());
-			Write<uint32_t>(stream, GetComponentFlags(entity));
+			Write<uint32_t>(stream, flags);
 
 			if (entity.HasComponent<TagComponent>())
 				WriteString(stream, entity.GetComponent<TagComponent>().Tag);
@@ -726,7 +758,22 @@ namespace Forge {
 			}
 
 			if (entity.HasComponent<CameraComponent>())
-				Write<bool>(stream, entity.GetComponent<CameraComponent>().Primary);
+			{
+				auto& camera = entity.GetComponent<CameraComponent>();
+				Write<bool>(stream, camera.Primary);
+
+				// Only a non-default projection needs the extra fields written,
+				// so a perspective camera costs exactly what it always did.
+				if (flags & FlagCameraProjection)
+				{
+					Write<int>(stream, (int)camera.Type);
+					Write<float>(stream, camera.FieldOfView);
+					Write<float>(stream, camera.NearClip);
+					Write<float>(stream, camera.FarClip);
+					Write<float>(stream, camera.AspectRatio);
+					Write<float>(stream, camera.OrthographicSize);
+				}
+			}
 
 			if (entity.HasComponent<ScriptComponent>())
 				WriteString(stream, entity.GetComponent<ScriptComponent>().ClassName);
@@ -781,6 +828,12 @@ namespace Forge {
 				Write<float>(stream, pbr.AO);
 				WriteVec3(stream, pbr.Emissive);
 				Write<float>(stream, pbr.EmissiveIntensity);
+
+				// The albedo texture is what makes a material recognisable at
+				// run time; a runtime scene that dropped it rendered every
+				// object in flat colour.
+				if (flags & FlagPBRAlbedoTexture)
+					WriteString(stream, pbr.AlbedoTexturePath);
 			}
 
 			if (entity.HasComponent<MeshComponent>())
@@ -793,6 +846,23 @@ namespace Forge {
 			if (entity.HasComponent<EnvironmentMapComponent>())
 			{
 				WriteString(stream, entity.GetComponent<EnvironmentMapComponent>().Path);
+			}
+
+			if (entity.HasComponent<AudioSourceComponent>())
+			{
+				// Authored fields only, exactly like the YAML path: a handle or a
+				// finished flag written to disk would be a lie about the next
+				// session's state.
+				auto& audio = entity.GetComponent<AudioSourceComponent>();
+				WriteString(stream, audio.SourcePath);
+				Write<float>(stream, audio.Volume);
+				Write<float>(stream, audio.Pitch);
+				Write<bool>(stream, audio.Loop);
+				Write<bool>(stream, audio.PlayOnStart);
+				Write<int>(stream, (int)audio.Bus);
+				Write<bool>(stream, audio.Spatial);
+				Write<float>(stream, audio.MinDistance);
+				Write<float>(stream, audio.MaxDistance);
 			}
 		}
 	}
@@ -847,9 +917,21 @@ namespace Forge {
 
 			if (flags & FlagCamera)
 			{
-				bool primary = true;
-				Read<bool>(stream, primary);
-				entity.AddComponent<CameraComponent>().Primary = primary;
+				auto& camera = entity.AddComponent<CameraComponent>();
+				Read<bool>(stream, camera.Primary);
+
+				if (flags & FlagCameraProjection)
+				{
+					int type = (int)CameraComponent::ProjectionType::Perspective;
+					Read<int>(stream, type);
+					camera.Type = (CameraComponent::ProjectionType)type;
+					Read<float>(stream, camera.FieldOfView);
+					Read<float>(stream, camera.NearClip);
+					Read<float>(stream, camera.FarClip);
+					Read<float>(stream, camera.AspectRatio);
+					Read<float>(stream, camera.OrthographicSize);
+					camera.UpdateProjection();
+				}
 			}
 
 			if (flags & FlagScript)
@@ -909,6 +991,9 @@ namespace Forge {
 				Read<float>(stream, pbr.AO);
 				pbr.Emissive = ReadVec3(stream);
 				Read<float>(stream, pbr.EmissiveIntensity);
+
+				if (flags & FlagPBRAlbedoTexture)
+					ReadString(stream, pbr.AlbedoTexturePath);
 			}
 
 			if (flags & FlagMesh)
@@ -916,11 +1001,32 @@ namespace Forge {
 				auto& mesh = entity.AddComponent<MeshComponent>();
 				ReadString(stream, mesh.ModelPath);
 				mesh.Scale = ReadVec3(stream);
+
+				// Same as the YAML path: the model is imported by name here,
+				// because a component added before its path was known had
+				// nothing to import.
+				(void)m_Scene->ImportMeshData(entity);
 			}
 
 			if (flags & FlagEnvMap)
 			{
 				ReadString(stream, entity.AddComponent<EnvironmentMapComponent>().Path);
+			}
+
+			if (flags & FlagAudio)
+			{
+				auto& audio = entity.AddComponent<AudioSourceComponent>();
+				ReadString(stream, audio.SourcePath);
+				Read<float>(stream, audio.Volume);
+				Read<float>(stream, audio.Pitch);
+				Read<bool>(stream, audio.Loop);
+				Read<bool>(stream, audio.PlayOnStart);
+				int bus = (int)AudioBus::SoundEffects;
+				Read<int>(stream, bus);
+				audio.Bus = (AudioBus)bus;
+				Read<bool>(stream, audio.Spatial);
+				Read<float>(stream, audio.MinDistance);
+				Read<float>(stream, audio.MaxDistance);
 			}
 		}
 
@@ -942,14 +1048,12 @@ namespace Forge {
 		SerializeEntity(out, entity);
 		out << YAML::EndMap;
 
-		std::ofstream fout(filepath);
-		if (!fout.is_open())
+		if (!FileSystem::WriteTextFile(filepath, out.c_str()))
 		{
-			FG_CORE_ERROR("Failed to open prefab file for writing: {0}", filepath);
+			FG_CORE_ERROR("Failed to write prefab file: {0}", filepath);
 			return false;
 		}
 
-		fout << out.c_str();
 		return true;
 	}
 

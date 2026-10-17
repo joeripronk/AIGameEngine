@@ -22,6 +22,15 @@ namespace Forge {
 	public:
 		static void Init();
 
+		// Drops both loggers. An application calls this at shutdown; a test
+		// calls it to observe the uninitialised state.
+		//
+		// It exists because the log macros are guarded rather than assumed:
+		// engine code logs from constructors and static initialisers, which
+		// can and do run before Init, and a headless tool that links ForgeCore
+		// may never call Init at all.
+		static void Shutdown();
+
 		static Ref<spdlog::logger>& GetCoreLogger() { return s_CoreLogger; }
 		static Ref<spdlog::logger>& GetClientLogger() { return s_ClientLogger; }
 
@@ -86,8 +95,16 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 #endif
 
 // Client log macros
-#define FG_TRACE(...)         ::Forge::Log::GetClientLogger()->trace(__VA_ARGS__)
-#define FG_INFO(...)          ::Forge::Log::GetClientLogger()->info(__VA_ARGS__)
-#define FG_WARN(...)          ::Forge::Log::GetClientLogger()->warn(__VA_ARGS__)
-#define FG_ERROR(...)         ::Forge::Log::GetClientLogger()->error(__VA_ARGS__)
-#define FG_CRITICAL(...)      ::Forge::Log::GetClientLogger()->critical(__VA_ARGS__)
+//
+// Guarded exactly like the core macros, and for the same reason. They were
+// not: anything logging before Log::Init - an application constructor, a
+// static initialiser, a headless tool that never initialises logging at all -
+// dereferenced a null logger and took the process down. A failure path is the
+// last place that should crash, and it crashed precisely when it was used:
+// `EditorContext::SaveProject` reporting "no project is open" killed the test
+// that called it.
+#define FG_TRACE(...)         (::Forge::Log::GetClientLogger() ? ::Forge::Log::GetClientLogger()->trace(__VA_ARGS__) : (void)0)
+#define FG_INFO(...)          (::Forge::Log::GetClientLogger() ? ::Forge::Log::GetClientLogger()->info(__VA_ARGS__) : (void)0)
+#define FG_WARN(...)          (::Forge::Log::GetClientLogger() ? ::Forge::Log::GetClientLogger()->warn(__VA_ARGS__) : (void)0)
+#define FG_ERROR(...)         (::Forge::Log::GetClientLogger() ? ::Forge::Log::GetClientLogger()->error(__VA_ARGS__) : (void)0)
+#define FG_CRITICAL(...)      (::Forge::Log::GetClientLogger() ? ::Forge::Log::GetClientLogger()->critical(__VA_ARGS__) : (void)0)

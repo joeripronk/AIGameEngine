@@ -72,7 +72,30 @@ namespace Forge {
 		Entity FindEntityByName(std::string_view name);
 		Entity GetEntityByUUID(UUID uuid);
 
+		// The camera the renderer, the audio listener and the editor all follow.
+		// One function, so those three can never disagree about which camera a
+		// scene has. Returns the first camera marked primary in authoring order;
+		// invalid when the scene has none.
 		Entity GetPrimaryCameraEntity();
+
+		// Imports the model a MeshComponent names, if it has not been imported
+		// already. Called when the component is added, and by anything that
+		// changes ModelPath afterwards - a script setting a path, an inspector
+		// field - so that a late path is as good as one set at creation. Returns
+		// false for an entity with no mesh, an empty path, or a path that does
+		// not resolve; an already-imported model reports success.
+		[[nodiscard]]
+		bool ImportMeshData(Entity entity);
+
+		[[nodiscard]]
+		std::vector<Entity> GetAllCameraEntities() const;
+
+		// Makes one camera the primary and demotes the rest. A scene with two
+		// cameras both flagged primary has no defined answer, and which one won
+		// used to depend on iteration order rather than on anything an author
+		// asked for. Returns false for an entity without a camera.
+		[[nodiscard]]
+		bool SetPrimaryCamera(Entity camera);
 
 		bool IsRunning() const { return m_IsRunning; }
 		bool IsPaused() const { return m_IsPaused; }
@@ -92,10 +115,13 @@ namespace Forge {
 			return m_Registry.view<Components...>();
 		}
 
-		void RenderScene();
-
 	private:
 		void SyncPhysicsTransforms();
+
+		// Copies every component (except the ID) from one entity to another.
+		// Single source of truth for duplication and scene copy, so a component
+		// added to the engine cannot be silently left out of one of them.
+		void CopyComponentsTo(Entity from, Entity to);
 
 		// --- Audio ---
 		//

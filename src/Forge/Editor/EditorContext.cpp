@@ -187,6 +187,51 @@ namespace Forge {
 		}
 	}
 
+	Ref<Project> EditorContext::NewProject(const std::string& name)
+	{
+		ProjectConfig config;
+		config.Name = name;
+		return Project::New(std::move(config));
+	}
+
+	bool EditorContext::OpenProject(const std::string& path)
+	{
+		return Project::Load(path) != nullptr;
+	}
+
+	bool EditorContext::SaveProject(const std::string& path) const
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+		{
+			FG_ERROR("SaveProject: no project is open");
+			return false;
+		}
+
+		return Project::Save(project, path);
+	}
+
+	const ProjectConfig* EditorContext::GetProjectConfig() const
+	{
+		Ref<Project> project = Project::GetActive();
+		return project ? &project->GetConfig() : nullptr;
+	}
+
+	std::string EditorContext::ResolveProjectPath(const std::string& relative) const
+	{
+		if (relative.empty())
+			return {};
+
+		const std::filesystem::path resolved = Project::GetAssetFileSystemPath(relative);
+
+		// With no project open the path is its own answer, so the same call
+		// works before and after a project is created.
+		if (resolved.empty())
+			return relative;
+
+		return resolved.string();
+	}
+
 	Entity EditorContext::InstantiatePrefab(const std::string& prefabName, bool usePosition, const glm::vec3& position)
 	{
 		Ref<Prefab> prefab = PrefabLibrary::Get(prefabName);
