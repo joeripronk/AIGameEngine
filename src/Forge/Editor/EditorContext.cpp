@@ -56,6 +56,16 @@ namespace Forge {
 		m_SelectedEntity = entity;
 	}
 
+	bool EditorContext::SelectEntityAtRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance)
+	{
+		Entity hit = m_Scene->FindEntityOnRay(origin, direction, maxDistance);
+		if (!hit)
+			return false;
+
+		m_SelectedEntity = hit;
+		return true;
+	}
+
 	void EditorContext::ClearSelection()
 	{
 		m_SelectedEntity = {};

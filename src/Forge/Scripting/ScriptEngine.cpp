@@ -3,6 +3,7 @@
 #include "Forge/Audio/AudioEngine.h"
 #include "Forge/Core/Time.h"
 #include "Forge/Core/FileSystem.h"
+#include "Forge/Core/Input.h"
 
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
@@ -975,6 +976,30 @@ namespace Forge {
 			return 0;
 		}
 
+		// Input queries (Hazel's ScriptGlue binds Input::IsKeyPressed the same
+		// way). The argument is a Forge/KeyCodes value - Key::W etc. are GLFW's
+		// values, and Lua passes the number. With no window there is no state
+		// to report, so a headless run gets false, which is the Input contract.
+		int LuaGetKeyDown(lua_State* L)
+		{
+			lua_pushboolean(L, Input::IsKeyPressed(static_cast<KeyCode>(luaL_checkinteger(L, 1))));
+			return 1;
+		}
+
+		int LuaGetKeyReleased(lua_State* L)
+		{
+			lua_pushboolean(L, Input::IsKeyReleased(static_cast<KeyCode>(luaL_checkinteger(L, 1))));
+			return 1;
+		}
+
+		int LuaGetMousePosition(lua_State* L)
+		{
+			const glm::vec2 position = Input::GetMousePosition();
+			lua_pushnumber(L, position.x);
+			lua_pushnumber(L, position.y);
+			return 2;
+		}
+
 	}
 
 	void ScriptEngine::Init()
@@ -1019,6 +1044,9 @@ namespace Forge {
 		lua_register(L, "GetTime", LuaGetTime);
 		lua_register(L, "GetDeltaTime", LuaGetDeltaTime);
 		lua_register(L, "Log", LuaLog);
+		lua_register(L, "GetKeyDown", LuaGetKeyDown);
+		lua_register(L, "GetKeyReleased", LuaGetKeyReleased);
+		lua_register(L, "GetMousePosition", LuaGetMousePosition);
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
 		lua_register(L, "PlaySound", LuaPlaySound);
 		lua_register(L, "StopSound", LuaStopSound);

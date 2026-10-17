@@ -297,6 +297,31 @@ the panel it draws into. It did not exist, so the projection stayed at the
 16:9 it was constructed with while gizmo picking used the panel's real size:
 every drag picked somewhere other than where the gizmo was drawn.
 
+### Culling, picking and draw statistics
+
+The camera answers geometry questions (Hazel's method: unproject the NDC cube
+into `FrustumCorners`): `Frustum::IntersectsPoint` and
+`Frustum::IntersectsAABB` test against the six planes with outward normals,
+and an AABB is culled only when its n-vertex - the corner deepest *against*
+the normal - is past a plane. Testing the corner furthest *along* the normal
+flags every box that merely pokes across a plane, which is precisely the set
+culling must keep.
+
+`Renderer::RenderScene` culls every mesh entity whose *transformed* bounds
+(AABB of the eight rotated corners, not an unrotated box) miss the frustum,
+and fills `Renderer::GetStatistics()` - draw calls, triangles, textures bound,
+entities culled. The editor displays it. A frame that quietly draws the whole
+scene every time is otherwise invisible.
+
+`Scene::FindEntityOnRay` is the picking behind a viewport click: ray-AABB
+(slab) and ray-sphere against **colliders** at where physics puts them
+(transform translation + collider offset, scale ignored, as physics does),
+nearest hit wins. Picking where things collide and not where they draw is a
+decision, not an accident: an entity with no collider is not pickable.
+`EditorContext::SelectEntityAtRay` drives it for agents and the editor, and a
+miss reports false and leaves the selection alone - a viewport click is often
+the end of a camera drag, not a request to forget the selection.
+
 ## Testing
 
 - Use **Catch2** for all unit tests
@@ -409,6 +434,7 @@ pbr.Albedo = { 1.0f, 0.0f, 0.0f };
 
 // Selection + queries
 editor.SelectEntity(entity);
+editor.SelectEntityAtRay(rayOrigin, rayDirection);   // viewport picking
 editor.FindEntityByName("Player");
 editor.GetAllEntities();
 
@@ -1004,7 +1030,8 @@ correctly.
 - Globals: `GetTime()`, `GetDeltaTime([entity])`, `Log(msg)`,
   `SpawnPrefab(name, x, y, z)`,
   `PlaySound(path, volume, pitch, loop)` -> `ok, handle`,
-  `StopSound(handle)`, `SetBusVolume(name, v)`, `GetBusVolume(name)`, `Scene`
+  `StopSound(handle)`, `SetBusVolume(name, v)`, `GetBusVolume(name)`,
+  `GetKeyDown(key)`, `GetKeyReleased(key)`, `GetMousePosition()` -> `x, y`, `Scene`
 - Entity: `PlaySound(path, volume, pitch, loop)`, `StopSound`,
   `GetName/SetName`, `Get/SetPosition`, `Get/SetRotation`,
   `Get/SetScale`, `HasComponent`, `AddComponent`, `RemoveComponent`,

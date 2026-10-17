@@ -13,6 +13,8 @@
 #include "Forge/Renderer/Texture.h"
 #include "Forge/Renderer/Mesh.h"
 #include "Forge/Renderer/CpuMesh.h"
+#include "Forge/Renderer/Camera.h"
+#include "Forge/Renderer/RendererStats.h"
 
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
@@ -27,6 +29,7 @@
 #include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/PbrRenderer.h"
 #include <algorithm>
+#include <limits>
 #include <vector>
 #include "Forge/Renderer/CpuTexture.h"
 #include "Forge/Assets/AssetWatcher.h"
@@ -50,6 +53,44 @@ namespace Forge {
 		};
 
 		std::unordered_map<std::string, UploadedMesh> s_UploadedMeshes;
+
+		RendererStatistics s_Statistics;
+
+		// The AABB of the shared fallback cube, so a meshless entity is culled
+		// against the box it is actually drawn as.
+		glm::vec3 DefaultCubeMin()
+		{
+			static const Ref<CpuMesh> cube = Primitives::CreateCube(1.0f);
+			return cube->GetMin();
+		}
+
+		glm::vec3 DefaultCubeMax()
+		{
+			static const Ref<CpuMesh> cube = Primitives::CreateCube(1.0f);
+			return cube->GetMax();
+		}
+
+		// The world-space AABB of a mesh's bounds drawn under `model`: the
+		// bounding box is not axis-aligned after a rotation, so it is the AABB
+		// of the transformed corners - a box culled against that is a box that
+		// is *provably* off-screen for every pixel.
+		void TransformAABB(const glm::vec3& min, const glm::vec3& max, const glm::mat4& model,
+			glm::vec3& outMin, glm::vec3& outMax)
+		{
+			outMin = glm::vec3(std::numeric_limits<float>::max());
+			outMax = glm::vec3(std::numeric_limits<float>::lowest());
+
+			for (int i = 0; i < 8; ++i)
+			{
+				const glm::vec3 corner(
+					(i & 1) ? max.x : min.x,
+					(i & 2) ? max.y : min.y,
+					(i & 4) ? max.z : min.z);
+				const glm::vec3 world(model * glm::vec4(corner, 1.0f));
+				outMin = glm::min(outMin, world);
+				outMax = glm::max(outMax, world);
+			}
+		}
 
 	}  // namespace
 
@@ -393,6 +434,7 @@ namespace Forge {
 
 		auto meshEntities = scene->GetAllEntitiesWith<MeshComponent, TransformComponent>();
 		uint32_t drawn = 0;
+		s_Statistics.Reset();
 
 		// The component holds the CPU geometry (the engine core imports it, so a
 		// broken model path is reported where the entity was authored) and the
@@ -441,6 +483,11 @@ namespace Forge {
 
 		std::vector<DrawRecord> records;
 
+		// One frustum for the frame. Everything drawn this pass is drawn under
+		// the camera that resolved above, so every entity is culled against the
+		// same six planes the shader will light under.
+		const FrustumCorners frustum = Frustum::CalculateCorners(camera.ViewProjectionMatrix);
+
 		for (auto handle : meshEntities)
 		{
 			auto& meshComponent = meshEntities.get<MeshComponent>(handle);
@@ -452,6 +499,19 @@ namespace Forge {
 
 			glm::mat4 model = transform.GetTransform()
 				* glm::scale(glm::mat4(1.0f), meshComponent.Scale);
+
+			// Frustum culling: a mesh whose transformed bounding box is on the
+			// outer side of one plane cannot cover a single pixel, and the draw
+			// that would produce nothing costs a full pipeline draw.
+			glm::vec3 boundsMin = meshComponent.CpuMeshData ? meshComponent.CpuMeshData->GetMin() : DefaultCubeMin();
+			glm::vec3 boundsMax = meshComponent.CpuMeshData ? meshComponent.CpuMeshData->GetMax() : DefaultCubeMax();
+			glm::vec3 worldMin, worldMax;
+			TransformAABB(boundsMin, boundsMax, model, worldMin, worldMax);
+			if (!Frustum::IntersectsAABB(frustum, worldMin, worldMax))
+			{
+				s_Statistics.AddFrustumCulled();
+				continue;
+			}
 
 			glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(model));
 
@@ -528,6 +588,7 @@ namespace Forge {
 				record.MeshHandle, record.AlbedoTexture, record.Model, record.NormalMatrix,
 				record.Albedo, record.Metallic, record.Roughness, record.AO,
 				record.Emissive, record.EmissiveIntensity);
+			s_Statistics.AddDrawCall(record.MeshHandle->GetIndexCount() / 3, record.AlbedoTexture != nullptr);
 			++drawn;
 		}
 
@@ -537,11 +598,16 @@ namespace Forge {
 
 		if (drawn > 0)
 		{
-			FG_CORE_INFO("RenderScene: presenting {0}x{1}, camera at ({2}, {3}, {4}), {5} mesh entities",
+			FG_CORE_INFO("RenderScene: presenting {0}x{1}, camera at ({2}, {3}, {4}), {5} mesh entities ({6} frustum-culled)",
 				s_Width, s_Height,
 				cameraTransform.Translation.x, cameraTransform.Translation.y, cameraTransform.Translation.z,
-				drawn);
+				drawn, s_Statistics.FrustumCulled);
 		}
+	}
+
+	RendererStatistics Renderer::GetStatistics()
+	{
+		return s_Statistics;
 	}
 
 	bool Renderer::EnableReflectionProbe(uint32_t size)

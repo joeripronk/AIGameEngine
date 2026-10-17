@@ -1,6 +1,7 @@
 #include "fgpch.h"
 #include "Forge/Debug/Instrumentor.h"
 #include "editor/src/EditorApp.h"
+#include "editor/src/EditorInputLayer.h"
 
 #include "Forge/Core/Log.h"
 #include "Forge/Core/Time.h"
@@ -35,6 +36,12 @@ namespace Forge {
 		int g_GizmoAxis = -1;  // 0=X, 1=Y, 2=Z
 		glm::vec3 g_GizmoStartPos;
 		glm::vec3 g_GizmoStartValue;
+
+		// Where the left button went down in the viewport, in panel-local
+		// pixels. A release near that point is a click (select); a release far
+		// from it is the tail of a drag and must not select.
+		int g_MouseDownX = 0;
+		int g_MouseDownY = 0;
 	}
 
 	EditorApp::EditorApp(const ApplicationCommandLineArgs& args)
@@ -60,7 +67,9 @@ namespace Forge {
 				// Reopening the scene the work was left in is the entire
 				// reason a project file records one.
 				const std::string editorScene = Project::GetEditorScenePath().string();
-				if (!editorScene.empty() && !m_Editor.OpenScene(editorScene))
+				if (!editorScene.empty() && m_Editor.OpenScene(editorScene))
+					m_CurrentScenePath = editorScene;
+				else if (!editorScene.empty())
 					FG_ERROR("Could not open project scene '{0}'", editorScene);
 			}
 		}
@@ -120,6 +129,10 @@ namespace Forge {
 		VkDevice device = VulkanRendererAPI::GetLogicalDevice();
 		if (device)
 			vkCreateSampler(device, &samplerInfo, nullptr, &m_ViewportSampler);
+
+		// Keyboard shortcuts arrive as events through a layer, the way Hazel's
+		// editor handles them; the LayerStack owns the layer.
+		PushLayer(new EditorInputLayer(*this));
 	}
 
 	EditorApp::~EditorApp()
@@ -271,6 +284,12 @@ namespace Forge {
 			FG_CORE_INFO("Editor: {0}", message);
 	}
 
+	void EditorApp::SaveCurrentScene()
+	{
+		const bool saved = m_Editor.SaveScene(m_CurrentScenePath);
+		Notify(saved ? "Scene saved to " + m_CurrentScenePath : "Failed to save scene", !saved);
+	}
+
 	void EditorApp::DrawNotification()
 	{
 		if (m_Notification.empty() || m_NotificationFramesRemaining <= 0)
@@ -319,11 +338,8 @@ namespace Forge {
 			if (ImGui::MenuItem("New Scene"))
 				CreateDefaultScene();
 
-			if (ImGui::MenuItem("Save Scene"))
-			{
-				const bool saved = m_Editor.SaveScene("resources/scenes/editor.forge");
-				Notify(saved ? "Scene saved" : "Failed to save scene", !saved);
-			}
+			if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
+				SaveCurrentScene();
 
 			ImGui::Separator();
 			// A project records the start scene, so a distributed runtime knows
@@ -764,6 +780,8 @@ namespace Forge {
 			if (asset.Type == AssetType::Scene && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0))
 			{
 				const bool opened = m_Editor.OpenScene(asset.Path);
+				if (opened)
+					m_CurrentScenePath = asset.Path;
 				Notify(opened ? "Opened " + asset.Name : "Failed to open " + asset.Path, !opened);
 			}
 
@@ -772,6 +790,8 @@ namespace Forge {
 				if (ImGui::MenuItem("Open Scene"))
 				{
 					const bool opened = m_Editor.OpenScene(asset.Path);
+					if (opened)
+						m_CurrentScenePath = asset.Path;
 					Notify(opened ? "Opened " + asset.Name : "Failed to open " + asset.Path, !opened);
 				}
 				ImGui::EndPopup();
@@ -802,6 +822,15 @@ namespace Forge {
 		ImGui::Separator();
 		ImGui::Text("Entities: %d", (int)m_Editor.GetAllEntities().size());
 		ImGui::Text("Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
+
+		ImGui::Separator();
+
+		// Per-frame draw statistics (the Hazel stats panel): what the last frame
+		// actually submitted, including what culling removed. A frame quietly
+		// drawing the whole scene every time is invisible from the viewport.
+		const RendererStatistics stats = Renderer::GetStatistics();
+		ImGui::Text("Draw calls: %u  Culled: %u", stats.DrawCalls3D, stats.FrustumCulled);
+		ImGui::Text("Triangles: %u  Textures bound: %u", stats.TrianglesSubmitted, stats.TexturesBound);
 
 		ImGui::Separator();
 
@@ -846,6 +875,38 @@ namespace Forge {
 		ImGui::End();
 	}
 
+	void EditorApp::ViewportRay(int x, int y, glm::vec3& origin, glm::vec3& direction)
+	{
+		// The editor camera's projection is sized to the viewport panel (see
+		// DrawViewportPanel), so the unprojection below is the same mapping the
+		// frame was drawn with.
+		const glm::mat4 vp = m_Editor.GetCamera().GetViewProjectionMatrix();
+		const ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+		const float ndcX = (2.0f * x / viewportSize.x) - 1.0f;
+		const float ndcY = 1.0f - (2.0f * y / viewportSize.y);
+
+		const glm::mat4 invVP = glm::inverse(vp);
+		glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+		glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+		nearPoint /= nearPoint.w;
+		farPoint /= farPoint.w;
+
+		origin = glm::vec3(nearPoint);
+		direction = glm::normalize(glm::vec3(farPoint - nearPoint));
+	}
+
+	void EditorApp::PickAtScreenPoint(int x, int y)
+	{
+		glm::vec3 origin, direction;
+		ViewportRay(x, y, origin, direction);
+
+		// The selection is left alone when nothing is hit; a click is often the
+		// end of a camera move, and losing the selection at the end of a drag
+		// is not what anyone asked for. The answer is intentionally not
+		// surfaced as a notification - a miss is not an event.
+		void(m_Editor.SelectEntityAtRay(origin, direction));
+	}
+
 	void EditorApp::OnGizmoMouseDown(int button, int x, int y)
 	{
 		if (!m_Editor.HasSelection())
@@ -859,24 +920,7 @@ namespace Forge {
 		auto& tc = entity.GetComponent<TransformComponent>();
 		glm::vec3 worldPos = tc.Translation;
 
-		// Get the editor camera's view-projection and viewport.
-		auto& camera = m_Editor.GetCamera();
-		glm::mat4 vp = camera.GetViewProjectionMatrix();
-
-		// Convert screen coordinates to NDC.
-		ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-		float ndcX = (2.0f * x / viewportSize.x) - 1.0f;
-		float ndcY = 1.0f - (2.0f * y / viewportSize.y);
-
-		// Unproject to get ray in world space.
-		glm::mat4 invVP = glm::inverse(vp);
-		glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
-		glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
-		nearPoint /= nearPoint.w;
-		farPoint /= farPoint.w;
-
-		g_GizmoRayOrigin = glm::vec3(nearPoint);
-		g_GizmoRayDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
+		ViewportRay(x, y, g_GizmoRayOrigin, g_GizmoRayDirection);
 		g_GizmoButton = button;
 		g_GizmoAxis = -1;
 		g_GizmoStartPos = worldPos;
@@ -912,23 +956,8 @@ namespace Forge {
 		if (!entity.HasComponent<TransformComponent>())
 			return;
 
-		// Get the editor camera's view-projection and viewport.
-		auto& camera = m_Editor.GetCamera();
-		glm::mat4 vp = camera.GetViewProjectionMatrix();
-
-		// Convert screen coordinates to NDC.
-		ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-		float ndcX = (2.0f * x / viewportSize.x) - 1.0f;
-		float ndcY = 1.0f - (2.0f * y / viewportSize.y);
-
-		// Unproject to get ray in world space.
-		glm::mat4 invVP = glm::inverse(vp);
-		glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
-		glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
-		nearPoint /= nearPoint.w;
-		farPoint /= farPoint.w;
-
-		glm::vec3 rayDir = glm::normalize(glm::vec3(farPoint - nearPoint));
+		glm::vec3 rayOrigin, rayDir;
+		ViewportRay(x, y, rayOrigin, rayDir);
 
 		// Get the axis direction (local or world space).
 		glm::vec3 axisDir = glm::vec3(0);
@@ -981,22 +1010,27 @@ namespace Forge {
 
 		if (ImGui::IsItemHovered())
 		{
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && g_GizmoButton < 0)
+			const int mx = (int)ImGui::GetMousePos().x - cursorPos.x;
+			const int my = (int)ImGui::GetMousePos().y - cursorPos.y;
+
+			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{
-				OnGizmoMouseDown(0, (int)ImGui::GetMousePos().x - cursorPos.x,
-					(int)ImGui::GetMousePos().y - cursorPos.y);
+				g_MouseDownX = mx;
+				g_MouseDownY = my;
 			}
+
+			if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && g_GizmoButton < 0)
+				OnGizmoMouseDown(0, mx, my);
 
 			if (g_GizmoButton >= 0)
-			{
-				OnGizmoMouseMove((int)ImGui::GetMousePos().x - cursorPos.x,
-					(int)ImGui::GetMousePos().y - cursorPos.y);
-			}
+				OnGizmoMouseMove(mx, my);
 
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && g_GizmoButton >= 0)
+			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
 			{
-				OnGizmoMouseUp(0, (int)ImGui::GetMousePos().x - cursorPos.x,
-					(int)ImGui::GetMousePos().y - cursorPos.y);
+				if (g_GizmoButton >= 0)
+					OnGizmoMouseUp(0, mx, my);
+				else if (glm::abs(mx - g_MouseDownX) <= 4 && glm::abs(my - g_MouseDownY) <= 4)
+					PickAtScreenPoint(mx, my);
 			}
 		}
 

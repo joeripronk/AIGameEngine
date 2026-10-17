@@ -72,6 +72,18 @@ namespace Forge {
 		Entity FindEntityByName(std::string_view name);
 		Entity GetEntityByUUID(UUID uuid);
 
+		// The closest entity whose collider the ray hits first, within
+		// maxDistance - the picking behind a viewport click, the way Hazel's
+		// SceneTree selects an entity from the editor camera's ray.
+		//
+		// Colliders are tested where physics places them (transform translation
+		// plus the collider's offset; physics ignores transform scale for
+		// colliders, and picking agrees with physics rather than disagreeing),
+		// so an entity is clickable exactly where it collides. Works with or
+		// without a running physics session, because it reads the components,
+		// not bodies. A null Entity when nothing is hit.
+		Entity FindEntityOnRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance);
+
 		// The camera the renderer, the audio listener and the editor all follow.
 		// One function, so those three can never disagree about which camera a
 		// scene has. Returns the first camera marked primary in authoring order;

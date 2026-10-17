@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Forge/Renderer/RenderCommand.h"
+#include "Forge/Renderer/RendererStats.h"
 #include "Forge/Renderer/Shader.h"
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
@@ -78,7 +79,15 @@ namespace Forge {
 		// Draws every entity in `scene` that has a MeshComponent and a primary
 		// camera, using the PBR shader, into the given swapchain framebuffer.
 		// Must be called between BeginScene() and EndScene().
+		//
+		// Entities whose world bounding box lies entirely outside the camera
+		// frustum are culled and counted, and the per-frame counters below
+		// describe exactly what was submitted.
 		static void RenderScene(class Scene* scene, uint32_t swapchainImage);
+
+		// Per-frame draw statistics, filled by RenderScene and read by the
+		// editor's stats display (the Hazel statistics pattern).
+		static RendererStatistics GetStatistics();
 
 		// Post-processing passes: SSAO, HDR tonemapping, final composite.
 		// These must be called between BeginScene() and EndScene(), after RenderScene().

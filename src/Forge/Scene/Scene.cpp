@@ -490,6 +490,97 @@ namespace Forge {
 		return {};
 	}
 
+	namespace {
+
+		// Ray entry distance against an axis-aligned box (slab method), or
+		// -1 when the ray misses. An origin inside the box hits at 0.
+		float RayBoxEntryDistance(const glm::vec3& origin, const glm::vec3& invDirection,
+			const glm::vec3& min, const glm::vec3& max)
+		{
+			float tMin = 0.0f;
+			float tMax = 1e30f;
+			for (int axis = 0; axis < 3; ++axis)
+			{
+				const float t0 = (min[axis] - origin[axis]) * invDirection[axis];
+				const float t1 = (max[axis] - origin[axis]) * invDirection[axis];
+				tMin = glm::max(tMin, glm::min(t0, t1));
+				tMax = glm::min(tMax, glm::max(t0, t1));
+				if (tMin > tMax)
+					return -1.0f;
+			}
+			return tMin;
+		}
+
+		// Ray entry distance against a sphere, or -1 when the ray misses.
+		float RaySphereEntryDistance(const glm::vec3& origin, const glm::vec3& direction,
+			const glm::vec3& center, float radius)
+		{
+			const glm::vec3 m = center - origin;
+			const float b = glm::dot(m, direction);
+			const float c = glm::dot(m, m) - radius * radius;
+
+			// The sphere is behind the ray and the ray points away from it.
+			if (c > 0.0f && b < 0.0f)
+				return -1.0f;
+
+			const float discriminant = b * b - c;
+			if (discriminant < 0.0f)
+				return -1.0f;
+
+			// The nearer root; a negative root means the origin is inside.
+			return glm::max(0.0f, b - glm::sqrt(discriminant));
+		}
+
+	}
+
+	Entity Scene::FindEntityOnRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance)
+	{
+		const glm::vec3 dir = glm::normalize(direction);
+		if (glm::length2(dir) < 0.5f || maxDistance <= 0.0f)
+			return {};
+
+		// Division by zero for a ray parallel to a slab is the point of the
+		// inverse direction: ±inf makes those slabs unconstrained, which is
+		// exactly the geometry.
+		const glm::vec3 invDirection(1.0f / dir.x, 1.0f / dir.y, 1.0f / dir.z);
+
+		Entity best;
+		float bestDistance = maxDistance;
+
+		auto boxView = m_Registry.view<BoxColliderComponent, TransformComponent>();
+		for (auto handle : boxView)
+		{
+			const auto& collider = boxView.get<BoxColliderComponent>(handle);
+			const auto& transform = boxView.get<TransformComponent>(handle);
+
+			const glm::vec3 center = transform.Translation + collider.Offset;
+			const glm::vec3 half = collider.Size * 0.5f;
+
+			const float distance = RayBoxEntryDistance(origin, invDirection, center - half, center + half);
+			if (distance >= 0.0f && distance <= bestDistance)
+			{
+				bestDistance = distance;
+				best = Entity{ handle, this };
+			}
+		}
+
+		auto sphereView = m_Registry.view<SphereColliderComponent, TransformComponent>();
+		for (auto handle : sphereView)
+		{
+			const auto& collider = sphereView.get<SphereColliderComponent>(handle);
+			const auto& transform = sphereView.get<TransformComponent>(handle);
+
+			const float distance = RaySphereEntryDistance(origin, dir, transform.Translation + collider.Offset, collider.Radius);
+			if (distance >= 0.0f && distance <= bestDistance)
+			{
+				bestDistance = distance;
+				best = Entity{ handle, this };
+			}
+		}
+
+		return best;
+	}
+
 	void Scene::OnPhysicsStart()
 	{
 		// Initialize physics world and create bodies from scene components

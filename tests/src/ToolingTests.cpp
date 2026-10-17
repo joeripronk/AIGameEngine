@@ -699,3 +699,48 @@ TEST_CASE("An agent can build a small scene entirely through the context", "[edi
     REQUIRE(reloadedPlayer.GetComponent<Forge::PBRMaterialComponent>().Albedo == glm::vec3(0.8f, 0.2f, 0.2f));
     REQUIRE(reloaded.FindEntityByName("Floor").HasComponent<Forge::BoxColliderComponent>());
 }
+
+// ---------------------------------------------------------------------------
+// Viewport picking (the Hazel SceneTree click-select, on the editor model)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("SelectEntityAtRay selects the hit entity", "[editor][picking]")
+{
+    Forge::EditorContext context;
+    context.NewScene();
+
+    auto cube = context.CreateEntity("PickedCube");
+    cube.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
+    cube.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    auto other = context.CreateEntity("Other");
+    other.GetComponent<Forge::TransformComponent>().Translation = { 10.0f, 0.0f, -5.0f };
+    other.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    const Forge::Entity initial = context.CreateEntity("Initial");
+    context.SelectEntity(initial);
+
+    REQUIRE(context.SelectEntityAtRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }));
+    REQUIRE(context.HasSelection());
+    REQUIRE(context.GetSelectedEntity().GetName() == "PickedCube");
+}
+
+TEST_CASE("SelectEntityAtRay leaves the selection alone on a miss", "[editor][picking]")
+{
+    Forge::EditorContext context;
+    context.NewScene();
+
+    auto cube = context.CreateEntity("PickedCube");
+    cube.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
+    cube.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    auto keeper = context.CreateEntity("Keeper");
+    context.SelectEntity(keeper);
+
+    // A ray that hits nothing reports false and must not clear the selection -
+    // a miss in a viewport is usually the end of a camera drag, not a request
+    // to forget what was selected.
+    REQUIRE_FALSE(context.SelectEntityAtRay({ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f }));
+    REQUIRE(context.HasSelection());
+    REQUIRE(context.GetSelectedEntity().GetName() == "Keeper");
+}

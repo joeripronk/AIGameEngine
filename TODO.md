@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (335 test cases, 10588 assertions - all passing, order-independent
+### Tests (382 test cases, 11052 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -117,6 +117,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       bracket, nested scopes, pre-session scopes write nothing, a second
       session truncates the first, concurrent threads serialise whole events,
       unopenable path reports failure)
+- [x] FrustumTests (frustum corners from the unprojected NDC cube, point tests
+      per plane, AABB tests that keep straddling boxes and cull only provable
+      misses, camera position/rotation following, renderer statistics
+      accumulation and reset, DecomposeTransform round-trip and rejection of
+      a degenerate matrix)
 
 ### Hazel parity (upstream `TheCherno/Hazel`)
 - [x] `Core/Timer.h` + an engine clock (`Time::GetTime`) that tests can replace
@@ -132,10 +137,38 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Orthographic projection (`CameraComponent::ProjectionType`,
       `OrthographicSize`) with serialization and an inspector widget
 - [x] `EditorCamera::SetViewportSize` and a zoom level the projection uses
+- [x] `Math::DecomposeTransform` (`Forge/Math`), the glm-era decomposition
+      Hazel ships, with a round-trip test through the engine's own composition
+- [x] Camera frustum corners (unproject the NDC cube, Hazel's method) with
+      point and AABB tests - and the culling that uses it:
+      `Renderer::RenderScene` skips entities whose transformed bounds lie
+      entirely outside the primary camera's frustum, and counts them
+- [x] Renderer draw statistics (Hazel's `Renderer2D::Statistics` pattern as the
+      TODO's named "useful slice"): `RendererStatistics` in ForgeCore, filled
+      by the real draw loop (draw calls, triangles, textures bound,
+      frustum-culled) and displayed in the editor Properties panel
+- [x] SceneTree click-to-select: `Scene::FindEntityOnRay` (ray-AABB slab +
+      ray-sphere against authored colliders, nearest hit wins) driving
+      `EditorContext::SelectEntityAtRay`, wired to a viewport click release;
+      a miss leaves the selection alone
+- [x] Editor keyboard shortcuts as a layer (the Hazel `OnKeyPressed` set):
+      Ctrl+N new scene, Ctrl+S save (to the scene the work came from),
+      Ctrl+D duplicate, Delete destroy, W/E/R gizmo mode, F5 play toggle;
+      held-key autorepeat and typing in a field never fire them
+- [x] Lua input bindings (Hazel ScriptGlue's `Input_IsKeyDown` pattern):
+      `GetKeyDown(key)`, `GetKeyReleased(key)`, `GetMousePosition()`,
+      answering false/zero with no window like the rest of `Input`
 - [ ] Sprite / 2D renderer (`Renderer2D`, `SpriteRendererComponent`) and text.
       Not ported as-is: a texture-array binding set and an MSDF atlas pipeline
       nothing in the engine, the editor or Tetris currently renders. The useful
-      slice is `Texture::Bind(slot)` plus draw-call statistics.
+      slice (`Texture::Bind(slot)` + draw-call statistics) is now done above.
+- [ ] Bloom post-processing pass (Hazel's post chain luminance → downsample →
+      blur → composite). Needs new GLSL passes, framebuffers and binding sets
+      on the Vulkan side - not expressible as a headless unit test, so it is
+      listed rather than claimed.
+- [ ] Instrumentor overlay panel (Hazel's live profiling view in the editor).
+- [ ] RTTI / type registry (`Core/RTTI`: RuntimeTypeInfo, TypeRegistry,
+      TypeEventBus) - Hazel ships it; nothing in Forge consumes it yet.
 
 ### Fixed while comparing against Hazel
 - [x] A saved scene never loaded `MeshComponent::ModelPath`, so every modelled
@@ -190,6 +223,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Real-time reflection probe (six-face cubemap scene draw; polished metal
       mirrors the live scene, probe draws bind the fallback env to avoid feedback)
 - [x] Depth-sorted PBR draws (far-to-near, stable overdraw)
+- [x] Frustum culling of PBR draws (transformed-bounds AABB test against the
+      primary camera's frustum corners; culled entities counted, not drawn)
+- [x] Renderer draw statistics (`RendererStatistics`: draw calls, triangles
+      submitted, textures bound, frustum-culled) read from the real draw loop
 
 ### Editor (AI-controllable)
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
@@ -204,6 +241,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       (Hazel pattern - apps push a layer instead of hand-rolling the lifecycle);
       Tetris drives its HUD through it, and a missing backend leaves the game
       running without the overlay
+- [x] Viewport click-to-select (ray from the editor camera through the click
+      through `EditorContext::SelectEntityAtRay`), keyboard shortcuts as an
+      input layer (Ctrl+N/S/D, Delete, W/E/R gizmo, F5 play), a per-frame
+      draw-statistics display, and saving to the scene file the work came from
 
 ### Assets & Resources
 - [x] AssetRegistry / asset browser backend + panel
@@ -247,6 +288,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       --profile[=path] starts a session in every app, the editor has
       Start/Stop Profiling controls with failure notifications; frame, scene
       update, physics, audio update and each render pass are instrumented
+- [x] Lua input bindings: GetKeyDown/GetKeyReleased/GetMousePosition (Hazel's
+      ScriptGlue Input pattern), answering the headless no-window contract
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

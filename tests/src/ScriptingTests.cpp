@@ -719,3 +719,48 @@ TEST_CASE("HotReloadAll reloads every live script and counts clean reloads", "[s
     Forge::ScriptEngine::SetScriptDirectory(FORGE_SOURCE_DIR "/resources/scripts/");
     std::filesystem::remove_all(kHotReloadDir, ec);
 }
+
+// ---------------------------------------------------------------------------
+// Input bindings (Hazel's ScriptGlue Input::IsKeyPressed pattern)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("Lua input bindings answer the headless contract", "[scripting][input]")
+{
+    // There is no window in this environment, and the engine's contract is
+    // that input queries report false / zero with no window rather than
+    // dereferencing a null handle. The script must see exactly that.
+    Forge::Log::Init();
+
+    const char* kScriptDir = FORGE_SOURCE_DIR "/resources/scripts/";
+    Forge::ScriptEngine::SetScriptDirectory(kScriptDir);
+    Forge::ScriptEngine::Init();
+
+    Forge::Scene scene;
+    auto entity = scene.CreateEntity("InputProbe");
+    auto& script = entity.AddComponent<Forge::ScriptComponent>();
+    script.ClassName = "InputGlue";
+
+    Forge::ScriptEngine::OnRuntimeStart(&scene);
+
+    bool flag = true;
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "KeyDownW", flag));
+    REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "KeyReleasedW", flag));
+    REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "KeyDownSpace", flag));
+    REQUIRE_FALSE(flag);
+
+    // The mouse position must be real numbers, not nil: a script that does
+    // arithmetic on them must not be the place this is discovered.
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "MouseIsNumber", flag));
+    REQUIRE(flag);
+
+    double mouseValue = 99.0;
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "MouseX", mouseValue));
+    REQUIRE(mouseValue == 0.0);
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "MouseY", mouseValue));
+    REQUIRE(mouseValue == 0.0);
+
+    Forge::ScriptEngine::OnRuntimeStop();
+    Forge::ScriptEngine::Shutdown();
+}

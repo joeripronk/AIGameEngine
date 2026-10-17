@@ -51,6 +51,8 @@ target_sources(ForgeEditor
         src/EntryPoint.h
         src/EditorApp.h
         src/EditorApp.cpp
+        src/EditorInputLayer.h
+        src/EditorInputLayer.cpp
 )
 
 target_link_libraries(ForgeEditor

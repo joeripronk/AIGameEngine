@@ -34,6 +34,13 @@ namespace Forge {
 		void ClearSelection();
 		bool HasSelection() const { return m_SelectedEntity; }
 
+		// Viewport picking (the Hazel SceneTree pattern): selects the closest
+		// entity the ray hits and reports whether anything was hit. The
+		// selection is left alone on a miss - clicking empty space in a 3D
+		// viewport is usually a camera drag, not a request to lose the selection.
+		[[nodiscard]]
+		bool SelectEntityAtRay(const glm::vec3& origin, const glm::vec3& direction, float maxDistance = 1000.0f);
+
 		// --- Entity operations ------------------------------------------------
 		Entity CreateEntity(const std::string& name = "Entity");
 		void DestroyEntity(Entity entity);

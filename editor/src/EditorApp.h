@@ -24,11 +24,22 @@ namespace Forge {
 		// The editor model (window-independent; shared with AI tooling/tests).
 		EditorContext& GetEditor() { return m_Editor; }
 
+		// Surfaces the result of a user-initiated action (save, export). Without
+		// this the UI silently discards failures: a failed export would leave the
+		// user believing they had a distributable game.
+		void Notify(const std::string& message, bool isError);
+
+		// Saved to the scene file the work is in; Ctrl+S and the menu share the
+		// one path so the shortcut cannot save somewhere the menu never looks.
+		void SaveCurrentScene();
+
+		// Public for the input layer, which runs the Ctrl+N shortcut.
+		void CreateDefaultScene();
+
 	private:
 		// How long a notification stays on screen, in frames (~4s at 60fps).
 		static constexpr int kNotificationFrames = 240;
 
-		void CreateDefaultScene();
 		void DrawMenuBar();
 		void DrawHierarchyPanel();
 		void DrawInspectorPanel();
@@ -50,11 +61,7 @@ namespace Forge {
 		AssetWatcher m_AssetWatcher;
 		float m_AssetPollAccumulator = 0.0f;
 
-		// Surfaces the result of a user-initiated action (save, export). Without
-		// this the UI silently discards failures: a failed export would leave the
-		// user believing they had a distributable game.
-		void Notify(const std::string& message, bool isError);
-
+		// Surfaces the result of a user-initiated action (save, export).
 		// Draws and then clears any pending notification.
 		void DrawNotification();
 
@@ -66,6 +73,13 @@ namespace Forge {
 		void OnGizmoMouseMove(int x, int y);
 		void OnGizmoMouseUp(int button, int x, int y);
 		void DrawGizmoInteraction();
+
+		// The world-space ray through a viewport pixel (editor camera's
+		// view-projection), shared by gizmo dragging and click-to-select.
+		void ViewportRay(int x, int y, glm::vec3& origin, glm::vec3& direction);
+
+		// Click-to-select in the viewport (the Hazel SceneTree pattern).
+		void PickAtScreenPoint(int x, int y);
 
 		EditorContext m_Editor;
 		ViewportRenderer m_Viewport;
@@ -90,6 +104,11 @@ namespace Forge {
 		std::string m_Notification;
 		bool m_NotificationIsError = false;
 		int m_NotificationFramesRemaining = 0;
+
+		// The scene file the current work is saved to. The editor opens scenes
+		// from the asset browser and the project, and Ctrl+S has to write back
+		// where the work came from, not where the last session left it.
+		std::string m_CurrentScenePath = "resources/scenes/editor.forge";
 	};
 
 }

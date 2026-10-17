@@ -42,6 +42,8 @@ target_sources(ForgeCore
         Forge/Core/LayerStack.h
         Forge/Core/LayerStack.cpp
         Forge/Core/EntryPoint.h
+        Forge/Math/Math.h
+        Forge/Math/Math.cpp
         Forge/Events/Event.h
         Forge/Events/ApplicationEvent.h
         Forge/Events/KeyEvent.h
@@ -50,6 +52,7 @@ target_sources(ForgeCore
         Forge/Renderer/Camera.cpp
         Forge/Renderer/EditorCamera.h
         Forge/Renderer/EditorCamera.cpp
+        Forge/Renderer/RendererStats.h
         Forge/Renderer/CpuTexture.h
         Forge/Renderer/CpuTexture.cpp
         Forge/Renderer/CpuMesh.h

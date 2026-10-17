@@ -497,3 +497,94 @@ TEST_CASE("Setting a mesh path after the fact imports it too", "[scene][mesh]")
     REQUIRE(mesh.CpuMeshData);
     REQUIRE(!mesh.CpuMeshData->GetVertices().empty());
 }
+
+// ---------------------------------------------------------------------------
+// Ray picking (the Hazel SceneTree click-select query)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("FindEntityOnRay picks the collider a ray hits", "[scene][picking]")
+{
+    Forge::Scene scene;
+
+    Forge::Entity floor = scene.CreateEntity("Floor");
+    floor.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, -1.0f, 0.0f };
+    floor.AddComponent<Forge::BoxColliderComponent>().Size = { 10.0f, 1.0f, 10.0f };
+
+    Forge::Entity plain = scene.CreateEntity("PlainEntity");
+    plain.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -8.0f };
+
+    // A ray straight down hits the floor.
+    Forge::Entity hit = scene.FindEntityOnRay({ 0.0f, 5.0f, 0.0f }, { 0.0f, -1.0f, 0.0f }, 100.0f);
+    REQUIRE(hit);
+    REQUIRE(hit.GetName() == "Floor");
+
+    // A ray straight down through the entity with no collider: it passes
+    // through its visual bounds and hits nothing, because the entity has no
+    // collider - picking answers where things collide, not where they draw.
+    Forge::Entity through = scene.FindEntityOnRay({ 0.0f, 5.0f, -8.0f }, { 0.0f, -1.0f, 0.0f }, 100.0f);
+    REQUIRE(!through);
+}
+
+TEST_CASE("FindEntityOnRay picks the nearest hit, boxes and spheres alike", "[scene][picking]")
+{
+    Forge::Scene scene;
+
+    Forge::Entity near = scene.CreateEntity("NearBox");
+    near.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -3.0f };
+    near.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    Forge::Entity far = scene.CreateEntity("FarSphere");
+    far.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -8.0f };
+    far.AddComponent<Forge::SphereColliderComponent>().Radius = 1.0f;
+
+    Forge::Entity hit = scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f);
+    REQUIRE(hit);
+    REQUIRE(hit.GetName() == "NearBox");
+
+    // Past the near box, the sphere answers; remove the box and the same ray
+    // runs on to it.
+    scene.DestroyEntity(near);
+
+    hit = scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f);
+    REQUIRE(hit);
+    REQUIRE(hit.GetName() == "FarSphere");
+}
+
+TEST_CASE("FindEntityOnRay respects maxDistance and misses cleanly", "[scene][picking]")
+{
+    Forge::Scene scene;
+
+    Forge::Entity box = scene.CreateEntity("Box");
+    box.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
+    box.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    // The box starts at -4.5 along the ray; 4 metres of reach cannot arrive
+    // there, so nothing is hit.
+    REQUIRE(!scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 4.0f));
+
+    // The box is 5 away; 5.6 reaches it.
+    REQUIRE(scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 5.6f));
+
+    // Pointing away from it: never hit, at any distance.
+    REQUIRE(!scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 1000.0f));
+
+    // Parallel to the box and off to the side: the slab test must not treat
+    // the zero component as an infinite span.
+    REQUIRE(!scene.FindEntityOnRay({ 10.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f));
+}
+
+TEST_CASE("FindEntityOnRay reads the collider offset", "[scene][picking]")
+{
+    Forge::Scene scene;
+
+    Forge::Entity box = scene.CreateEntity("OffsetBox");
+    box.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
+    auto& collider = box.AddComponent<Forge::BoxColliderComponent>();
+    collider.Size = { 1.0f, 1.0f, 1.0f };
+    collider.Offset = { 3.0f, 0.0f, 0.0f };
+
+    // The shape is at x = 3, so a ray down x = 0 misses and a ray down x = 3
+    // hits.
+    REQUIRE(!scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f));
+    REQUIRE(scene.FindEntityOnRay({ 3.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f));
+}
