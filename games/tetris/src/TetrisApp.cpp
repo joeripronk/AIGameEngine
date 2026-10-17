@@ -106,18 +106,68 @@ bool TetrisApp::CreateScene()
 	lightComponent.Intensity = 1.2f;
 	lightComponent.Direction = { -0.4f, -0.6f, -0.7f };
 
-	// --- Backdrop ---
+	// --- Playfield ---
 	//
-	// A dark slab behind the blocks, so empty cells read as empty. A material
-	// with no mesh is drawn as the engine's default cube, so no model is needed.
+	// The engine draws an entity only when it carries a MeshComponent; the
+	// default-cube fallback covers a MeshComponent whose mesh pointer is null,
+	// not a missing component. This entity had no MeshComponent at all, so it
+	// was skipped entirely and the playfield was invisible.
+	//
+	// The backdrop is also kept well clear of the clear colour. The renderer
+	// clears to (0.05, 0.06, 0.09); a slab at the same albedo lands on the same
+	// pixel value after tonemapping, which is another way for the board to be
+	// invisible without anything reporting an error.
+	const glm::vec3 boardSize = BoardView::BoardSize();
+
 	auto backdrop = m_Scene->CreateEntity("BoardBackdrop");
 	auto& backdropTransform = backdrop.GetComponent<Forge::TransformComponent>();
 	backdropTransform.Translation = centre + glm::vec3(0.0f, 0.0f, -0.4f);
-	const glm::vec3 boardSize = BoardView::BoardSize();
 	backdropTransform.Scale = glm::vec3(boardSize.x + 0.4f, boardSize.y + 0.4f, 0.4f);
+	backdrop.AddComponent<Forge::MeshComponent>().ModelPath = kBlockMesh;
 	auto& backdropMaterial = backdrop.AddComponent<Forge::PBRMaterialComponent>();
-	backdropMaterial.Albedo = { 0.05f, 0.06f, 0.09f };
+	backdropMaterial.Albedo = { 0.010f, 0.012f, 0.025f };
 	backdropMaterial.Roughness = 0.9f;
+
+	// A border, so the 10x20 well is legible as a playfield rather than as a
+	// dark rectangle. Four thin slabs around the well; the bottom one is flush
+	// with the floor, the other three stand slightly proud of it.
+	//
+	// Thick enough to survive being projected onto a few hundred pixels, and
+	// sitting in front of the backdrop rather than inside it: the backdrop is
+	// 0.4 deep and centred at z = -0.4, so its front face is at -0.2, and a
+	// border behind that plane is hidden by the slab it is meant to outline.
+	const float border = 0.20f;
+	const float borderZ = -0.15f;
+	const glm::vec3 borderColour = { 0.30f, 0.32f, 0.38f };
+
+	const auto addBorder = [this, centre, boardSize, border, borderColour](
+		const char* name, const glm::vec3& offset, const glm::vec3& scale)
+	{
+		auto slab = m_Scene->CreateEntity(name);
+		auto& transform = slab.GetComponent<Forge::TransformComponent>();
+		transform.Translation = centre + offset;
+		transform.Scale = scale;
+		slab.AddComponent<Forge::MeshComponent>().ModelPath = kBlockMesh;
+		auto& material = slab.AddComponent<Forge::PBRMaterialComponent>();
+		material.Albedo = borderColour;
+		material.Roughness = 0.6f;
+	};
+
+	const float halfW = boardSize.x * 0.5f;
+	const float halfH = boardSize.y * 0.5f;
+
+	addBorder("BoardBorderLeft",
+		glm::vec3(-halfW - border, 0.0f, borderZ),
+		glm::vec3(border, boardSize.y + border * 2.0f, 0.3f));
+	addBorder("BoardBorderRight",
+		glm::vec3(halfW + border, 0.0f, borderZ),
+		glm::vec3(border, boardSize.y + border * 2.0f, 0.3f));
+	addBorder("BoardBorderTop",
+		glm::vec3(0.0f, halfH + border, borderZ),
+		glm::vec3(boardSize.x + border * 2.0f, border, 0.3f));
+	addBorder("BoardBorderFloor",
+		glm::vec3(0.0f, -halfH - border, borderZ),
+		glm::vec3(boardSize.x + border * 2.0f, border, 0.3f));
 
 	// --- Next-piece preview ---
 	m_PreviewRoot = m_Scene->CreateEntity("NextPiecePreview");
