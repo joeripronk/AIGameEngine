@@ -30,10 +30,18 @@ namespace Forge {
 		~ImGuiLayer() override;
 
 		// Creates the context, configures it for keyboard navigation over the
-		// 3D scene, and initialises the GLFW and Vulkan backends. Safe to call
-		// once per layer; OnDetach performs the matching shutdown.
+		// 3D scene, and initialises the GLFW and Vulkan backends from the
+		// running Application's window. Safe to call once per layer; OnDetach
+		// performs the matching shutdown.
 		void OnAttach() override;
 		void OnDetach() override;
+
+		// The same contract with the window injected. A null window (or a
+		// missing swapchain) logs the reason, leaves IsReady() false and
+		// destroys the context it created, so a game keeps running without
+		// its overlay. OnAttach delegates here; tests drive failure paths
+		// with it.
+		bool AttachTo(void* nativeWindow);
 
 		// Frame driving. NewFrame must precede any layer's OnImGuiRender,
 		// Render must follow it; both are inert before OnAttach succeeded and

@@ -52,8 +52,13 @@ namespace Forge {
 
 	void ImGuiLayer::OnAttach()
 	{
+		AttachTo(Application::Get().GetWindow().GetNativeWindow());
+	}
+
+	bool ImGuiLayer::AttachTo(void* nativeWindow)
+	{
 		if (m_HasContext)
-			return;
+			return m_Ready;
 
 		ImGui::CreateContext();
 		m_HasContext = true;
@@ -63,16 +68,16 @@ namespace Forge {
 		ImGuiLayer::ApplyStyle(ImGui::GetStyle());
 
 #ifndef FG_NO_VULKAN_RUNTIME
-		auto* nativeWindow = static_cast<GLFWwindow*>(Application::Get().GetWindow().GetNativeWindow());
-		if (!nativeWindow)
+		auto* window = static_cast<GLFWwindow*>(nativeWindow);
+		if (!window)
 		{
 			FG_CORE_WARN("ImGuiLayer: no native window; overlay disabled");
 			ImGui::DestroyContext();
 			m_HasContext = false;
-			return;
+			return false;
 		}
 
-		ImGui_ImplGlfw_InitForVulkan(nativeWindow, true);
+		ImGui_ImplGlfw_InitForVulkan(window, true);
 
 		auto& swapchain = VulkanRendererAPI::GetSwapchain();
 		if (!swapchain.IsValid())
@@ -81,7 +86,7 @@ namespace Forge {
 			ImGui_ImplGlfw_Shutdown();
 			ImGui::DestroyContext();
 			m_HasContext = false;
-			return;
+			return false;
 		}
 
 		// The backend keeps the colour-attachment format pointer alive for the
@@ -93,7 +98,7 @@ namespace Forge {
 			ImGui_ImplGlfw_Shutdown();
 			ImGui::DestroyContext();
 			m_HasContext = false;
-			return;
+			return false;
 		}
 
 		state->RenderFormat = swapchain.GetVkFormat();
@@ -128,13 +133,16 @@ namespace Forge {
 			ImGui_ImplGlfw_Shutdown();
 			ImGui::DestroyContext();
 			m_HasContext = false;
-			return;
+			return false;
 		}
 
 		m_VulkanInitInfo = state;
 		m_Ready = true;
+		return true;
 #else
+		(void)nativeWindow;
 		FG_CORE_INFO("ImGuiLayer: headless build; context only, overlay inert");
+		return false;
 #endif
 	}
 

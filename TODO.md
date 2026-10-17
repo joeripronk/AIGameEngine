@@ -68,7 +68,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (310 test cases, 2230 assertions - all passing, order-independent
+### Tests (316 test cases, 10476 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -88,6 +88,9 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] TestSceneTests (loads the comprehensive EngineTest.forge scene and
       verifies every component + physics + the scripting API end-to-end)
 - [x] RendererTests (null stubs)
+- [x] ImGuiLayerTests (overlay layer contract: inert before attach, window-less
+      attach rolls back and is retryable, style keeps the scene visible,
+      clean detach and reuse)
 - [x] PhysicsTests (physics engine, collision, integration, body sleeping,
       collision callbacks, Scene entity collision handlers, kinematic bodies,
       resting-contact regression, continuous collision detection)
@@ -122,6 +125,13 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Final composite pass (reads tonemapped + SSAO, outputs to swapchain)
 - [x] IBL prefiltering / irradiance maps (irradiance cubemap + prefilter mipmapped cubemap)
 - [x] ImGui Vulkan backend init + viewport present (ImGui draw data rendered to swapchain)
+- [x] PBR albedo textures (PBRMaterialComponent::AlbedoTexturePath, serialized,
+      loaded once through Renderer::GetAlbedoTexture and shared by every pass)
+- [x] Render scale / supersampling (offscreen targets above the swapchain extent,
+      edge-aware downsample in the Final pass)
+- [x] Real-time reflection probe (six-face cubemap scene draw; polished metal
+      mirrors the live scene, probe draws bind the fallback env to avoid feedback)
+- [x] Depth-sorted PBR draws (far-to-near, stable overdraw)
 
 ### Editor (AI-controllable)
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)
@@ -132,6 +142,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Generic Add/Remove Component menus in the Inspector
 - [x] ImGui gizmo pointer interaction (drag translate mode)
 - [x] Actual viewport rendering (PBR + shadows rendered to swapchain)
+- [x] Forge::ImGuiLayer: engine-owned ImGui context + GLFW/Vulkan backends
+      (Hazel pattern - apps push a layer instead of hand-rolling the lifecycle);
+      Tetris drives its HUD through it, and a missing backend leaves the game
+      running without the overlay
 
 ### Assets & Resources
 - [x] AssetRegistry / asset browser backend + panel
@@ -266,3 +280,5 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | `UUID.h` did not compile with libc++ | ✅ Fixed - the `std::hash` specialisation re-declared the primary template (`template <typename T> struct hash;`). libc++ declares `std::hash` in an inline namespace, so the unqualified name matched both `std::hash` and `std::__1::hash` and the specialisation was ambiguous. libstdc++ resolved it differently, so it only ever failed on macOS. The redundant re-declaration is gone; the standard header is included instead |
 | nvrhi was pointed at the system's Vulkan headers | ✅ Fixed - finding `Vulkan` before `add_subdirectory(nvrhi)` looks tidier and removes nvrhi's header fetch, but it silently substitutes the system headers for the pinned ones. nvrhi needs >= 1.4.318 and Ubuntu 24.04 ships 1.4.303, so the build died with "Vulkan SDK version 1.4.318 or later is required to compile NVRHI". `find_package(Vulkan)` now runs after nvrhi, deliberately |
 | `vendor/physx` was on the include path but does not exist | ✅ Fixed - no PhysX has ever been vendored and no source includes it; physics is a native solver. The stale path is gone and `AGENTS.md` no longer lists Box2D/PhysX as a dependency |
+| Staging textures were released twice | ✅ Fixed - `VulkanTexture` and the shadow mip pass called `->Release()` on objects owned by nvrhi's `RefCountPtr`; the refcount went negative, the object died while the lifetime tracker still referenced it, and the crash surfaced later in `runGarbageCollection`, far from the line that caused it |
+| `HEAD` did not compile after the WIP commit | ✅ Fixed - the commit snapshotted `ViewportRenderer` mid-edit with an unmatched brace, so the default-cube PBR loop referenced out-of-scope variables; the three hand-rolled albedo-texture caches are now one `Renderer::GetAlbedoTexture`, which also logs a failed load once per path instead of once per frame |
