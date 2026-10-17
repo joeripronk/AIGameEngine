@@ -174,9 +174,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] ASan + UBSan CI job (memory errors no test can observe)
 
 > All three platform jobs previously failed at Configure and had never run a
-> single build. The library dependencies are fixed (see Known Issues); the
-> Windows and macOS jobs still need one green run each before these can be
-> called verified rather than configured.
+> single build. Configure now succeeds on all of them, but only Linux has ever
+> been built end to end; the Windows and macOS jobs still need one green run
+> each before they can be called verified rather than configured. Both now dump
+> `CMakeError.log` and `CMakeConfigureLog.yaml` on a configure failure, because
+> the plain error text names a variable but not the target that wanted it —
+> which is how the macOS Threads failure cost a wrong hypothesis first.
 
 ### ✨ New Features
 - [x] SSAO sample positions uniform array (shader fixed, runtime setup complete)
@@ -252,3 +255,6 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | Every configure cloned Vulkan-Headers from GitHub | ✅ Fixed - `find_package(Vulkan)` ran *after* `add_subdirectory(nvrhi)`, so nvrhi could not see `Vulkan::Headers` and fell back to FetchContent. Configure now depends on the SDK the project already requires, with no network fetch |
 | Post-process binding sets declared zero-byte ranges | ✅ Fixed - the sampler and constant-buffer items were hand-assembled and set `range = BufferRange(0, 0)`, which fails nvrhi's own `isEntireBuffer()` (it wants `~0ull` or the descriptor size), while `unused`, `rawData` and `overrideComponentMapping` were never assigned at all. They now go through nvrhi's factories |
 | Every build compiled an unused C++20 fmt module | ✅ Fixed - `fmt-module` was built in all configurations with no `import fmt` and no target linking it; GCC 15 ICEs in `cp/module.cc` on it, reported as an internal compiler error naming neither fmt nor CMake. `FMT_MODULE` is now off |
+| GLFW dragged in `<GL/gl.h>` on a Vulkan engine | ✅ Fixed - `GLFW_INCLUDE_NONE` is now defined at each of the three sites that include `GLFW/glfw3.h` (`fgpch.h`, `MouseEvent.h`, `TetrisTests.cpp`) and on the `imgui` target, whose GLFW backend includes it without defining the macro itself. Preprocessing all 80 project translation units went from 282 OpenGL-header lines in one file, plus 281 in ImGui's backend, to none |
+| macOS configure died on `find_package(Threads)` | ✅ Fixed - not a CMake version problem (3.28.6 failed exactly like 3.31). `-Wl,--start-group` was in `CMAKE_EXE_LINKER_FLAGS`, which is also what `try_compile` links with, and Apple's linker does not accept that GNU ld option. Every compile-and-link probe after it failed, so a platform with pthreads in libSystem reported none. The link group is now Linux/Clang-only; macOS uses `-force_load` |
+| `Dist` was appended to the configuration list unconditionally | ✅ Fixed - `string(REPLACE ";" ";" ...)` was a no-op used as an append, and CI passed `CMAKE_CONFIGURATION_TYPES=Debug,Release,Dist` with commas, so the list CMake worked from was `Debug,Release,Dist;Dist`. The list is rebuilt and de-duplicated now, and CI passes a real `;`-separated list |

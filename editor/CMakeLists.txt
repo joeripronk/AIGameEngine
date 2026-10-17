@@ -12,6 +12,11 @@ target_sources(imgui PRIVATE
     ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_glfw.cpp
     ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_vulkan.cpp
 )
+# ImGui's GLFW backend includes <GLFW/glfw3.h> without defining this itself, so
+# it picks up <GL/gl.h> - unlike our own sources, which define it at the
+# include. Measured: 281 preprocessed lines came from /usr/include/GL/. Only
+# the Vulkan backend is built, so nothing here actually reads them.
+target_compile_definitions(imgui PRIVATE GLFW_INCLUDE_NONE)
 target_include_directories(imgui PUBLIC
     ${CMAKE_SOURCE_DIR}/vendor/imgui
     ${CMAKE_SOURCE_DIR}/vendor/imgui/backends

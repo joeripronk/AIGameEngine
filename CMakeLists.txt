@@ -16,11 +16,20 @@ set(CMAKE_LINK_INTERFACE_MULTIPLICITY 3)
 # link group lets the linker resolve that mutual dependency in any order.
 # The group is opened before the objects and closed after the libraries
 # (via CMAKE_CXX_STANDARD_LIBRARIES, which is emitted last).
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
+#
+# Not on macOS. --start-group is a GNU ld option; Apple's linker does not
+# accept it. That alone would only break the final link, but
+# CMAKE_EXE_LINKER_FLAGS is also what try_compile uses to link, so it breaks
+# every compile-and-link probe CMake runs afterwards - find_package(Threads)
+# is such a probe, and configure died with "Could NOT find Threads" on a
+# platform that has pthreads in libSystem. CMAKE_CXX_STANDARD_LIBRARIES has the
+# same problem: it is appended to the link line of every probe.
+if(NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--start-group")
     string(APPEND CMAKE_CXX_STANDARD_LIBRARIES " -Wl,--end-group")
 endif()
-# macOS linker needs -Wl,-force_load for static library symbol resolution
+# macOS linker needs -Wl,-force_load for static library symbol resolution,
+# which is the platform's equivalent of a link group.
 if(APPLE)
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-force_load")
 endif()
@@ -65,9 +74,17 @@ endif()
 # handled by FG_DIST below.
 if(FG_MULTI_CONFIG)
     # Multi-config generators (Visual Studio, Xcode) need Dist declared
-    # alongside the built-in configurations, or it is rejected outright.
-    string(REPLACE ";" ";" CMAKE_CONFIGURATION_TYPES "${CMAKE_CONFIGURATION_TYPES};Dist"
-        CACHE STRING "Configurations" FORCE)
+    # alongside the built-in configurations, or the build for it is rejected.
+    #
+    # The list is rebuilt, not appended to. CI passes CMAKE_CONFIGURATION_TYPES
+    # in with -D, so blindly appending Dist yields "Debug;Release;Dist;Dist" -
+    # a duplicated entry the caller did not ask for, in the list CMake derives
+    # its per-configuration variables from.
+    set(_fg_configurations "${CMAKE_CONFIGURATION_TYPES}")
+    if(NOT "Dist" IN_LIST _fg_configurations)
+        list(APPEND _fg_configurations "Dist")
+    endif()
+    set(CMAKE_CONFIGURATION_TYPES "${_fg_configurations}" CACHE STRING "Configurations" FORCE)
 
     if(MSVC)
         set(CMAKE_CXX_FLAGS_DIST "/O2 /Ob2 /DNDEBUG")

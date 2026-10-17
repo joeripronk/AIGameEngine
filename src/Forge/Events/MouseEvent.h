@@ -1,6 +1,11 @@
 #pragma once
 
 #include "Forge/Events/Event.h"
+
+// As in fgpch.h: no OpenGL headers on a Vulkan engine. Repeated rather than
+// relied on through fgpch, because this header can be reached without it and a
+// macro defined only in the precompiled header would arrive too late.
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
 namespace Forge {

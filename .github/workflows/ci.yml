@@ -12,7 +12,9 @@ on:
 # on an assertion failure. Release and Dist also catch optimisation- and
 # NDEBUG-sensitive undefined behaviour that Debug papers over.
 env:
-  BUILD_TYPES: Debug,Release,Dist
+  # ';' separated, because this is a CMake list. A comma-separated value is
+  # not a list to CMake - it is a single entry named "Debug,Release,Dist".
+  BUILD_TYPES: 'Debug;Release;Dist'
 
 jobs:
   linux:
@@ -112,10 +114,19 @@ jobs:
     # Visual Studio is a multi-config generator: the configuration is selected at
     # build time with --config, and Dist has to be declared up front or CMake
     # rejects it as an unknown configuration.
+    # CMakeError.log / CMakeConfigureLog.yaml carry the real try_compile and
+    # generator diagnostics. Without them a configure failure names a variable
+    # but not the target that wanted it, which is not enough to act on - the
+    # macOS Threads failure took a wrong hypothesis to diagnose otherwise.
     - name: Configure
-      run: >
-        cmake -S . -B build
-        -DCMAKE_CONFIGURATION_TYPES="${{ env.BUILD_TYPES }}"
+      shell: pwsh
+      run: |
+        cmake -S . -B build -DCMAKE_CONFIGURATION_TYPES="${{ env.BUILD_TYPES }}"
+        if ($LASTEXITCODE -ne 0) {
+          Get-Content build/CMakeFiles/CMakeError.log -ErrorAction SilentlyContinue
+          Get-Content build/CMakeFiles/CMakeConfigureLog.yaml -ErrorAction SilentlyContinue -Tail 60
+          exit $LASTEXITCODE
+        }
 
     - name: Build
       run: cmake --build build --config ${{ matrix.build_type }}
@@ -136,15 +147,13 @@ jobs:
       with:
         submodules: recursive
 
-    # Configure failed with "Could NOT find Threads": CMake 3.31 from Homebrew
-    # sits ahead of the image's own CMake on PATH, and its FindThreads probe
-    # rejects Apple Clang's -pthread (CMAKE_HAVE_LIBC_PTHREAD fails, then
-    # "Check if compiler accepts -pthread - no").
+    # Pinned to the version Ubuntu ships, so all three platforms configure with
+    # one CMake and Homebrew's build cannot drift underneath this job.
     #
-    # Pinning CMake here matches the version Ubuntu ships and removes the
-    # Homebrew build from the equation. It cannot be worked around in this
-    # project: GLFW and spdlog each call find_package(Threads REQUIRED) too, so
-    # dropping our own call would just move the failure.
+    # This was NOT the cause of the "Could NOT find Threads" failure - 3.28.6
+    # failed identically to 3.31, and the real cause was a link flag in
+    # CMAKE_EXE_LINKER_FLAGS, fixed in the root CMakeLists. The pin is kept
+    # because it is still worth having, not because it fixed anything.
     - name: Pin CMake
       uses: jwlawson/actions-setup-cmake@v2
       with:
@@ -160,8 +169,16 @@ jobs:
         ninja --version
         sw_vers
 
+    # Dump the CMake logs on failure. "Could NOT find Threads" on a platform
+    # whose pthreads live in libSystem named no target and no flag, so the cause
+    # had to be reconstructed rather than read.
     - name: Configure
-      run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+      run: |
+        set -o pipefail
+        cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+          || { cat build/CMakeFiles/CMakeError.log 2>/dev/null;
+               tail -n 60 build/CMakeFiles/CMakeConfigureLog.yaml 2>/dev/null;
+               exit 1; }
 
     - name: Build
       run: cmake --build build -j$(sysctl -n hw.ncpu)

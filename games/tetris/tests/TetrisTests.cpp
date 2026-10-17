@@ -7,6 +7,9 @@ using Catch::Approx;
 #include "TetrisComponents.h"
 #include "TetrisInputLayer.h"
 
+// As in fgpch.h: no OpenGL headers on a Vulkan engine. This file includes
+// GLFW directly rather than through the precompiled header, so it has to say so.
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 
