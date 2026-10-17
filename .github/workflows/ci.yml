@@ -96,19 +96,35 @@ jobs:
     - name: Install Vulkan SDK
       run: choco install vulkan-sdk -y --no-progress
 
+    # choco reported success on install and configure still said "Could NOT find
+    # Vulkan". A step cannot see an environment variable that an earlier step
+    # set, so the SDK's own VULKAN_SDK never reached Configure.
+    #
+    # Both lookups below are verified against the package rather than assumed:
+    # choco's vulkan-sdk 1.4.363.0 installs to C:\VulkanSDK\<version> via the
+    # LunarG installer, and that installer writes HKLM\SOFTWARE\Khronos\Vulkan\SDK.
+    # The registry is tried first because it is what the SDK itself publishes;
+    # the directory scan is the fallback, and it fails loudly rather than
+    # continuing with an empty VULKAN_SDK.
     - name: Export Vulkan SDK path
       shell: pwsh
       run: |
         $sdk = (Get-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\SDK' -ErrorAction SilentlyContinue).VulkanSDK
-        if (-not $sdk) {
+        if (-not $sdk -or -not (Test-Path $sdk)) {
           $sdk = Get-ChildItem 'C:\VulkanSDK' -Directory -ErrorAction SilentlyContinue |
                  Sort-Object Name -Descending | Select-Object -First 1 -ExpandProperty FullName
         }
-        if (-not $sdk) { throw 'Vulkan SDK installed but not discoverable' }
+        if (-not $sdk -or -not (Test-Path $sdk)) { throw 'Vulkan SDK installed but not discoverable' }
 
         "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_ENV -Append
         "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_PATH -Append
-        Add-Content -Path $env:GITHUB_PATH -Value "$sdk/Bin"
+        Add-Content -Path $env:GITHUB_PATH -Value "$sdk\Bin"
+
+        # The two paths Configure will look at. Without this the job only says
+        # "not found", which does not distinguish a bad VULKAN_SDK from an SDK
+        # without headers.
+        Get-Item "$sdk\Include\vulkan\vulkan.h"
+        Get-ChildItem "$sdk\Lib\vulkan.lib"
         Write-Host "Vulkan SDK: $sdk"
 
     # Visual Studio is a multi-config generator: the configuration is selected at
@@ -162,12 +178,31 @@ jobs:
     - name: Install Ninja
       run: brew install ninja
 
+    # find_package(Vulkan REQUIRED) needs the loader library and the headers,
+    # and nothing on the image provides them, so configure failed with
+    # "Could NOT find Vulkan (missing: Vulkan_LIBRARY Vulkan_INCLUDE_DIR)".
+    #
+    # vulkan-loader pulls in vulkan-headers as a dependency, so this is the one
+    # step that provides both. There is no Chocolatey equivalent and no
+    # release tarball to fetch instead - Vulkan-Loader publishes no GitHub
+    # releases, so a hand-built download URL here would 404 at run time.
+    - name: Install Vulkan
+      run: |
+        set -euo pipefail
+        brew install vulkan-loader
+        brew --prefix vulkan-headers
+        brew --prefix vulkan-loader
+
     - name: Report toolchain
       run: |
         cmake --version
         cc --version
         ninja --version
         sw_vers
+        # The two paths configure will look at, printed so a failure says which
+        # one is wrong rather than just "not found".
+        ls "$(brew --prefix vulkan-headers)/include/vulkan/vulkan.h"
+        ls "$(brew --prefix vulkan-loader)/lib/"libvulkan*
 
     # Dump the CMake logs on failure. "Could NOT find Threads" on a platform
     # whose pthreads live in libSystem named no target and no flag, so the cause

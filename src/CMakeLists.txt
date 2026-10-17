@@ -12,14 +12,10 @@ target_include_directories(ForgeCore
         ${CMAKE_SOURCE_DIR}/vendor/lua
         ${CMAKE_SOURCE_DIR}/vendor/stb
         ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
         ${CMAKE_BINARY_DIR}/vendor/assimp/include
-        ${CMAKE_SOURCE_DIR}/vendor/physx/include
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${CMAKE_SOURCE_DIR}/Platform/Vulkan  # For null stubs in RendererAPI.cpp
+        ${CMAKE_SOURCE_DIR}/vendor/yaml-cpp/include
 )
 
 target_sources(ForgeCore
@@ -120,7 +116,18 @@ add_library(lua STATIC
     ${CMAKE_SOURCE_DIR}/vendor/lua/lvm.c
     ${CMAKE_SOURCE_DIR}/vendor/lua/lzio.c
 )
-target_compile_options(lua PRIVATE -std=gnu90 -Wno-unused-parameter)
+# GNU/Clang only. MSVC rejects both with D8021 "invalid numeric argument" and
+# fails the build outright: it reads "-std=gnu90" as switches. The C standard
+# matters - Lua 5.4 is C89 - but the warning suppression is a convenience for
+# upstream's own style, not something to impose on a compiler that cannot parse
+# it.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(lua PRIVATE -std=gnu90 -Wno-unused-parameter)
+elseif(MSVC)
+    # MSVC has no C89/C90 switch. /std:c11 is the closest available and Lua
+    # compiles cleanly under it.
+    target_compile_options(lua PRIVATE /std:c11)
+endif()
 target_include_directories(lua PUBLIC ${CMAKE_SOURCE_DIR}/vendor/lua)
 
 # ---------------------------------------------------------------------------
@@ -144,6 +151,24 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvr
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
 
+# Scene serialization is the only consumer, and it is what every .forge file is
+# read through, so yaml-cpp is a hard dependency. It was previously linked as a
+# bare name with nothing providing it: not a submodule, no find_package, no
+# target. The build only worked on a machine whose distribution happened to
+# ship libyaml-cpp-dev, so CI failed with "yaml-cpp/yaml.h: No such file or
+# directory" on a build that had been green locally for months.
+set(YAML_CPP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(YAML_CPP_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/yaml-cpp ${CMAKE_BINARY_DIR}/vendor/yaml-cpp)
+
+# yaml-cpp 0.8 exports yaml-cpp::yaml-cpp. The bare name is kept as an alias so
+# the existing link lines below name the same library they always did.
+if(TARGET yaml-cpp::yaml-cpp AND NOT TARGET yaml-cpp)
+    add_library(yaml-cpp ALIAS yaml-cpp::yaml-cpp)
+endif()
+
 # fmt as a plain library. Its C++20 module target is off because nothing in
 # this project imports it - there is no `import fmt` and no target links
 # fmt-module - so building it is work whose only effect is to add a fragile
@@ -163,13 +188,22 @@ set(ASSIMP_BUILD_SAMPLES OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/assimp EXCLUDE_FROM_ALL)
 
-# nvrhi fetches a matching Vulkan-Headers (v1.4.352). Capture its include dir
-# so the Vulkan targets compile against the SAME headers nvrhi uses (avoiding
-# a VULKAN_HPP version mismatch with the system SDK headers).
+# The include directory of the Vulkan headers actually in use, so every Vulkan
+# target compiles against the same ones rather than whatever the system happens
+# to have. nvrhi reuses find_package's imported target when it can - find_package
+# above runs before add_subdirectory(nvrhi) precisely so that it does - but that
+# target is only visible inside this directory, so its property is captured here
+# and passed on explicitly.
 set(FORGE_VK_HEADERS_INCLUDE "")
-if(TARGET Vulkan-Headers)
-    get_target_property(FORGE_VK_HEADERS_INCLUDE Vulkan-Headers INTERFACE_INCLUDE_DIRECTORIES)
-endif()
+foreach(_forge_vk_headers_target Vulkan::Headers Vulkan-Headers)
+    if(TARGET ${_forge_vk_headers_target})
+        get_target_property(FORGE_VK_HEADERS_INCLUDE ${_forge_vk_headers_target} INTERFACE_INCLUDE_DIRECTORIES)
+        break()
+    endif()
+endforeach()
+unset(_forge_vk_headers_target)
+
+
 
 # nvrhi's Vulkan backend forces VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 but only
 # initializes the Vulkan-Hpp dispatcher when NVRHI_SHARED_LIBRARY_BUILD is
@@ -208,7 +242,6 @@ target_include_directories(vulkan
         ${CMAKE_SOURCE_DIR}/vendor/spdlog/include
         ${CMAKE_SOURCE_DIR}/vendor/fmt/include
         ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
         ${CMAKE_SOURCE_DIR}/vendor/stb
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
@@ -289,7 +322,6 @@ target_include_directories(ForgeApp
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/vendor/glm
         ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/vulkan
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Platform/Vulkan

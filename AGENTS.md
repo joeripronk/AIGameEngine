@@ -48,10 +48,15 @@ ForgeEngine/
 | miniaudio | Audio |
 | stb | Image loading |
 | assimp | Model loading (glTF) |
-| Box2D/PhysX | Physics |
-| Catch2 | Testing |
 | yaml-cpp | Scene serialization |
+| Catch2 | Testing |
 | ImGui | Editor UI |
+
+Physics is **not** an external dependency. `Forge/Physics` implements its own
+solver (AABB/sphere broadphase, impulse response, friction, optional adaptive
+CCD substepping), so there is no Box2D or PhysX to build or install. Physics
+being a native library is also why `vendor/physx` is absent: nothing in the
+build referenced it except a stale include path, now removed.
 
 ## Code Style (Hazel Convention)
 

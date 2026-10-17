@@ -32,3 +32,6 @@
 [submodule "vendor/stb"]
 	path = vendor/stb
 	url = https://github.com/nothings/stb.git
+[submodule "yaml-cpp"]
+	path = vendor/yaml-cpp
+	url = https://github.com/jbeder/yaml-cpp.git

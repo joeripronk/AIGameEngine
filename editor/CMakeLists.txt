@@ -23,6 +23,18 @@ target_include_directories(imgui PUBLIC
     ${CMAKE_SOURCE_DIR}/vendor/glfw/include
 )
 
+# imgui_impl_vulkan.h includes <vulkan/vulkan.h> directly, so this target needs
+# the Vulkan headers. On Windows that produced "Cannot open include file:
+# 'vulkan/vulkan.h'"; on Linux it went unnoticed, because /usr/include is a
+# default search path and the file happened to be there.
+#
+# Found here rather than reusing src/'s variable: imported targets and plain
+# variables from find_package are scoped to the directory that ran it, and this
+# directory is a sibling of src/, not a child. The result is cached, so the
+# second call costs nothing.
+find_package(Vulkan REQUIRED)
+target_link_libraries(imgui PRIVATE Vulkan::Headers)
+
 target_include_directories(ForgeEditor
     PRIVATE
         ${CMAKE_SOURCE_DIR}/src
