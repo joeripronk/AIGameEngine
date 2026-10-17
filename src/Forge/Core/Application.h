@@ -72,6 +72,10 @@ namespace Forge {
 		bool OnWindowResize(WindowResizeEvent& e);
 
 		void ExecuteMainThreadQueue();
+
+		// The trace file named by --profile / --profile=path, or empty when
+		// profiling was not requested.
+		static std::string ProfilePathFromArgs(const ApplicationCommandLineArgs& args);
 	private:
 		ApplicationSpecification m_Specification;
 		Scope<Window> m_Window;

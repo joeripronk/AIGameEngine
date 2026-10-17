@@ -1,5 +1,6 @@
 #include "fgpch.h"
 #include "Forge/Physics/Physics.h"
+#include "Forge/Debug/Instrumentor.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
@@ -251,6 +252,7 @@ namespace Forge {
 
 	void Physics::Update(float timestep)
 	{
+		FG_PROFILE_FUNCTION();
 		if (s_Bodies.empty())
 			return;
 

@@ -30,6 +30,7 @@
 #include <vector>
 #include "Forge/Renderer/CpuTexture.h"
 #include "Forge/Assets/AssetWatcher.h"
+#include "Forge/Debug/Instrumentor.h"
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
@@ -257,6 +258,7 @@ namespace Forge {
 
 	void Renderer::RenderScene(Scene* scene, uint32_t swapchainImage)
 	{
+		FG_PROFILE_FUNCTION();
 		if (!scene || swapchainImage == UINT32_MAX || !s_CommandList || !s_PbrRenderer->IsValid())
 		{
 			if (!s_RenderSceneVerified)
@@ -838,6 +840,7 @@ namespace Forge {
 
 	void Renderer::BeginSSAOPass()
 	{
+		FG_PROFILE_FUNCTION();
 		// SSAO pass: render fullscreen quad with SSAO shader.
 		// Reads from the depth buffer, reconstructs normals, outputs SSAO occlusion.
 		if (!s_CommandList)
@@ -858,6 +861,7 @@ namespace Forge {
 
 	void Renderer::BeginHDRPass()
 	{
+		FG_PROFILE_FUNCTION();
 		// HDR pass: render fullscreen quad with HDR shader to tonemapped buffer.
 		// Reads from the HDR buffer, applies ACES tonemapping, outputs to tonemapped buffer.
 		if (!s_CommandList)
@@ -868,6 +872,7 @@ namespace Forge {
 
 	void Renderer::BeginFinalPass()
 	{
+		FG_PROFILE_FUNCTION();
 		// Final pass: render fullscreen quad with Final shader to swapchain.
 		// Reads from tonemapped buffer + SSAO buffer, composites to swapchain.
 		if (!s_CommandList)

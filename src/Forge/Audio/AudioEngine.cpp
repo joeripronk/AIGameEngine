@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include "Forge/Debug/Instrumentor.h"
 #include "Forge/Audio/AudioEngine.h"
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -469,6 +470,7 @@ namespace Forge {
 
 	void AudioEngine::Update()
 	{
+		FG_PROFILE_FUNCTION();
 		// Reclaim sounds whose fade-out has finished. Collected first because
 		// releasing mutates the map.
 		std::vector<SoundHandle> finished;

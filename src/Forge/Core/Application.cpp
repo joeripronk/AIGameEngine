@@ -2,6 +2,7 @@
 #include "Forge/Core/Application.h"
 #include "Forge/Core/Layer.h"
 #include "Forge/Renderer/Renderer.h"
+#include "Forge/Debug/Instrumentor.h"
 
 #include <algorithm>
 
@@ -23,10 +24,47 @@ namespace Forge {
 		// render target is created at the size the swapchain will really be.
 		Renderer::SetActiveWindowHandle(m_Window->GetNativeWindow());
 		Renderer::SetActiveWindowSize(m_Window->GetWidth(), m_Window->GetHeight());
+
+		// Profiling is opt-in (the Hazel rule: a session is explicit, not
+		// recorded silently on every launch): --profile writes profile.json,
+		// --profile=path or a following argument names the trace file.
+		if (const std::string path = ProfilePathFromArgs(specification.CommandLineArgs);
+			!path.empty())
+		{
+			if (ProfileBeginSession(specification.Name + " Profile Session", path))
+				FG_CORE_INFO("Profiling to '{0}'", path);
+			else
+				FG_CORE_ERROR("Could not open profiling output file '{0}'", path);
+		}
+	}
+
+	std::string Application::ProfilePathFromArgs(const ApplicationCommandLineArgs& args)
+	{
+		for (int i = 0; i < args.Count; ++i)
+		{
+			const std::string arg = args[i];
+
+			if (arg == "--profile")
+			{
+				// The next argument names the file only if it is not another
+				// option.
+				if (i + 1 < args.Count && args[i + 1][0] != '-')
+					return args[i + 1];
+				return "profile.json";
+			}
+
+			if (arg.rfind("--profile=", 0) == 0)
+			{
+				const std::string path = arg.substr(10);
+				return path.empty() ? "profile.json" : path;
+			}
+		}
+		return {};
 	}
 
 	Application::~Application()
 	{
+		ProfileEndSession();
 		Renderer::Shutdown();
 	}
 
@@ -65,6 +103,8 @@ namespace Forge {
 	{
 		while (m_Running)
 		{
+			FG_PROFILE_SCOPE("Frame");
+
 			float time = (float)glfwGetTime();
 			Timestep timestep = time - m_LastFrameTime;
 			m_LastFrameTime = time;

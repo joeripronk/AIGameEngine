@@ -68,7 +68,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (322 test cases, 10523 assertions - all passing, order-independent
+### Tests (330 test cases, 10550 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -104,6 +104,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       setter failure reporting and backward compatibility)
 - [x] NativeScriptTests (add hook, inert unbound, create/update/destroy, restart cycle,
       destroy teardown)
+- [x] ProfilerTests (configuration gating, inert session API in the compiled-out
+      branch, one Chrome-trace document per session with exactly one closing
+      bracket, nested scopes, pre-session scopes write nothing, a second
+      session truncates the first, concurrent threads serialise whole events,
+      unopenable path reports failure)
 
 ---
 
@@ -189,6 +194,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Gapless looping (data-source LOOPING flag, short-clip buffering policy)
 - [x] Reverb (Freeverb-style comb+allpass DSP, pure and headless-testable)
 - [x] Baking effects to a file (ProcessAudioFile, AudioBuffer::FromSamples/WriteWav)
+- [x] Profiler (Hazel Instrumentor): FG_PROFILE_SCOPE/FG_PROFILE_FUNCTION stream
+      Chrome-trace JSON (chrome://tracing, Perfetto); compiled in for
+      Debug/Release/RelWithDebInfo/MinSizeRel, compiled OUT of Dist;
+      --profile[=path] starts a session in every app, the editor has
+      Start/Stop Profiling controls with failure notifications; frame, scene
+      update, physics, audio update and each render pass are instrumented
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

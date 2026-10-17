@@ -20,6 +20,7 @@ target_sources(ForgeTests
         src/RendererFeatureTests.cpp
         src/ImGuiLayerTests.cpp
         src/AssetWatcherTests.cpp
+        src/ProfilerTests.cpp
         src/TestSceneTests.cpp
         src/RendererTests.cpp
         src/PhysicsTests.cpp

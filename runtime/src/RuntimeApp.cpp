@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include "Forge/Debug/Instrumentor.h"
 #include "runtime/src/RuntimeApp.h"
 
 #include "Forge/Core/Log.h"
@@ -94,6 +95,7 @@ namespace Forge {
 
 		while (IsRunning())
 		{
+			FG_PROFILE_SCOPE("Frame");
 			float time = (float)glfwGetTime();
 			float frameTime = time - lastFrameTime;
 			lastFrameTime = time;

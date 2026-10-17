@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include "Forge/Debug/Instrumentor.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 
@@ -173,6 +174,7 @@ namespace Forge {
 
 	void Scene::OnUpdateRuntime(Timestep ts)
 	{
+		FG_PROFILE_FUNCTION();
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{
 			// Reclaim finished sounds before the rest of the frame, so a one-shot
@@ -245,6 +247,7 @@ namespace Forge {
 
 	void Scene::OnUpdateSimulation(Timestep ts)
 	{
+		FG_PROFILE_FUNCTION();
 		(void)ts;
 		if (!m_IsPaused || m_StepFrames-- > 0)
 		{

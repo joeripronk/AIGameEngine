@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include "Forge/Debug/Instrumentor.h"
 
 #include "TetrisApp.h"
 
@@ -435,6 +436,7 @@ void TetrisApp::Run()
 
 	while (IsRunning())
 	{
+		FG_PROFILE_SCOPE("Frame");
 		const float time = static_cast<float>(glfwGetTime());
 		const float frameTime = time - lastFrameTime;
 		lastFrameTime = time;

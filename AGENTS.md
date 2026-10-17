@@ -390,6 +390,44 @@ so an executable target cannot switch it on. The old `ForgeRuntimeDist` had
 identical sources and libraries and the same `OUTPUT_NAME`, so both wrote to
 `bin/ForgeRuntime` — whichever linked last silently won.
 
+## Profiler
+
+Scoped instrumentation timers streaming Chrome-trace JSON (viewable in
+`chrome://tracing` or Perfetto), following the Hazel Instrumentor design:
+
+```cpp
+FG_PROFILE_FUNCTION();               // times the whole function
+FG_PROFILE_SCOPE("Load scene");      // times the enclosing block
+
+Forge::ProfileBeginSession("Main", "profile.json");  // [[nodiscard]]
+...
+Forge::ProfileEndSession();
+```
+
+`FG_ENABLE_PROFILING` is defined for Debug, Release, RelWithDebInfo and
+MinSizeRel, and **not** for Dist — a shipped game must not pay a clock read
+plus a mutex per instrumented scope. `Forge::IsProfilingEnabled()` reports
+which branch compiled, the same canary pattern as the build-configuration
+queries, and `ProfilerTests` asserts it in every configuration.
+
+The session API (`ProfileBeginSession`, `ProfileEndSession`,
+`IsProfilingActive`) exists in **both** branches so application code needs no
+`#ifdefs` at call sites; the compiled-out branch reports failure and never
+creates a file. A timer created before any session writes nothing — the
+session is checked at destruction, when the answer is known. `BeginSession`
+while a session is open closes it first, so every session is one complete,
+valid JSON document.
+
+Profiling is **opt-in**, the Hazel rule: nothing is recorded silently.
+`--profile` writes `profile.json`, `--profile=path` (or a following argument)
+names the trace file; every application parses it through `Application`. The
+editor additionally exposes Start/Stop Profiling controls that surface a
+failed trace file as an error notification.
+
+Frame loop, `Scene::OnUpdateRuntime` / `OnUpdateSimulation`,
+`Physics::Update`, `AudioEngine::Update` and each render pass are
+instrumented.
+
 ## Games
 
 A game is **not** part of the engine. `games/tetris/` builds `ForgeTetris`, which

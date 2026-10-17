@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include "Forge/Debug/Instrumentor.h"
 #include "editor/src/EditorApp.h"
 
 #include "Forge/Core/Log.h"
@@ -164,6 +165,7 @@ namespace Forge {
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
 		{
+			FG_PROFILE_SCOPE("Frame");
 			float time = (float)glfwGetTime();
 			Timestep timestep = time - lastFrameTime;
 			lastFrameTime = time;
@@ -712,6 +714,46 @@ namespace Forge {
 		ImGui::Separator();
 		ImGui::Text("Entities: %d", (int)m_Editor.GetAllEntities().size());
 		ImGui::Text("Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
+
+		ImGui::Separator();
+
+		// Profiling controls (the Hazel editor pattern): the session is
+		// explicit, the trace opens in chrome://tracing or Perfetto.
+		if (!Forge::IsProfilingEnabled())
+		{
+			ImGui::TextDisabled("Profiler compiled out (Dist build)");
+		}
+		else
+		{
+			ImGui::Text("Profiler:");
+			ImGui::SameLine();
+			if (IsProfilingActive())
+			{
+				ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.2f, 1.0f), "recording");
+				ImGui::SameLine();
+				if (ImGui::Button("Stop Profiling"))
+				{
+					ProfileEndSession();
+					m_Notification = "Profiling stopped";
+					m_NotificationIsError = false;
+					m_NotificationFramesRemaining = kNotificationFrames;
+				}
+			}
+			else
+			{
+				ImGui::TextDisabled("idle");
+				ImGui::SameLine();
+				if (ImGui::Button("Start Profiling"))
+				{
+					const bool started = ProfileBeginSession("Editor Profile Session", "editor_profile.json");
+					m_Notification = started
+						? "Profiling to editor_profile.json"
+						: "Profiling failed: could not open editor_profile.json";
+					m_NotificationIsError = !started;
+					m_NotificationFramesRemaining = kNotificationFrames;
+				}
+			}
+		}
 
 		ImGui::End();
 	}

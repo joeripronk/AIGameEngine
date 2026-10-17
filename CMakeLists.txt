@@ -112,6 +112,14 @@ add_compile_definitions(
     # precisely as the canary for a misconfigured build.
     $<$<CONFIG:RelWithDebInfo>:FG_RELEASE>
     $<$<CONFIG:MinSizeRel>:FG_RELEASE>
+
+    # The profiler instruments scoped hot paths: clock reads plus a mutex
+    # per scope. Debug and Release record; the shipping Dist build does not
+    # carry the instrumentation at all.
+    $<$<CONFIG:Debug>:FG_ENABLE_PROFILING>
+    $<$<CONFIG:Release>:FG_ENABLE_PROFILING>
+    $<$<CONFIG:RelWithDebInfo>:FG_ENABLE_PROFILING>
+    $<$<CONFIG:MinSizeRel>:FG_ENABLE_PROFILING>
 )
 
 # Platform definitions
