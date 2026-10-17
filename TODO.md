@@ -68,7 +68,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (316 test cases, 10476 assertions - all passing, order-independent
+### Tests (322 test cases, 10523 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -91,6 +91,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] ImGuiLayerTests (overlay layer contract: inert before attach, window-less
       attach rolls back and is retryable, style keeps the scene visible,
       clean detach and reuse)
+- [x] AssetWatcherTests (file signatures: existence/size/timestamp, rewrite
+      with restored timestamp means no reload; added/modified/removed/returned
+      event edges, multi-file polls, unwatched silence; albedo hot-reload:
+      failed load retried on file creation, rewrite re-decodes, unchanged file
+      returns the identical texture, failed reload keeps the working texture,
+      recovery on re-creation)
 - [x] PhysicsTests (physics engine, collision, integration, body sleeping,
       collision callbacks, Scene entity collision handlers, kinematic bodies,
       resting-contact regression, continuous collision detection)
@@ -156,6 +162,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Create `test_assets/` before writing to it — `EditorContext::SaveScene` now creates parent directories via `SceneSerializer::Serialize`, so the two save/open round-trip tests in `ToolingTests` work even with a fresh directory.
 - [x] IBL (Image-Based Lighting) with HDRIs (irradiance + prefilter cubemaps)
 - [x] Soft shadow maps (implemented)
+- [x] Asset hot-reload (Hazel AssetManager pattern): FileSignature + AssetWatcher
+      in ForgeCore; the albedo cache re-stat-s each path per frame and
+      re-decodes/re-uploads on a size/timestamp change, retries a failed load
+      as soon as the file appears, and a failed reload keeps the texture that
+      worked; the editor polls the watcher on a 0.5s cadence and surfaces
+      added/modified/removed as notifications
 
 ### Engine Polish
 - [x] Physics-driven transform updates (Scene sync, both directions)
@@ -281,4 +293,5 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | nvrhi was pointed at the system's Vulkan headers | ✅ Fixed - finding `Vulkan` before `add_subdirectory(nvrhi)` looks tidier and removes nvrhi's header fetch, but it silently substitutes the system headers for the pinned ones. nvrhi needs >= 1.4.318 and Ubuntu 24.04 ships 1.4.303, so the build died with "Vulkan SDK version 1.4.318 or later is required to compile NVRHI". `find_package(Vulkan)` now runs after nvrhi, deliberately |
 | `vendor/physx` was on the include path but does not exist | ✅ Fixed - no PhysX has ever been vendored and no source includes it; physics is a native solver. The stale path is gone and `AGENTS.md` no longer lists Box2D/PhysX as a dependency |
 | Staging textures were released twice | ✅ Fixed - `VulkanTexture` and the shadow mip pass called `->Release()` on objects owned by nvrhi's `RefCountPtr`; the refcount went negative, the object died while the lifetime tracker still referenced it, and the crash surfaced later in `runGarbageCollection`, far from the line that caused it |
+| The albedo cache never reloaded and never retried | ✅ Fixed - a texture edited on disk was never reflected in the viewport, and a failed load (missing file) was cached as a permanent null for the session, so an asset created later by a tool was invisible until restart. The cache now carries a `FileSignature`; a changed signature re-decodes, a failed load retries as soon as the file exists, a failed reload keeps the last working texture, and the replaced GPU texture is evicted from the PBR draw cache before it dies |
 | `HEAD` did not compile after the WIP commit | ✅ Fixed - the commit snapshotted `ViewportRenderer` mid-edit with an unmatched brace, so the default-cube PBR loop referenced out-of-scope variables; the three hand-rolled albedo-texture caches are now one `Renderer::GetAlbedoTexture`, which also logs a failed load once per path instead of once per frame |

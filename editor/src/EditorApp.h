@@ -3,6 +3,7 @@
 #include "Forge/Core/Application.h"
 #include "Forge/Editor/EditorContext.h"
 #include "Forge/Renderer/ViewportRenderer.h"
+#include "Forge/Assets/AssetWatcher.h"
 
 #include <string>
 
@@ -38,6 +39,16 @@ namespace Forge {
 
 		// Add/remove component menus for the selected entity.
 		void DrawComponentMenu(Entity& entity);
+
+		// Hot-reload watch over texture assets (the Hazel AssetManager
+		// pattern): a texture rewritten on disk is re-decoded by the renderer
+		// cache on the next frame, and the change is reported here so the log
+		// says why the viewport changed.
+		void WatchAssetTextures();
+		void PollAssetHotReloads(float dt);
+
+		AssetWatcher m_AssetWatcher;
+		float m_AssetPollAccumulator = 0.0f;
 
 		// Surfaces the result of a user-initiated action (save, export). Without
 		// this the UI silently discards failures: a failed export would leave the

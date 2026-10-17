@@ -159,6 +159,7 @@ namespace Forge {
 	void EditorApp::Run()
 	{
 		AssetRegistry::Scan("resources/");
+		WatchAssetTextures();
 
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
@@ -166,6 +167,8 @@ namespace Forge {
 			float time = (float)glfwGetTime();
 			Timestep timestep = time - lastFrameTime;
 			lastFrameTime = time;
+
+			PollAssetHotReloads(timestep);
 
 			if (!IsMinimized())
 			{
@@ -655,7 +658,10 @@ namespace Forge {
 		ImGui::Begin("Assets");
 
 		if (ImGui::Button("Refresh"))
+		{
 			AssetRegistry::Scan("resources/");
+			WatchAssetTextures();
+		}
 
 		ImGui::Separator();
 
@@ -865,6 +871,45 @@ namespace Forge {
 		}
 
 		ImGui::PopID();
+	}
+
+	void EditorApp::WatchAssetTextures()
+	{
+		m_AssetWatcher.Clear();
+
+		// The renderer reloads texture assets through its own signature
+		// check; the watcher is what tells the editor (and the log) that the
+		// file on disk changed at all.
+		for (AssetType type : { AssetType::Texture, AssetType::HDR })
+		{
+			for (const AssetMetadata& asset : AssetRegistry::GetAssetsOfType(type))
+				m_AssetWatcher.Watch(asset.Path);
+		}
+	}
+
+	void EditorApp::PollAssetHotReloads(float dt)
+	{
+		m_AssetPollAccumulator += dt;
+		if (m_AssetPollAccumulator < 0.5f)
+			return;
+		m_AssetPollAccumulator = 0.0f;
+
+		const auto events = m_AssetWatcher.Poll();
+		if (events.empty())
+			return;
+
+		for (const auto& event : events)
+		{
+			FG_CORE_INFO("Asset {0}: {1}", AssetWatcher::ChangeToString(event.Kind), event.Path);
+			m_Notification = event.Path + " " + AssetWatcher::ChangeToString(event.Kind);
+			m_NotificationIsError = false;
+			m_NotificationFramesRemaining = kNotificationFrames;
+		}
+
+		// New or removed files change the registry itself; re-scan and watch
+		// whatever is there now so appearances are reported too.
+		AssetRegistry::Scan("resources/");
+		WatchAssetTextures();
 	}
 
 	Application* CreateApplication(ApplicationCommandLineArgs args)
