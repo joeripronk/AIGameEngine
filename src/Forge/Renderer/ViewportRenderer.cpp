@@ -184,7 +184,6 @@ namespace Forge {
 			Ref<Texture> albedoTexture;
 			if (!pbrComp.AlbedoTexturePath.empty())
 				albedoTexture = Renderer::GetAlbedoTexture(pbrComp.AlbedoTexturePath);
-			}
 
 			Ref<Mesh> mesh = getMesh(nullptr);
 
