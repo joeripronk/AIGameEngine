@@ -139,15 +139,19 @@ find_package(Threads REQUIRED)
 set(GLFW_BUILD_WAYLAND OFF)
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
 
-# Found before nvrhi on purpose. nvrhi reuses an existing Vulkan::Headers (or
-# Vulkan-Headers) target if one exists and otherwise clones Vulkan-Headers from
-# GitHub with FetchContent. Finding Vulkan after nvrhi therefore turned every
-# configure - including CI's - into a network fetch of a copy that nothing else
-# in the build had pinned, and a network failure there reads as an unrelated
-# configure error. The Vulkan backend needs the SDK regardless, so this is the
-# one place it has to be found.
-find_package(Vulkan REQUIRED)
+
+# The Vulkan SDK: the loader library to link. The loader is what matters at run
+# time, and it comes from the system/SDK package rather than from nvrhi's fetch.
+#
+# Deliberately placed *after* nvrhi. nvrhi must not be given the SDK headers: it
+# requires >= 1.4.318 and refuses to compile against anything older, and Ubuntu
+# 24.04 ships 1.4.303. nvrhi only falls back to fetching its own pinned headers
+# when no Vulkan::Headers target exists yet, so finding Vulkan first silently
+# substitutes the system headers for the version nvrhi is written against. The
+# order reads backwards on purpose; the comment is here because it was tried the
+# other way round and only failed on a machine with an old SDK.
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
+find_package(Vulkan REQUIRED)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
 
@@ -190,10 +194,14 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/assimp ${CMAKE_BINARY_DIR}/vendor/as
 
 # The include directory of the Vulkan headers actually in use, so every Vulkan
 # target compiles against the same ones rather than whatever the system happens
-# to have. nvrhi reuses find_package's imported target when it can - find_package
-# above runs before add_subdirectory(nvrhi) precisely so that it does - but that
-# target is only visible inside this directory, so its property is captured here
-# and passed on explicitly.
+# to have. Imported targets do not propagate out of the directory that created
+# them, so the property is captured here and passed on explicitly; editor/ does
+# the same for its own targets.
+#
+# The value is a generator expression ($<BUILD_INTERFACE:...>) because it comes
+# from a FetchContent target, and it works in target_include_directories - the
+# expansion happens per-consuming-target rather than here. Reading it as a plain
+# string would give the unexpanded text.
 set(FORGE_VK_HEADERS_INCLUDE "")
 foreach(_forge_vk_headers_target Vulkan::Headers Vulkan-Headers)
     if(TARGET ${_forge_vk_headers_target})
@@ -202,6 +210,7 @@ foreach(_forge_vk_headers_target Vulkan::Headers Vulkan-Headers)
     endif()
 endforeach()
 unset(_forge_vk_headers_target)
+
 
 
 

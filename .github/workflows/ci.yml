@@ -120,12 +120,23 @@ jobs:
         "VULKAN_SDK=$sdk" | Out-File -FilePath $env:GITHUB_PATH -Append
         Add-Content -Path $env:GITHUB_PATH -Value "$sdk\Bin"
 
-        # The two paths Configure will look at. Without this the job only says
-        # "not found", which does not distinguish a bad VULKAN_SDK from an SDK
-        # without headers.
-        Get-Item "$sdk\Include\vulkan\vulkan.h"
-        Get-ChildItem "$sdk\Lib\vulkan.lib"
+        # Confirm the two things Configure needs, by searching rather than by
+        # naming a path. The import library lives in Lib\x64 on the Windows SDK
+        # and Lib\64 on the Linux one, so a hardcoded Lib\vulkan.lib asserts
+        # something false - it failed here while the real build would have
+        # worked. FindVulkan searches all of these directories itself.
         Write-Host "Vulkan SDK: $sdk"
+
+        $header = Get-ChildItem -Path "$sdk\Include" -Filter vulkan.h -Recurse `
+                  -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $header) { throw "No vulkan.h under $sdk\Include" }
+
+        $lib = Get-ChildItem -Path "$sdk\Lib" -Filter vulkan.lib -Recurse `
+               -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $lib) { throw "No vulkan.lib under $sdk\Lib" }
+
+        Write-Host "  header: $($header.FullName)"
+        Write-Host "  lib:    $($lib.FullName)"
 
     # Visual Studio is a multi-config generator: the configuration is selected at
     # build time with --config, and Dist has to be declared up front or CMake
