@@ -28,20 +28,30 @@ namespace Forge {
 
 		// Pipeline management
 		void SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height) override;
+
+		// Creates (or recreates) every size-dependent render target: the HDR
+		// buffer and its depth, the SSAO buffers, the tonemapped buffer and their
+		// framebuffers. Sized from the swapchain's actual extent, never from a
+		// guess, so each pass's viewport and scissor match its attachment.
+		static void CreateRenderTargets(uint32_t width, uint32_t height);
+
+		// Same as CreateRenderTargets, but a no-op when the size is unchanged.
+		void ResizeRenderTargets(uint32_t width, uint32_t height) override;
+
 		void BeginFrame();
 		void EndFrame();
 
 		// G-buffer management
 		void CreateGBuffer(uint32_t width, uint32_t height);
 		void CreateShadowMap(uint32_t width, uint32_t height);
-		void CreateHDRBuffer(uint32_t width, uint32_t height);
-		void CreateSSAOBuffer(uint32_t width, uint32_t height);
+		static void CreateHDRBuffer(uint32_t width, uint32_t height);
+		static void CreateSSAOBuffer(uint32_t width, uint32_t height);
 
 		// Post-processing pipeline creation
 		void CreatePBRPipeline();
-		void CreateSSAOPipeline();
-		void CreateHDRPipeline();
-		void CreateFinalPipeline();
+		static void CreateSSAOPipeline();
+		static void CreateHDRPipeline();
+		static void CreateFinalPipeline();
 		void CreateShadowPipeline();
 
 		// Post-processing execution
@@ -162,6 +172,15 @@ namespace Forge {
 
 		// Final uniform buffer.
 		static nvrhi::BufferHandle s_FinalUniformBuffer;
-	};
 
-}
+		// Depth attachment for the HDR target, and the SSAO pass's depth input.
+		static nvrhi::TextureHandle s_HDRDepth;
+		static nvrhi::TextureHandle s_SSAOInput;
+
+		// Final composite output.
+		static nvrhi::TextureHandle s_FinalBuffer;
+
+		// Vertex layout for the fullscreen quad shared by the post passes.
+		static nvrhi::InputLayoutHandle s_FullscreenInputLayout;
+	};
+	}

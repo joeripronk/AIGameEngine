@@ -63,7 +63,15 @@ namespace Forge {
 		if (glfwGetKey(nullptr, GLFW_KEY_E) == GLFW_PRESS)
 			m_Position.y += speed;
 
-		// Zoom (callback-based scroll offset)
+		// Zoom (callback-based scroll offset). There may be no Application at all
+		// when the camera is driven headlessly (tools, unit tests), and
+		// Application::Get() dereferences a null or destroyed instance.
+		if (!Application::HasInstance())
+		{
+			Recalculate();
+			return;
+		}
+
 		glm::vec2 scrollOffset = { 0.0f, 0.0f };
 		auto& vkWindowScope = Application::Get().GetWindowScope();
 		if (vkWindowScope)

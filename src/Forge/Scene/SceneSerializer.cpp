@@ -387,7 +387,21 @@ namespace Forge {
 		// after which opening the file fails and the save is lost.
 		const auto separator = filepath.find_last_of('/');
 		if (separator != std::string::npos)
-			std::filesystem::create_directories(filepath.substr(0, separator));
+		{
+			// The error_code overload, deliberately. The throwing one propagates a
+			// filesystem_error straight past the caller, so a save that cannot
+			// happen raises an exception instead of returning false - which is
+			// the one thing a [[nodiscard]] bool exists to prevent, and what an
+			// agent driving EditorContext would hit rather than a clean failure.
+			std::error_code dirError;
+			std::filesystem::create_directories(filepath.substr(0, separator), dirError);
+
+			if (dirError)
+			{
+				FG_CORE_ERROR("Failed to create directory for '{0}': {1}", filepath, dirError.message());
+				return false;
+			}
+		}
 
 		std::ofstream fout(filepath);
 		if (!fout.is_open())

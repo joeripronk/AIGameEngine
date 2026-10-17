@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include <cstdlib>
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
@@ -45,43 +46,8 @@ namespace Forge {
 		};
 
 		NvrhiMessageCallback s_NvrhiMessageCallback;
+	} // namespace
 
-		// HDR buffer
-		nvrhi::TextureHandle s_HDRBuffer;
-
-		// SSAO buffer
-		nvrhi::TextureHandle s_SSAOInput;
-		nvrhi::TextureHandle s_SSAOOutput;
-
-		// Tonemapped buffer
-		nvrhi::TextureHandle s_TonemappedBuffer;
-
-		// Final buffer
-		nvrhi::TextureHandle s_FinalBuffer;
-
-		// UBO for post-processing parameters
-		nvrhi::BufferHandle s_UboBuffer;
-
-		// Post-processing binding layouts
-		nvrhi::BindingLayoutHandle s_SSAOBindingLayout;
-		nvrhi::BindingLayoutHandle s_HDRBindingLayout;
-		nvrhi::BindingLayoutHandle s_FinalBindingLayout;
-
-		// Post-processing pipelines
-		nvrhi::GraphicsPipelineHandle s_SSAOPipeline;
-		nvrhi::GraphicsPipelineHandle s_HDRPipeline;
-		nvrhi::GraphicsPipelineHandle s_FinalPipeline;
-
-		// SSAO uniform buffer
-		nvrhi::BufferHandle s_SSAOUniformBuffer;
-
-		// HDR uniform buffer
-		nvrhi::BufferHandle s_HDRUniformBuffer;
-
-		// Final uniform buffer
-		nvrhi::BufferHandle s_FinalUniformBuffer;
-
-	}
 
 	// Static member definitions
 	VkInstance VulkanRendererAPI::s_Instance = VK_NULL_HANDLE;
@@ -94,6 +60,7 @@ namespace Forge {
 	bool VulkanRendererAPI::s_ValidationEnabled = false;
 
 	nvrhi::DeviceHandle VulkanRendererAPI::s_Device;
+
 	nvrhi::CommandListHandle VulkanRendererAPI::s_CommandList;
 	VulkanSwapchain VulkanRendererAPI::s_Swapchain;
 	uint32_t VulkanRendererAPI::s_Width = 0;
@@ -101,12 +68,16 @@ namespace Forge {
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_TonemappedFramebuffer;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_SSAOFramebuffer;
 	nvrhi::TextureHandle VulkanRendererAPI::s_HDRBuffer;
+	nvrhi::TextureHandle VulkanRendererAPI::s_HDRDepth;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_HDRFramebuffer;
+	nvrhi::TextureHandle VulkanRendererAPI::s_SSAOInput;
 	nvrhi::TextureHandle VulkanRendererAPI::s_SSAOOutput;
 	nvrhi::TextureHandle VulkanRendererAPI::s_TonemappedBuffer;
+	nvrhi::TextureHandle VulkanRendererAPI::s_FinalBuffer;
 	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_SSAOBindingLayout;
 	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_HDRBindingLayout;
 	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_FinalBindingLayout;
+	nvrhi::InputLayoutHandle VulkanRendererAPI::s_FullscreenInputLayout;
 	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_SSAOPipeline;
 	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_HDRPipeline;
 	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_FinalPipeline;
@@ -362,6 +333,7 @@ namespace Forge {
 		deviceDesc.errorCB = &s_NvrhiMessageCallback;
 
 		s_Device = nvrhi::vulkan::createDevice(deviceDesc);
+
 		if (!s_Device)
 		{
 			FG_CORE_ERROR("Vulkan: nvrhi::vulkan::createDevice returned null");
@@ -381,6 +353,7 @@ namespace Forge {
 		s_Swapchain.Destroy();
 		s_CommandList = nullptr;
 		s_Device = nullptr;
+
 		DestroyVulkanObjects();
 		FG_CORE_INFO("VulkanRendererAPI shut down");
 	}
@@ -421,9 +394,6 @@ namespace Forge {
 
 	void VulkanRendererAPI::SetupSwapchain(void* windowHandle, uint32_t width, uint32_t height)
 	{
-		s_Width = width;
-		s_Height = height;
-
 		if (!s_Instance || !windowHandle)
 			return;
 
@@ -440,11 +410,27 @@ namespace Forge {
 		}
 
 		// Create the presentation swapchain (nvrhi has no swapchain abstraction).
+		// The swapchain is clamped to the surface extent, so its final size can
+		// differ from the size requested. Every render target is sized from the
+		// value the swapchain reports, never the value passed in: a target of a
+		// different size makes each post-processing pass set a viewport and
+		// scissor larger than the attachment it draws into.
 		if (!GetSwapchain().Create(glfwWindow, width, height))
 		{
 			FG_CORE_ERROR("Vulkan: swapchain creation failed; presentation disabled");
 			return;
 		}
+
+		CreateRenderTargets(GetSwapchain().GetWidth(), GetSwapchain().GetHeight());
+	}
+
+	void VulkanRendererAPI::CreateRenderTargets(uint32_t width, uint32_t height)
+	{
+		if (!s_Device || width == 0 || height == 0)
+			return;
+
+		s_Width = width;
+		s_Height = height;
 
 		// Create HDR Buffer
 		CreateHDRBuffer(width, height);
@@ -461,12 +447,12 @@ namespace Forge {
 			hdrDepthDesc.debugName = "HDR_Depth";
 			hdrDepthDesc.keepInitialState = true;
 			hdrDepthDesc.initialState = nvrhi::ResourceStates::RenderTarget;
-			nvrhi::TextureHandle hdrDepth = s_Device->createTexture(hdrDepthDesc);
+			s_HDRDepth = s_Device->createTexture(hdrDepthDesc);
 
 			// HDR framebuffer with color + depth.
 			nvrhi::FramebufferDesc hdrFbDesc;
 			hdrFbDesc.addColorAttachment(s_HDRBuffer.Get());
-			hdrFbDesc.setDepthAttachment(hdrDepth.Get());
+			hdrFbDesc.setDepthAttachment(s_HDRDepth.Get());
 			s_HDRFramebuffer = s_Device->createFramebuffer(hdrFbDesc);
 			if (s_HDRFramebuffer)
 				FG_CORE_INFO("HDR framebuffer created: {0}x{1}", width, height);
@@ -518,7 +504,9 @@ namespace Forge {
 				FG_CORE_INFO("SSAO framebuffer created: {0}x{1}", width, height);
 		}
 
-		// Create uniform buffers for post-processing.
+		// Create uniform buffers for post-processing. These do not depend on the
+		// frame size, so they are built once and survive a resize.
+		if (!s_SSAOUniformBuffer)
 		{
 			nvrhi::BufferDesc ssaoUboDesc;
 			ssaoUboDesc.byteSize = 256;
@@ -529,6 +517,7 @@ namespace Forge {
 			s_SSAOUniformBuffer = s_Device->createBuffer(ssaoUboDesc);
 		}
 
+		if (!s_HDRUniformBuffer)
 		{
 			nvrhi::BufferDesc hdrUboDesc;
 			hdrUboDesc.byteSize = 256;
@@ -539,6 +528,7 @@ namespace Forge {
 			s_HDRUniformBuffer = s_Device->createBuffer(hdrUboDesc);
 		}
 
+		if (!s_FinalUniformBuffer)
 		{
 			nvrhi::BufferDesc finalUboDesc;
 			finalUboDesc.byteSize = 256;
@@ -549,12 +539,61 @@ namespace Forge {
 			s_FinalUniformBuffer = s_Device->createBuffer(finalUboDesc);
 		}
 
-		// Create pipelines
-		CreateSSAOPipeline();
-		CreateHDRPipeline();
-		CreateFinalPipeline();
+		// Create the fullscreen quad's vertex input layout (also size
+		// independent). nvrhi does not reflect SPIR-V, so a pipeline created
+		// without one fetches no vertex attributes at all: every post-processing
+		// draw collapsed to a degenerate point and wrote nothing.
+		if (!s_FullscreenInputLayout)
+		{
+			nvrhi::VertexAttributeDesc quadAttributes[2]{};
+			quadAttributes[0].name = "aPosition";
+			quadAttributes[0].format = nvrhi::Format::RG32_FLOAT;
+			quadAttributes[0].arraySize = 1;
+			quadAttributes[0].bufferIndex = 0;
+			quadAttributes[0].offset = 0;
+			quadAttributes[0].elementStride = sizeof(glm::vec2) * 2; // pos + uv
+			quadAttributes[0].isInstanced = false;
+
+			quadAttributes[1].name = "aUV";
+			quadAttributes[1].format = nvrhi::Format::RG32_FLOAT;
+			quadAttributes[1].arraySize = 1;
+			quadAttributes[1].bufferIndex = 0;
+			quadAttributes[1].offset = sizeof(glm::vec2);
+			quadAttributes[1].elementStride = sizeof(glm::vec2) * 2; // pos + uv
+			quadAttributes[1].isInstanced = false;
+
+			// nvrhi assigns locations in declaration order, which matches the
+			// explicit locations in fullscreen.vert (aPosition 0, aUV 1).
+			s_FullscreenInputLayout = s_Device->createInputLayout(quadAttributes, 2, nullptr);
+		}
+
+		// Create pipelines (also size independent).
+		if (!s_SSAOPipeline)
+			CreateSSAOPipeline();
+		if (!s_HDRPipeline)
+			CreateHDRPipeline();
+		if (!s_FinalPipeline)
+			CreateFinalPipeline();
 
 		FG_CORE_INFO("Swapchain resources initialized: {0}x{1}", width, height);
+	}
+
+	void VulkanRendererAPI::ResizeRenderTargets(uint32_t width, uint32_t height)
+	{
+		if (!s_Device || width == 0 || height == 0)
+			return;
+
+		if (width == s_Width && height == s_Height)
+			return;
+
+		// Drop the framebuffers before their attachments are replaced. nvrhi
+		// reference-counts, so this only states the intent: nothing may draw
+		// through a framebuffer that is about to be recreated.
+		s_HDRFramebuffer = nullptr;
+		s_TonemappedFramebuffer = nullptr;
+		s_SSAOFramebuffer = nullptr;
+
+		CreateRenderTargets(width, height);
 	}
 
 	void VulkanRendererAPI::SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height)
@@ -683,6 +722,8 @@ namespace Forge {
 		fbInfo.depthFormat = nvrhi::Format::UNKNOWN; // No depth for fullscreen pass
 		fbInfo.sampleCount = 1;
 
+		pipelineDesc.inputLayout = s_FullscreenInputLayout;
+
 		s_SSAOPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
 		if (s_SSAOPipeline)
 			FG_CORE_INFO("SSAO pipeline created");
@@ -742,6 +783,8 @@ namespace Forge {
 		fbInfo.colorFormats.push_back(nvrhi::Format::RGBA16_FLOAT); // Tonemapped buffer format
 		fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
 		fbInfo.sampleCount = 1;
+
+		pipelineDesc.inputLayout = s_FullscreenInputLayout;
 
 		s_HDRPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
 		if (s_HDRPipeline)
@@ -809,6 +852,8 @@ namespace Forge {
 		fbInfo.colorFormats.push_back(colorFormat);
 		fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
 		fbInfo.sampleCount = 1;
+
+		pipelineDesc.inputLayout = s_FullscreenInputLayout;
 
 		s_FinalPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
 		if (s_FinalPipeline)
@@ -885,54 +930,68 @@ namespace Forge {
 		};
 		const uint32_t kFullscreenIndices[6] = { 0, 1, 2, 2, 3, 0 };
 
+		// The fullscreen quad's GPU buffers. These hold nvrhi handles, not raw
+		// pointers: a raw pointer left the only owning RefCountPtr as a local in
+		// UploadFullscreenQuad, so the buffers were released on its return and
+		// every post-processing draw referenced freed memory - which is why the
+		// tonemapped buffer stayed black while the pass reported no error.
+		nvrhi::BufferHandle s_FullscreenVBO;
+		nvrhi::BufferHandle s_FullscreenIBO;
+
 		// Upload the fullscreen quad to GPU buffers.
-		void UploadFullscreenQuad(nvrhi::ICommandList* commandList, nvrhi::IBuffer*& outVBO, nvrhi::IBuffer*& outIBO)
+		void UploadFullscreenQuad(nvrhi::ICommandList* commandList)
 		{
 			auto device = VulkanRendererAPI::GetStaticDevice();
+			if (!device)
+				return;
 
 			// Vertex buffer (4 vertices * 16 bytes = 64 bytes).
-			// Keep the RefCountPtr alive until after writeBuffer;
-			// converting to raw pointer first would release the buffer.
-			nvrhi::RefCountPtr<nvrhi::IBuffer> vbo;
-			if (!outVBO)
+			if (!s_FullscreenVBO)
 			{
 				nvrhi::BufferDesc vboDesc;
 				vboDesc.byteSize = sizeof(kFullscreenQuad);
+				// The flag is what nvrhi checks when the buffer is bound: without
+				// it, every pass that draws the fullscreen quad fails
+				// setGraphicsState and silently draws nothing, so the whole post
+				// chain is a no-op.
+				vboDesc.isVertexBuffer = true;
 				vboDesc.debugName = "FullscreenQuad_VBO";
 				vboDesc.keepInitialState = true;
 				vboDesc.initialState = nvrhi::ResourceStates::VertexBuffer;
-				vbo = device->createBuffer(vboDesc);
-				outVBO = vbo.Get();
+				s_FullscreenVBO = device->createBuffer(vboDesc);
 			}
 
 			// Index buffer (6 indices * 4 bytes = 24 bytes).
-			nvrhi::RefCountPtr<nvrhi::IBuffer> ibo;
-			if (!outIBO)
+			if (!s_FullscreenIBO)
 			{
 				nvrhi::BufferDesc iboDesc;
 				iboDesc.byteSize = sizeof(kFullscreenIndices);
+				iboDesc.isIndexBuffer = true;
 				iboDesc.debugName = "FullscreenQuad_IBO";
 				iboDesc.keepInitialState = true;
 				iboDesc.initialState = nvrhi::ResourceStates::IndexBuffer;
-				ibo = device->createBuffer(iboDesc);
-				outIBO = ibo.Get();
+				s_FullscreenIBO = device->createBuffer(iboDesc);
 			}
 
-			// Upload on first use.
-			commandList->writeBuffer(outVBO, kFullscreenQuad, sizeof(kFullscreenQuad), 0);
-			commandList->writeBuffer(outIBO, kFullscreenIndices, sizeof(kFullscreenIndices), 0);
-		}
+			if (!s_FullscreenVBO || !s_FullscreenIBO)
+				return;
 
-		nvrhi::IBuffer* s_FullscreenVBO = nullptr;
-		nvrhi::IBuffer* s_FullscreenIBO = nullptr;
+			commandList->writeBuffer(s_FullscreenVBO.Get(), kFullscreenQuad, sizeof(kFullscreenQuad), 0);
+			commandList->writeBuffer(s_FullscreenIBO.Get(), kFullscreenIndices, sizeof(kFullscreenIndices), 0);
+		}
 
 		void DrawFullscreenQuad(nvrhi::ICommandList* commandList, nvrhi::GraphicsState& state)
 		{
-			UploadFullscreenQuad(commandList, s_FullscreenVBO, s_FullscreenIBO);
-
-			state.vertexBuffers.push_back(nvrhi::VertexBufferBinding(s_FullscreenVBO, 0, 16));
+			UploadFullscreenQuad(commandList);
+			// nvrhi::VertexBufferBinding is { buffer, slot, offset } - it has no
+			// stride; the stride comes from the pipeline's input layout. Passing 16
+			// here therefore read the quad one vertex late, which drew only one of
+			// the quad's two triangles (a diagonal half-image).
+			nvrhi::VertexBufferBinding vertexBinding;
+			vertexBinding.setBuffer(s_FullscreenVBO.Get()).setSlot(0).setOffset(0);
+			state.vertexBuffers.push_back(vertexBinding);
 			nvrhi::IndexBufferBinding ibo;
-			ibo.buffer = s_FullscreenIBO;
+			ibo.buffer = s_FullscreenIBO.Get();
 			ibo.format = nvrhi::Format::R32_UINT;
 			ibo.offset = 0;
 			state.indexBuffer = ibo;
@@ -942,7 +1001,7 @@ namespace Forge {
 			args.instanceCount = 1;
 			commandList->setGraphicsState(state);
 			commandList->drawIndexed(args);
-		}
+			}
 	}
 
 		// Helper: create a binding set in a separate function to avoid the compiler
@@ -1054,7 +1113,11 @@ namespace Forge {
 		nvrhi::GraphicsState state;
 		state.framebuffer = s_SSAOFramebuffer.Get();
 
-		nvrhi::Viewport viewport(0.0f, 0.0f, s_Width, s_Height, 0.0f, 1.0f);
+		// nvrhi::Viewport(width, height) sets minX/minY to 0. The six-argument
+		// constructor is (minX, maxX, minY, maxY, minZ, maxY) - X before Y - so
+		// passing (0, 0, width, height, ...) leaves it zero-width and every draw
+		// is clipped away, which is an entirely black frame with no error.
+		nvrhi::Viewport viewport(s_Width, s_Height);
 		state.viewport.addViewportAndScissorRect(viewport);
 		state.pipeline = s_SSAOPipeline.Get();
 		state.bindings.push_back(ssaoSet.Get());
@@ -1065,11 +1128,13 @@ namespace Forge {
 
 	void VulkanRendererAPI::RenderHDRPass(nvrhi::ICommandList* commandList)
 	{
+
 		if (!s_HDRPipeline || !s_HDRBindingLayout || !commandList)
 			return;
 
 		if (!s_HDRBuffer || !s_TonemappedFramebuffer)
 			return;
+
 
 		// Upload HDR uniform buffer (exposure).
 		glm::vec4 hdrParams(1.0f, 0.0f, 0.0f, 0.0f); // exposure
@@ -1136,7 +1201,11 @@ namespace Forge {
 		nvrhi::GraphicsState state;
 		state.framebuffer = s_TonemappedFramebuffer.Get();
 
-		nvrhi::Viewport viewport(0.0f, 0.0f, s_Width, s_Height, 0.0f, 1.0f);
+		// nvrhi::Viewport(width, height) sets minX/minY to 0. The six-argument
+		// constructor is (minX, maxX, minY, maxY, minZ, maxY) - X before Y - so
+		// passing (0, 0, width, height, ...) leaves it zero-width and every draw
+		// is clipped away, which is an entirely black frame with no error.
+		nvrhi::Viewport viewport(s_Width, s_Height);
 		state.viewport.addViewportAndScissorRect(viewport);
 		state.pipeline = s_HDRPipeline.Get();
 		state.bindings.push_back(hdrSet.Get());
@@ -1254,7 +1323,11 @@ namespace Forge {
 		nvrhi::GraphicsState state;
 		state.framebuffer = swapchainFramebuffer.Get();
 
-		nvrhi::Viewport viewport(0.0f, 0.0f, s_Width, s_Height, 0.0f, 1.0f);
+		// nvrhi::Viewport(width, height) sets minX/minY to 0. The six-argument
+		// constructor is (minX, maxX, minY, maxY, minZ, maxY) - X before Y - so
+		// passing (0, 0, width, height, ...) leaves it zero-width and every draw
+		// is clipped away, which is an entirely black frame with no error.
+		nvrhi::Viewport viewport(s_Width, s_Height);
 		state.viewport.addViewportAndScissorRect(viewport);
 		state.pipeline = s_FinalPipeline.Get();
 		state.bindings.push_back(finalSet.Get());
@@ -1262,6 +1335,5 @@ namespace Forge {
 		DrawFullscreenQuad(commandList, state);
 		}
 	}
-
-}
+	}
 #endif // FG_NO_VULKAN_RUNTIME

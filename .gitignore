@@ -82,3 +82,13 @@ vendor/physx/build/
 /test_prefab_fixtures/
 /test_audio/
 test_reverb/
+
+# Editor and debugging scratch
+imgui.ini
+gdb.txt
+Testing/
+
+# One-off debugging notes; kept out of the tree so they are not mistaken for
+# current documentation.
+BUGFIX-SUMMARY.md
+valgrind-summary.md

@@ -49,6 +49,11 @@ namespace Forge {
 
 		static Application& Get() { return *s_Instance; }
 
+		// False when no Application exists (headless tools, unit tests).
+		// Get() dereferences a null or already-destroyed instance in that case,
+		// so anything optional must check this first.
+		static bool HasInstance() { return s_Instance != nullptr; }
+
 		const ApplicationSpecification& GetSpecification() const { return m_Specification; }
 
 		void SubmitToMainThread(const std::function<void()>& function);

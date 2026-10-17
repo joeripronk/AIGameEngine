@@ -223,15 +223,30 @@ void TetrisApp::Run()
 
 			const uint32_t swapchainImage = Forge::Renderer::AcquireSwapchainImage();
 			Forge::Renderer::BeginScene();
+			// RenderScene fills the offscreen HDR target; the post chain is what
+			// actually reaches the swapchain image. Without it the window stays
+			// black no matter what the scene contains.
 			Forge::Renderer::RenderScene(m_Scene.get(), swapchainImage);
+			Forge::Renderer::BeginSSAOPass();
+			Forge::Renderer::BeginHDRPass();
+			Forge::Renderer::BeginFinalPass();
 			Forge::Renderer::EndScene();
 
 			// Read the frame back when asked, so a verification script has
 			// something to look at.
+			//
+			// Once, not every frame. The capture opens the file and rewrites it
+			// from scratch, so a per-frame capture leaves the file permanently
+			// mid-rewrite: a reader sees a torn image, which is exactly what a
+			// verification script cannot make sense of.
 			if (const char* capturePath = std::getenv("FG_CAPTURE_PATH"))
 			{
-				if (!Forge::Renderer::CaptureSwapchainImage(swapchainImage, capturePath))
+				if (m_Captured)
+					(void)0;
+				else if (!Forge::Renderer::CaptureSwapchainImage(swapchainImage, capturePath))
 					FG_ERROR("Tetris: failed to capture frame to '{0}'", capturePath);
+				else
+					m_Captured = true;
 			}
 
 			Forge::Renderer::PresentSwapchainImage(swapchainImage);

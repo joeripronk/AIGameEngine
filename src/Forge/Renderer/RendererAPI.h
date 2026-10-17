@@ -31,6 +31,11 @@ namespace Forge {
 		// startup; backends that cannot present may leave it unimplemented.
 		virtual void SetupSwapchain(void* /*windowHandle*/, uint32_t /*width*/, uint32_t /*height*/) {}
 
+		// Rebuilds the backend's size-dependent render targets after the window
+		// changed size. Called on every resize, before the next frame is
+		// recorded; a backend with no size-dependent targets needs no override.
+		virtual void ResizeRenderTargets(uint32_t /*width*/, uint32_t /*height*/) {}
+
 		// Releases backend resources. Called from the renderer's shutdown path.
 		virtual void Shutdown() {}
 

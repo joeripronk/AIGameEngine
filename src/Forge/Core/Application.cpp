@@ -19,8 +19,10 @@ namespace Forge {
 		m_Window->SetEventCallback(FG_BIND_EVENT_FN(Application::OnEvent));
 
 		// Hand the native window to the renderer so it can create the Vulkan
-		// surface and presentation swapchain.
+		// surface and presentation swapchain, along with its size so every
+		// render target is created at the size the swapchain will really be.
 		Renderer::SetActiveWindowHandle(m_Window->GetNativeWindow());
+		Renderer::SetActiveWindowSize(m_Window->GetWidth(), m_Window->GetHeight());
 	}
 
 	Application::~Application()

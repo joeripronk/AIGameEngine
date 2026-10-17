@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include <cstdlib>
 #include "Forge/Renderer/Renderer.h"
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
@@ -36,6 +37,8 @@ namespace Forge {
 	ShaderLibrary Renderer::s_ShaderLibrary;
 	uint32_t Renderer::s_Width = 1920;
 	uint32_t Renderer::s_Height = 1080;
+	uint32_t Renderer::s_InitialWidth = 0;
+	uint32_t Renderer::s_InitialHeight = 0;
 	nvrhi::CommandListHandle Renderer::s_CommandList;
 	Ref<VertexArray> Renderer::s_FullscreenQuad;
 	Ref<Mesh> Renderer::s_DefaultCube;
@@ -137,16 +140,38 @@ namespace Forge {
 		// derived application.
 		if (void* windowHandle = GetActiveWindowHandle())
 		{
+			// Size the swapchain and every render target from the window rather
+			// than a constant. The swapchain clamps itself to the surface extent,
+			// so a guessed size left the offscreen targets a different size to the
+			// swapchain and each post-processing pass set a viewport and scissor
+			// larger than the attachment it drew into.
+			if (s_InitialWidth > 0 && s_InitialHeight > 0)
+			{
+				s_Width = s_InitialWidth;
+				s_Height = s_InitialHeight;
+			}
+
 			RenderCommand::GetRendererAPI()->SetupSwapchain(windowHandle, s_Width, s_Height);
 
-			// Build the PBR pipeline for the swapchain's colour format.
+			// Build the PBR pipeline for the format it actually draws into.
 			auto& swapchain = VulkanRendererAPI::GetSwapchain();
 			if (swapchain.IsValid())
 			{
+				// The swapchain may report a different extent than the one asked
+				// for; the renderer tracks that as the frame size.
 				s_Width = swapchain.GetWidth();
 				s_Height = swapchain.GetHeight();
 
-				if (!s_PbrRenderer->Initialize(swapchain.GetFormat()))
+				// The PBR pass renders into the offscreen HDR target, not into the
+				// swapchain, so the pipeline has to be built for the HDR target's
+				// format. Under dynamic rendering a pipeline whose declared colour
+				// format differs from the render pass attachment is a spec
+				// violation, and drivers are entitled to drop the draw.
+				nvrhi::Format hdrFormat = VulkanRendererAPI::GetHDRBuffer()
+					? VulkanRendererAPI::GetHDRBuffer()->getDesc().format
+					: swapchain.GetFormat();
+
+				if (!s_PbrRenderer->Initialize(hdrFormat))
 				{
 					FG_CORE_ERROR("Renderer: the PBR pipeline could not be created; scene will not be drawn");
 				}
@@ -400,6 +425,7 @@ namespace Forge {
 			drawn++;
 		}
 
+
 		// Store the inverse view-projection for SSAO.
 		s_SceneData->ViewProjectionMatrix = camera.ViewProjectionMatrix;
 
@@ -412,12 +438,38 @@ namespace Forge {
 		}
 	}
 
+	void Renderer::ApplyFrameSize(uint32_t width, uint32_t height)
+	{
+		s_Width = width;
+		s_Height = height;
+
+		// The PBR pass draws into the HDR target at its own size, and the
+		// post-processing passes set a viewport from it. Both have to follow the
+		// frame size, or the passes render into and read from targets that no
+		// longer match the framebuffer they are given.
+		if (s_PbrRenderer && s_PbrRenderer->IsValid())
+		{
+			s_PbrRenderer->SetFrameSize(width, height);
+			s_PbrRenderer->Resize(width, height);
+			s_PbrRenderer->SetHDRFramebuffer(
+				VulkanRendererAPI::GetHDRFramebuffer(),
+				VulkanRendererAPI::GetHDRBuffer(),
+				s_PbrRenderer->GetDepthTexture());
+		}
+
+		if (auto* api = RenderCommand::GetRendererAPI())
+			api->ResizeRenderTargets(width, height);
+
+		// The post-processing framebuffers were rebuilt alongside the targets.
+		s_TonemappedFramebuffer = VulkanRendererAPI::GetTonemappedFramebuffer();
+		s_SSAOFramebuffer = VulkanRendererAPI::GetSSAOFramebuffer();
+	}
+
 	void Renderer::OnWindowResize(uint32_t width, uint32_t height)
 	{
 		RenderCommand::SetViewport(0, 0, width, height);
 
-		s_Width = width;
-		s_Height = height;
+		ApplyFrameSize(width, height);
 
 		// The swapchain is created once during Init(). Subsequent resizes mark it
 		// for recreation, which AcquireSwapchainImage() performs lazily (on the
@@ -482,7 +534,15 @@ namespace Forge {
 		{
 			s_SwapchainNeedsRecreate = false;
 			if (swapchain.Recreate(s_Width, s_Height))
+			{
+				// The rebuilt swapchain clamps itself to the surface extent, so it
+				// can come back at a different size than requested. The render
+				// targets follow it, or every pass would set a viewport that does
+				// not match the attachment it draws into.
+				ApplyFrameSize(swapchain.GetWidth(), swapchain.GetHeight());
+
 				imageIndex = swapchain.AcquireNextImage();
+			}
 		}
 
 		// Store the current swapchain image index for the Final pass.
@@ -668,7 +728,6 @@ namespace Forge {
 	{
 		// Final pass is handled by BeginFinalPass / EndFinalPass pair.
 	}
-
-}
+	}
 
 #endif // FG_NO_VULKAN_RUNTIME

@@ -39,6 +39,17 @@ namespace Forge {
 		static void SetActiveWindowHandle(void* windowHandle) { s_WindowHandle = windowHandle; }
 		static void* GetActiveWindowHandle() { return s_WindowHandle; }
 
+		// The window's size, used by Init() to size every render target. It has to
+		// come from the window rather than a constant: the swapchain is clamped
+		// to the surface extent, so guessing here leaves the offscreen targets a
+		// different size to the swapchain and every post-processing pass sets a
+		// viewport/scissor larger than the attachment it draws into.
+		static void SetActiveWindowSize(uint32_t width, uint32_t height)
+		{
+			s_InitialWidth = width;
+			s_InitialHeight = height;
+		}
+
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform = glm::mat4(1.0f));
 		static void Submit(const Ref<class Shader>& shader, const Ref<class VertexArray>& vertexArray, const glm::mat4& transform, const Ref<class Texture>& albedoTexture);
 
@@ -73,6 +84,10 @@ namespace Forge {
 		static Ref<class PbrRenderer> GetPbrRenderer() { return s_PbrRenderer; }
 
 	private:
+		// Rebuilds every size-dependent resource (PBR depth/viewport, post
+		// targets) for a new frame size, then resizes the swapchain.
+		static void ApplyFrameSize(uint32_t width, uint32_t height);
+
 		struct SceneData
 		{
 			glm::mat4 ViewProjectionMatrix;
@@ -102,6 +117,10 @@ namespace Forge {
 
 		// GLFW window handle used to create the Vulkan surface and swapchain.
 		static void* s_WindowHandle;
+
+		// Window size reported by Application before Init() runs; 0 when unknown.
+		static uint32_t s_InitialWidth;
+		static uint32_t s_InitialHeight;
 
 		// Draws the scene with the PBR shader into the swapchain.
 		static Ref<class PbrRenderer> s_PbrRenderer;

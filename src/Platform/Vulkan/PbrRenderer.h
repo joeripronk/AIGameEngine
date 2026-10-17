@@ -234,6 +234,7 @@ namespace Forge {
 		std::unordered_map<const Mesh*, ObjectDraw> m_DrawCache;
 
 		nvrhi::Format m_ColorFormat = nvrhi::Format::UNKNOWN;
+
 		float m_FrameWidth = 0.0f;
 		float m_FrameHeight = 0.0f;
 
@@ -289,5 +290,4 @@ namespace Forge {
 		bool RenderIrradianceMap();
 		bool RenderPrefilterMap(uint32_t mipCount);
 	};
-
-}
+	}

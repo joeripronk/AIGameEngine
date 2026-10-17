@@ -45,6 +45,10 @@ private:
 	Forge::Entity m_PreviewRoot;
 
 	uint64_t m_FrameCount = 0;
+
+		// Set once FG_CAPTURE_PATH has been written, so the capture happens on a
+		// single frame instead of rewriting the file on every one.
+		bool m_Captured = false;
 };
 
 }  // namespace Tetris

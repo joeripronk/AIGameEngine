@@ -1,4 +1,5 @@
 #include "fgpch.h"
+#include <cstdlib>
 #include "Platform/Vulkan/PbrRenderer.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanSwapchain.h"
@@ -33,41 +34,30 @@ namespace Forge {
 
 		// nvrhi::BindingSetItem has no aggregate-friendly constructor, so build
 		// the items explicitly.
+		// Built through nvrhi's factories rather than by assigning fields by
+		// hand. BindingSetItem declares no default member initialisers, so a
+		// hand-built item leaves fields at whatever was on the stack - and an
+		// item with arrayElement 32767 does not match a layout declaring array
+		// size 1, which fails the whole binding set and silently draws nothing.
 		nvrhi::BindingSetItem MakeConstantBufferItem(nvrhi::IBuffer* buffer, uint32_t slot)
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = buffer;
-			item.slot = slot;
-			item.arrayElement = 0;
-			item.type = nvrhi::ResourceType::ConstantBuffer;
-			item.range = nvrhi::BufferRange(0, 0);   // whole buffer
-			return item;
+			return nvrhi::BindingSetItem::ConstantBuffer(slot, buffer);
 		}
 
 		nvrhi::BindingSetItem MakeTextureItem(nvrhi::ITexture* texture, uint32_t slot)
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = texture;
-			item.slot = slot;
-			item.arrayElement = 0;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
 			// The SRV must name a concrete view format; an UNKNOWN value makes
 			// nvrhi's Vulkan backend assert in convertFormat().
-			item.format = texture->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);   // base mip, 1 level, base slice, 1 slice
-			return item;
+			return nvrhi::BindingSetItem::Texture_SRV(slot, texture,
+				texture->getDesc().format,
+				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
+				nvrhi::TextureDimension::Texture2D);
 		}
 
 		nvrhi::BindingSetItem MakeSamplerItem(nvrhi::ISampler* sampler, uint32_t slot)
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = sampler;
-			item.slot = slot;
-			item.type = nvrhi::ResourceType::Sampler;
-			return item;
+			return nvrhi::BindingSetItem::Sampler(slot, sampler);
 		}
-
 	}
 
 	bool PbrRenderer::Initialize(nvrhi::Format colorFormat)
@@ -209,10 +199,17 @@ namespace Forge {
 		device->waitForIdle();
 
 		// 1x1 white fallback for the environment map.
+		//
+		// It has to be a real cube: bindings 8 and 10 declare
+		// TextureDimension::TextureCube, and nvrhi rejects a binding whose
+		// declared dimension does not match the texture's. A plain Texture2D
+		// here invalidates the whole binding set, so PBR draws nothing at all.
 		nvrhi::TextureDesc envFallbackDesc;
 		envFallbackDesc.width = 1;
 		envFallbackDesc.height = 1;
 		envFallbackDesc.format = nvrhi::Format::RGBA16_FLOAT;
+		envFallbackDesc.dimension = nvrhi::TextureDimension::TextureCube;
+		envFallbackDesc.arraySize = 6;
 		envFallbackDesc.isShaderResource = true;
 		envFallbackDesc.debugName = "PbrRenderer.EnvFallback";
 		envFallbackDesc.keepInitialState = true;
@@ -220,8 +217,12 @@ namespace Forge {
 		m_EnvMapFallback = device->createTexture(envFallbackDesc);
 
 		// ShadowMapParams uniform buffer.
+		//
+		// A constant buffer binding must be a multiple of 256 bytes. At 32 the
+		// binding is invalid and nvrhi drops it from the set, which fails the
+		// whole binding set and therefore every draw.
 		nvrhi::BufferDesc shadowParamsDesc;
-		shadowParamsDesc.byteSize = 32;
+		shadowParamsDesc.byteSize = kConstantBufferAlignment;
 		shadowParamsDesc.isConstantBuffer = true;
 		shadowParamsDesc.debugName = "PbrRenderer.ShadowParams";
 		shadowParamsDesc.keepInitialState = true;
@@ -355,6 +356,7 @@ namespace Forge {
 		uniforms.AmbientLight = glm::vec4(ambientLight, 0.0f);
 		uniforms.SSAOParams = glm::vec4(0.002f, 1.0f, 0.0f, 0.0f);
 
+
 		commandList->writeBuffer(m_CameraBuffer, &uniforms, sizeof(uniforms), 0);
 
 		// Upload ShadowMapParams (shadow map size for PCF).
@@ -444,28 +446,27 @@ namespace Forge {
 
 		// Binding 2: u_AlbedoTexture, binding 3: u_AlbedoSampler.
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = m_WhiteTexture.Get();
-			item.slot = 2;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = m_WhiteTexture->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(2, m_WhiteTexture.Get(),
+				m_WhiteTexture->getDesc().format,
+				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
+				nvrhi::TextureDimension::Texture2D));
 			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 3));
 		}
 
 		// Binding 4: u_ShadowMap, binding 5: u_ShadowSampler.
 		{
-			nvrhi::BindingSetItem item{};
 			nvrhi::ITexture* shadowTex = m_ShadowMap ? m_ShadowMap.Get() : m_ShadowTexture.Get();
-			item.resourceHandle = shadowTex;
-			item.slot = 4;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = shadowTex->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			setDesc.bindings.push_back(item);
+
+			// Built through nvrhi's factory: BindingSetItem has no default member
+			// initialisers, so a hand-built item leaves arrayElement and friends
+			// uninitialised and the set is rejected.
+			//
+			// The SRV must name a concrete view format; an UNKNOWN value makes
+			// nvrhi's Vulkan backend assert in convertFormat().
+			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(4, shadowTex,
+				shadowTex->getDesc().format,
+				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
+				nvrhi::TextureDimension::Texture2D));
 			setDesc.bindings.push_back(MakeSamplerItem(m_ShadowSampler.Get(), 5));
 		}
 
@@ -477,27 +478,19 @@ namespace Forge {
 
 		// Binding 8: u_EnvMap, binding 9: u_EnvSampler.
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = m_EnvMapFallback.Get();
-			item.slot = 8;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::TextureCube;
-			item.format = m_EnvMapFallback->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(8, m_EnvMapFallback.Get(),
+				m_EnvMapFallback->getDesc().format,
+				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
+				nvrhi::TextureDimension::TextureCube));
 			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 9));
 		}
 
 		// Binding 10: u_IrradianceMap, binding 11: u_IrradianceSampler.
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = m_IrradianceMap ? m_IrradianceMap.Get() : m_EnvMapFallback.Get();
-			item.slot = 10;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::TextureCube;
-			item.format = m_IrradianceMap ? m_IrradianceMap->getDesc().format : m_EnvMapFallback->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			setDesc.bindings.push_back(item);
+			setDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(10, m_IrradianceMap ? m_IrradianceMap.Get() : m_EnvMapFallback.Get(),
+				m_IrradianceMap ? m_IrradianceMap->getDesc().format : m_EnvMapFallback->getDesc().format,
+				nvrhi::TextureSubresourceSet(0, 1, 0, 1),
+				nvrhi::TextureDimension::TextureCube));
 			setDesc.bindings.push_back(MakeSamplerItem(m_LinearSampler.Get(), 11));
 		}
 
@@ -507,6 +500,7 @@ namespace Forge {
 			if (n < setDesc.bindings.size())
 				setDesc.bindings.erase(setDesc.bindings.begin() + n);
 		}
+
 		draw.bindingSet = device->createBindingSet(setDesc, m_FrameLayout);
 		if (!draw.bindingSet)
 		{
@@ -547,11 +541,17 @@ namespace Forge {
 		uniforms.Emissive = glm::vec4(emissive, emissiveIntensity);
 		commandList->writeBuffer(draw->objectBuffer, &uniforms, sizeof(uniforms), 0);
 
+
 		nvrhi::GraphicsState state;
 		state.framebuffer = framebuffer.Get();
 
-		// The viewport and scissor cover the whole swapchain image.
-		nvrhi::Viewport viewport(0.0f, 0.0f, m_FrameWidth, m_FrameHeight, 0.0f, 1.0f);
+		// The viewport and scissor cover the whole render target.
+		//
+		// nvrhi::Viewport's six-argument constructor is (minX, maxX, minY, maxY,
+		// minZ, maxZ) - X before Y. Passing (0, 0, width, height, ...) instead
+		// leaves the viewport zero-width, and every draw is then clipped away: a
+		// completely black frame, with nothing reported as wrong.
+		nvrhi::Viewport viewport(m_FrameWidth, m_FrameHeight);
 		state.viewport.addViewportAndScissorRect(viewport);
 
 		// The input layout is baked into the pipeline, so use the pipeline built
@@ -873,7 +873,9 @@ namespace Forge {
 		nvrhi::GraphicsState state;
 		state.framebuffer = framebuffer.Get();
 
-		nvrhi::Viewport viewport(0.0f, 0.0f, static_cast<float>(m_ShadowMapWidth), static_cast<float>(m_ShadowMapHeight), 0.0f, 1.0f);
+		// See DrawObject: the six-argument nvrhi::Viewport constructor takes
+		// (minX, maxX, minY, maxY, minZ, maxZ), not (minX, minY, width, height).
+		nvrhi::Viewport viewport(static_cast<float>(m_ShadowMapWidth), static_cast<float>(m_ShadowMapHeight));
 		state.viewport.addViewportAndScissorRect(viewport);
 
 		state.pipeline = GetShadowPipelineForLayout(draw->inputLayout.Get());
@@ -1244,7 +1246,7 @@ namespace Forge {
 			nvrhi::GraphicsState state;
 			state.framebuffer = m_IrradianceFramebuffer.Get();
 
-			nvrhi::Viewport viewport(0.0f, 0.0f, static_cast<float>(size), static_cast<float>(size), 0.0f, 1.0f);
+			nvrhi::Viewport viewport(static_cast<float>(size), static_cast<float>(size));
 			state.viewport.addViewportAndScissorRect(viewport);
 			state.pipeline = m_IrradiancePipeline.Get();
 			state.bindings.push_back(iblSet.Get());
@@ -1365,10 +1367,9 @@ namespace Forge {
 				mipFbDesc.addColorAttachment(m_PrefilterMap.Get(), subres);
 				nvrhi::FramebufferHandle mipFb = device->createFramebuffer(mipFbDesc);
 
-				nvrhi::Viewport viewport(0.0f, 0.0f,
+				nvrhi::Viewport viewport(
 					static_cast<float>(baseSize >> mip),
-					static_cast<float>(baseSize >> mip),
-					0.0f, 1.0f);
+					static_cast<float>(baseSize >> mip));
 
 				nvrhi::GraphicsState state;
 				state.framebuffer = mipFb.Get();
@@ -1424,7 +1425,6 @@ namespace Forge {
 
 		return RenderPrefilterMap(mipCount);
 	}
-
-}
+	}
 
 #endif // FG_NO_VULKAN_RUNTIME

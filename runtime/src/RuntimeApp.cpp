@@ -124,8 +124,15 @@ namespace Forge {
 						frameCount++;
 					}
 
-					// Draw the scene's meshes into the acquired swapchain image.
+					// Draw the scene's meshes into the offscreen HDR target, then run
+					// the post chain (SSAO -> tonemap -> final composite) to get it
+					// onto the acquired swapchain image. RenderScene alone only fills
+					// the HDR target, so without these the acquired image is never
+					// drawn to and the window stays black.
 					Renderer::RenderScene(m_Scene.get(), swapchainImage);
+					Renderer::BeginSSAOPass();
+					Renderer::BeginHDRPass();
+					Renderer::BeginFinalPass();
 				}
 
 				// Close and submit the frame's GPU work.

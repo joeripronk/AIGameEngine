@@ -504,11 +504,13 @@ namespace Forge {
 		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 		vkBeginCommandBuffer(commandBuffer, &beginInfo);
 
-		// Swapchain images are in the LAYOUT_UNDEFINED / PRESENT_SRC layouts
-		// between frames, so transition into TRANSFER_SRC_OPTIMAL before copying.
+		// The final pass has just rendered into this image, so it is still in
+		// COLOR_ATTACHMENT_OPTIMAL. Transitioning from LAYOUT_UNDEFINED instead
+		// would *discard* the rendered contents - the copy then read back an
+		// image the driver was free to treat as garbage.
 		VkImageMemoryBarrier barrier{};
 		barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-		barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 		barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 		barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -516,9 +518,9 @@ namespace Forge {
 		barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 		barrier.subresourceRange.levelCount = 1;
 		barrier.subresourceRange.layerCount = 1;
-		barrier.srcAccessMask = 0;
+		barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 		barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-		vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
 			VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
 		VkBufferImageCopy region{};

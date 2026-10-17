@@ -531,8 +531,17 @@ TEST_CASE("SaveScene reports failure for an unwritable path", "[serialization][s
 
 	Forge::SceneSerializer serializer(scene);
 
-	// A path whose parent directory does not exist cannot be opened.
-	REQUIRE(serializer.Serialize("test_roundtrip/no_such_directory/level.forge") == false);
+	// SceneSerializer::Serialize creates missing parent directories, so a path
+	// inside a fresh tree is writable and is not a failure case. What genuinely
+	// cannot be opened is a path *through* a regular file: create_directories
+	// cannot make a directory where a file already exists, and the open fails.
+	const std::string blocker = "test_roundtrip/not_a_directory";
+	{
+		std::ofstream out(blocker, std::ios::binary);
+		out << "this is a file, not a directory";
+	}
+
+	REQUIRE(serializer.Serialize(blocker + "/level.forge") == false);
 }
 
 TEST_CASE("SaveScene reports failure for an empty path", "[serialization][save]")
@@ -552,7 +561,17 @@ TEST_CASE("EditorContext SaveScene reports failure rather than assuming success"
 	// The context's contract is that a failed save is visible to the caller.
 	// Returning true here would tell an agent its work was saved when nothing
 	// was written.
-	REQUIRE(context.SaveScene("test_roundtrip/missing_dir/level.forge") == false);
+	//
+	// Missing parent directories are not a failure case - the serializer creates
+	// them - so this uses a path through a regular file, which cannot be
+	// created into.
+	const std::string blocker = "test_roundtrip/not_a_directory_ctx";
+	{
+		std::ofstream out(blocker, std::ios::binary);
+		out << "this is a file, not a directory";
+	}
+
+	REQUIRE(context.SaveScene(blocker + "/level.forge") == false);
 	REQUIRE(context.SaveScene("") == false);
 }
 
