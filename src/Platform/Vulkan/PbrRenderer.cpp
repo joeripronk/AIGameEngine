@@ -526,6 +526,20 @@ namespace Forge {
 		return &it->second;
 	}
 
+	void PbrRenderer::InvalidateAlbedoCache(nvrhi::ITexture* albedoTexture)
+	{
+		if (!albedoTexture)
+			return;
+
+		for (auto entry = m_DrawCache.begin(); entry != m_DrawCache.end();)
+		{
+			if (entry->first.m_AlbedoTexture == albedoTexture)
+				entry = m_DrawCache.erase(entry);
+			else
+				++entry;
+		}
+	}
+
 	void PbrRenderer::DrawObject(nvrhi::ICommandList* commandList,
 		nvrhi::FramebufferHandle framebuffer,
 		const Ref<Mesh>& mesh,

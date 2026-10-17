@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <vector>
 #include "Forge/Renderer/CpuTexture.h"
+#include "Forge/Assets/AssetWatcher.h"
 
 #include <nvrhi/vulkan.h>
 #include <nvrhi/nvrhi.h>
@@ -541,16 +542,60 @@ namespace Forge {
 
 	Ref<Texture> Renderer::GetAlbedoTexture(const std::string& path)
 	{
-		static std::unordered_map<std::string, Ref<Texture>> s_AlbedoTextureCache;
+		struct AlbedoCacheEntry
+		{
+			Ref<Texture> Albedo;
+			FileSignature Signature;
+		};
+		static std::unordered_map<std::string, AlbedoCacheEntry> s_AlbedoTextureCache;
+
+		// Hot-reload contract (the Hazel AssetManager pattern): the file is
+		// re-stat-ed per path per frame - one stat - and a size/timestamp
+		// change re-decodes and re-uploads it. A failed load is retried as
+		// soon as the file appears, and a failed reload keeps the texture that
+		// worked rather than swapping in a broken one.
+		const FileSignature current = FileSignature::ForFile(path);
 
 		auto cached = s_AlbedoTextureCache.find(path);
-		if (cached != s_AlbedoTextureCache.end())
-			return cached->second;
+		if (cached != s_AlbedoTextureCache.end() && current == cached->second.Signature)
+			return cached->second.Albedo;
+
+		const bool hadEntry = cached != s_AlbedoTextureCache.end();
+		const Ref<Texture> previous = hadEntry ? cached->second.Albedo : Ref<Texture>{};
 
 		Ref<Texture> texture = Texture::Create(path);
-		if (!texture)
+		const bool loaded = texture && texture->GetWidth() > 0;
+
+		if (!hadEntry && !loaded)
 			FG_CORE_ERROR("Renderer: failed to load PBR albedo texture '{0}'", path);
-		s_AlbedoTextureCache.emplace(path, texture);
+
+		if (hadEntry && !loaded)
+		{
+			// Keep the texture that works; record the new signature so the
+			// broken state is not re-reloaded every frame.
+			FG_CORE_WARN("Renderer: reload of PBR albedo texture '{0}' failed; keeping previous texture", path);
+			cached->second.Signature = current;
+			return cached->second.Albedo;
+		}
+
+		if (hadEntry)
+			FG_CORE_INFO("Renderer: reloaded PBR albedo texture '{0}'", path);
+
+		if (previous)
+		{
+			// The old GPU texture dies with the last reference; its cached
+			// PBR binding sets must go first, because the draw cache is keyed
+			// by the raw handle and the replacement can land at the same
+			// address.
+			auto vulkanTexture = std::dynamic_pointer_cast<VulkanTexture>(previous);
+			if (vulkanTexture && s_PbrRenderer)
+				s_PbrRenderer->InvalidateAlbedoCache(vulkanTexture->GetTextureHandle().Get());
+		}
+
+		AlbedoCacheEntry entry;
+		entry.Albedo = texture;
+		entry.Signature = current;
+		s_AlbedoTextureCache[path] = entry;
 		return texture;
 	}
 

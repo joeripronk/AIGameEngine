@@ -93,6 +93,12 @@ namespace Forge {
 			float emissiveIntensity,
 			bool fromReflectionProbe = false);
 
+		// Drops every cached draw state that binds `albedoTexture`. A hot-reload
+		// replaces the GPU texture, and the old handle is destroyed; the cached
+		// binding sets reference it and the pointer key can be reused by the
+		// replacement, so entries for a dead texture must go before it dies.
+		void InvalidateAlbedoCache(nvrhi::ITexture* albedoTexture);
+
 		// --- Real-time reflection probe ---
 		//
 		// One scene draw per cube face, from a fixed probe position, into a

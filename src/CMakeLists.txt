@@ -64,6 +64,8 @@ target_sources(ForgeCore
         Forge/Editor/Gizmo.cpp
         Forge/Assets/AssetRegistry.h
         Forge/Assets/AssetRegistry.cpp
+        Forge/Assets/AssetWatcher.h
+        Forge/Assets/AssetWatcher.cpp
         Forge/Project/GameExporter.h
         Forge/Project/GameExporter.cpp
         Forge/Physics/Physics.h

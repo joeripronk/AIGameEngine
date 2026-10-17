@@ -19,6 +19,7 @@ target_sources(ForgeTests
         src/ToolingTests.cpp
         src/RendererFeatureTests.cpp
         src/ImGuiLayerTests.cpp
+        src/AssetWatcherTests.cpp
         src/TestSceneTests.cpp
         src/RendererTests.cpp
         src/PhysicsTests.cpp
