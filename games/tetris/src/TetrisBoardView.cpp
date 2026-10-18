@@ -4,6 +4,8 @@
 
 #include "TetrisAnimation.h"
 
+#include <algorithm>
+
 #include "Forge/Core/Log.h"
 #include "Forge/Scene/Scene.h"
 
@@ -34,8 +36,9 @@ constexpr float kBlockScale = 0.92f;
 // back up the well.
 constexpr float kRespawnSnapCells = 2.5f;
 
-// Seconds for the stack above a cleared row to fall into place.
-constexpr float kStackDropSeconds = 0.11f;
+// Seconds a cleared row's blocks take to shrink away. The stack above the row
+// waits this long before it starts falling, so the row goes out first.
+constexpr float kLineClearSeconds = 0.25f;
 
 // A lock that has nowhere to travel still settles, so a landing is never a
 // pure pop.
@@ -51,6 +54,23 @@ constexpr float kMinImpactFrame = 1.0f / 120.0f;
 
 // The fastest the drop interval is allowed to mean anything.
 constexpr float kMinFallInterval = 0.05f;
+
+// The name a block answers to: the cell it sits in. A tool reading the scene by
+// name, and the tests that say what the player sees, both find a block by where
+// it is, so a block that moves has to carry this name with it.
+std::string BlockName(uint32_t col, uint32_t row)
+{
+	return "TetBlock_" + std::to_string(col) + "_" + std::to_string(row);
+}
+
+// The name of a block leaving a cleared row. A block animating out of a row and
+// the block that dropped into that same row share the row's name, and both are
+// there at the same time, so the one that is vanishing has to be findable apart
+// from the one that is arriving.
+std::string ClearingBlockName(uint32_t col, uint32_t row)
+{
+	return "TetBlockClear_" + std::to_string(col) + "_" + std::to_string(row);
+}
 
 // True when the piece's rotated blocks all sit on empty, in-bounds cells of
 // `board`. The same test the rules make, against a board the rules have
@@ -87,18 +107,27 @@ glm::ivec2 SpawnPosition(TetrominoType type, uint32_t width)
 }
 
 // The rows a clear removes, as the view has to see them: the board it was
-// given, with the piece that locked written into it, full from edge to edge.
-// The board is cleared in the same step that writes the piece, so nothing
-// outside this snapshot records that a row was ever full.
+// given, with the piece that locked written into it at the origin it came to
+// rest in, full from edge to edge. The board is cleared in the same step that
+// writes the piece, so nothing outside this snapshot records that a row was
+// ever full.
+//
+// The origin is the position the piece locked at, not the position the snapshot
+// has it in: a hard drop moves the piece all the way down and locks it there,
+// so the snapshot has it at the top of the well. Writing the piece at its
+// snapshot row asks whether the spawn row is full, which it never is, and the
+// line that was just completed goes unrecorded - no clear animation, and no
+// impact, because a lock that cleared a row and wrote nothing at its landing
+// cells reports neither.
 std::vector<uint32_t> ClearedRows(const std::vector<uint8_t>& board, const TetrisPiece& piece,
-                                  uint32_t width, uint32_t height)
+                                  glm::ivec2 landing, uint32_t width, uint32_t height)
 {
 	std::vector<uint8_t> filled = board;
 	if (piece.State == TetrisPieceState::Active)
 	{
 		for (const glm::ivec2& block : piece.Blocks)
 		{
-			const glm::ivec2 cell = piece.Position + block;
+			const glm::ivec2 cell = landing + block;
 			if (cell.x < 0 || cell.x >= static_cast<int32_t>(width) ||
 				cell.y < 0 || cell.y >= static_cast<int32_t>(height))
 				continue;
@@ -290,6 +319,7 @@ void BoardView::Update(float dt)
 	SyncBoardEntities();
 	SyncPieceEntities();
 	AdvanceMotions(dt);
+	AdvanceClearAnimations(dt);
 	TakeSnapshot();
 }
 
@@ -312,6 +342,13 @@ void BoardView::Restart()
 	// new one, and the snapshot describing the old board is now a lie.
 	DestroyPieceBlocks();
 	m_Motions.clear();
+	for (auto& [key, cb] : m_ClearingBlocks)
+	{
+		(void)key;
+		Forge::Entity entity = cb.Entity;
+		DestroyEntity(entity);
+	}
+	m_ClearingBlocks.clear();
 	m_Snapshot = Snapshot{};
 	m_LastImpact = Impact{};
 	m_LastClearedRows.clear();
@@ -336,6 +373,14 @@ void BoardView::Shutdown()
 	}
 	m_Blocks.clear();
 	m_Occupied.clear();
+
+	for (auto& [key, cb] : m_ClearingBlocks)
+	{
+		(void)key;
+		Forge::Entity entity = cb.Entity;
+		DestroyEntity(entity);
+	}
+	m_ClearingBlocks.clear();
 
 	m_Snapshot = Snapshot{};
 	m_LastImpact = Impact{};
@@ -365,6 +410,14 @@ void BoardView::DestroyPieceBlocks()
 		DestroyEntity(m_PieceBlocks[slot]);
 		m_Motions.erase(SlotKey(slot));
 	}
+}
+
+void BoardView::RenameEntity(Forge::Entity entity, const std::string& name)
+{
+	if (!entity)
+		return;
+
+	entity.GetComponent<Forge::TagComponent>().Tag = name;
 }
 
 void BoardView::SyncStateComponents()
@@ -419,10 +472,11 @@ void BoardView::SyncBoardEntities()
 	// Rows shift down by the number of cleared rows below them, so a cell key
 	// that is occupied now was written above it before the clear. Surviving
 	// rows fill the board from the first row below the lowest clear.
+	std::vector<bool> cleared(state.Height, false);
 	std::map<uint32_t, uint32_t> sourceRow;
-	if (locked && !m_LastClearedRows.empty() && m_Snapshot.Valid)
+	const bool clearing = locked && !m_LastClearedRows.empty() && m_Snapshot.Valid;
+	if (clearing)
 	{
-		std::vector<bool> cleared(state.Height, false);
 		for (uint32_t row : m_LastClearedRows)
 			if (row < state.Height)
 				cleared[row] = true;
@@ -452,6 +506,139 @@ void BoardView::SyncBoardEntities()
 		}
 	}
 
+	// A cleared row's blocks leave the cache by row, not by occupancy. They are
+	// the cells the rows above are about to fall into, so taking them out first
+	// is what keeps those keys free for the drop - and moving them out by row
+	// is what animates every block of the row, not the ones whose keys happen
+	// to be left unoccupied by the shift.
+	if (clearing)
+	{
+		for (auto it = m_Blocks.begin(); it != m_Blocks.end(); )
+		{
+			const uint32_t row = static_cast<uint32_t>(it->first >> 32);
+			const uint32_t col = static_cast<uint32_t>(it->first & 0xFFFFFFFFu);
+			if (row >= cleared.size() || !cleared[row])
+			{
+				++it;
+				continue;
+			}
+
+			const glm::vec3 cell = CellToWorld(col, row);
+
+			ClearingBlock cb;
+			cb.Entity = it->second;
+			cb.Color = it->second.GetComponent<Forge::PBRMaterialComponent>().Albedo;
+			cb.From = cell;
+			cb.To = cell;
+			cb.TravelDuration = 0.0f;
+			cb.Elapsed = 0.0f;
+			cb.Duration = kLineClearSeconds;
+
+			RenameEntity(it->second, ClearingBlockName(col, row));
+			m_ClearingBlocks[it->first] = cb;
+			m_Motions.erase(it->first);
+			it = m_Blocks.erase(it);
+		}
+	}
+
+	// Blocks are keyed by the cell they sit in, so a row that shifts down moves
+	// every block in it to a key the cache has never heard of: the entity was
+	// found under its old key, the new cell found nothing, and the stack above
+	// a cleared row arrived in one frame. The motion that measures a block
+	// against the row it was written in below can never run, because the block
+	// it looks for is never there. Relabelling the keys - destination row by
+	// destination row, from the bottom up, so a key is only ever written into
+	// after its occupant has moved - is what lets a block keep its entity and
+	// its name across the drop.
+	if (clearing)
+	{
+		for (uint32_t row = state.Height; row-- > 0; )
+		{
+			const auto src = sourceRow.find(row);
+			if (src == sourceRow.end() || src->second == row)
+				continue;
+
+			for (uint32_t col = 0; col < state.Width; ++col)
+			{
+				const auto block = m_Blocks.find(CellKey(col, src->second));
+				if (block == m_Blocks.end())
+					continue;
+
+				const uint64_t dest = CellKey(col, row);
+				Forge::Entity entity = block->second;
+
+				// The block's motion in the cache is the one that was taking it
+				// to the cell it is leaving, which the clear has just made a
+				// different cell. Carrying it over hands the block to a curve
+				// that ends at the old row, and the drop below cannot start
+				// while a motion is in flight - so the key is dropped and the
+				// block is handed to the drop from its source row.
+				m_Motions.erase(block->first);
+
+				m_Blocks.erase(block);
+				m_Blocks[dest] = entity;
+				RenameEntity(entity, BlockName(col, row));
+			}
+		}
+	}
+
+	// The blocks that completed the line are part of the line. They have no
+	// board cell to be found in - the row they filled is removed in the same
+	// step the piece locked - so neither the board nor the cache records that
+	// they were ever there. Left out, the row's old blocks fade out and the
+	// blocks the player just placed blink out in the frame the line clears:
+	// precisely the instant the player is looking at.
+	if (clearing)
+	{
+		const glm::vec3 pieceColor =
+			TetrisManager::GetTetrominoDefinition(m_Snapshot.Piece.Type).color;
+
+		for (uint32_t slot = 0; slot < 4; ++slot)
+		{
+			const glm::ivec2 cell = m_LastImpact.Landing + m_Snapshot.Piece.Blocks[slot];
+			if (cell.x < 0 || cell.x >= static_cast<int32_t>(state.Width) ||
+				cell.y < 0 || cell.y >= static_cast<int32_t>(state.Height))
+				continue;
+
+			const uint32_t row = static_cast<uint32_t>(cell.y);
+			const uint32_t col = static_cast<uint32_t>(cell.x);
+			if (row >= cleared.size() || !cleared[row])
+				continue;
+
+			const uint64_t key = CellKey(col, row);
+			if (m_ClearingBlocks.count(key) != 0)
+				continue;  // that cell already has a block leaving it
+
+			const glm::vec3 from = m_Snapshot.SlotPosition[slot];
+			const glm::vec3 target = CellToWorld(col, row);
+
+			Forge::Entity entity = m_Scene->CreateEntity(ClearingBlockName(col, row));
+			auto& transform = entity.GetComponent<Forge::TransformComponent>();
+			transform.Translation = from;
+			transform.Scale = glm::vec3(kBlockScale);
+
+			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
+			material.Albedo = pieceColor;
+			material.Metallic = kBlockMetallic;
+			material.Roughness = kBlockRoughness;
+			material.AO = 1.0f;
+			material.Emissive = pieceColor;
+			material.EmissiveIntensity = kBlockEmissiveIntensity;
+
+			entity.AddComponent<Forge::MeshComponent>().ModelPath = m_BlockMeshPath;
+
+			ClearingBlock cb;
+			cb.Entity = entity;
+			cb.Color = pieceColor;
+			cb.From = from;
+			cb.To = target;
+			cb.TravelDuration = StrikeDuration(m_LastImpact.Rows);
+			cb.Elapsed = 0.0f;
+			cb.Duration = kLineClearSeconds;
+			m_ClearingBlocks[key] = cb;
+		}
+	}
+
 	// Locked cells, coloured by the piece that filled them.
 	for (uint32_t row = 0; row < state.Height; ++row)
 	{
@@ -467,7 +654,7 @@ void BoardView::SyncBoardEntities()
 
 			const auto pieceType = static_cast<TetrominoType>(type);
 			const glm::vec3 color = TetrisManager::GetTetrominoDefinition(pieceType).color;
-			const char* texture = GetBlockTexture(pieceType);
+		
 			const uint64_t key = CellKey(col, row);
 			m_Occupied[key] = color;
 
@@ -501,7 +688,7 @@ void BoardView::SyncBoardEntities()
 						duration = kSettleSeconds;
 				}
 
-				Forge::Entity entity = m_Scene->CreateEntity("TetBlock_" + std::to_string(col) + "_" + std::to_string(row));
+				Forge::Entity entity = m_Scene->CreateEntity(BlockName(col, row));
 				// CreateEntity already supplies a TransformComponent; setting it is
 				// not adding a second one.
 				auto& transform = entity.GetComponent<Forge::TransformComponent>();
@@ -509,11 +696,10 @@ void BoardView::SyncBoardEntities()
 				transform.Scale = glm::vec3(kBlockScale);
 
 				auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
-				material.Albedo = kBlockAlbedo;
+				material.Albedo = color;
 				material.Metallic = kBlockMetallic;
 				material.Roughness = kBlockRoughness;
 				material.AO = 1.0f;
-				material.AlbedoTexturePath = texture;
 				material.Emissive = color;
 				material.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -521,7 +707,7 @@ void BoardView::SyncBoardEntities()
 
 				m_Blocks.emplace(key, entity);
 				if (duration > 0.0f)
-					m_Motions[key] = Motion{ from, target, 0.0f, duration, Curve::Strike };
+					m_Motions[key] = Motion{ from, target, 0.0f, duration, Curve::Strike, 0.0f };
 				continue;
 			}
 
@@ -531,11 +717,10 @@ void BoardView::SyncBoardEntities()
 			// anything not reassigned here is whatever the cell used to be. That
 			// gap was invisible while every block shared one map.
 			auto& cachedMaterial = cached->second.GetComponent<Forge::PBRMaterialComponent>();
-			cachedMaterial.Albedo = kBlockAlbedo;
+			cachedMaterial.Albedo = color;
 			cachedMaterial.Metallic = kBlockMetallic;
 			cachedMaterial.Roughness = kBlockRoughness;
 			cachedMaterial.AO = 1.0f;
-			cachedMaterial.AlbedoTexturePath = texture;
 			cachedMaterial.Emissive = color;
 			cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -550,7 +735,16 @@ void BoardView::SyncBoardEntities()
 				if (sourceIndex < m_Snapshot.Board.size() &&
 					m_Snapshot.Board[sourceIndex] == state.Board[index])
 				{
-					m_Motions[key] = Motion{ CellToWorld(col, source->second), target, 0.0f, kStackDropSeconds, Curve::Slide };
+					// The stack cannot start falling while the row it falls
+					// into is still animating away: a block sliding through a
+					// shrinking row is two animations in one cell, and the
+					// clear reads as the stack moving through a fading wall.
+					// The drop waits for the row to go, and a row that falls
+					// two cells buys its time the way a block moving two cells
+					// always has.
+					m_Motions[key] = Motion{ CellToWorld(col, source->second), target, 0.0f,
+						SlideDuration(static_cast<float>(row - source->second)), Curve::Slide,
+						kLineClearSeconds };
 					continue;
 				}
 			}
@@ -561,7 +755,10 @@ void BoardView::SyncBoardEntities()
 
 	// Anything the board no longer holds has to go. Skipping this leaves a
 	// block standing at every cell the piece has ever visited, so the board
-	// fills with ghosts of its own history and never appears to clear.
+	// fills with ghosts of its own history and never appears to clear. The
+	// blocks of a cleared row left the cache by row at the start of this
+	// function, so whatever is in the cache and not on the board now is a
+	// block that is not there any more.
 	for (auto it = m_Blocks.begin(); it != m_Blocks.end(); )
 	{
 		if (m_Occupied.count(it->first) != 0)
@@ -592,7 +789,7 @@ void BoardView::SyncPieceEntities()
 
 	const auto pieceType = state.CurrentPiece.Type;
 	const glm::vec3 color = TetrisManager::GetTetrominoDefinition(pieceType).color;
-	const char* texture = GetBlockTexture(pieceType);
+
 
 	// A downward step is the piece falling, not the player moving it: a fall is
 	// drawn at the rate the rules are falling, so the block glides cell after
@@ -622,11 +819,10 @@ void BoardView::SyncPieceEntities()
 			transform.Scale = glm::vec3(kBlockScale);
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
-			material.Albedo = kBlockAlbedo;
+			material.Albedo = color;
 			material.Metallic = kBlockMetallic;
 			material.Roughness = kBlockRoughness;
 			material.AO = 1.0f;
-			material.AlbedoTexturePath = texture;
 			material.Emissive = color;
 			material.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -641,11 +837,10 @@ void BoardView::SyncPieceEntities()
 		// to follow the type: without this a block keeps the previous piece's
 		// tile right up until it locks and the board copies it.
 		auto& cachedMaterial = m_PieceBlocks[slot].GetComponent<Forge::PBRMaterialComponent>();
-		cachedMaterial.Albedo = kBlockAlbedo;
+		cachedMaterial.Albedo = color;
 		cachedMaterial.Metallic = kBlockMetallic;
 		cachedMaterial.Roughness = kBlockRoughness;
 		cachedMaterial.AO = 1.0f;
-		cachedMaterial.AlbedoTexturePath = texture;
 		cachedMaterial.Emissive = color;
 		cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -681,7 +876,13 @@ void BoardView::AdvanceMotions(float dt)
 		Motion& motion = it->second;
 		motion.Elapsed += dt;
 
-		const float t = motion.Duration > 0.0f ? Clamp01(motion.Elapsed / motion.Duration) : 1.0f;
+		// A delayed motion leaves the block where it started: the stack above a
+		// cleared row stands on the row it was drawn on last frame while the
+		// row shrinks, so the wait is not a jump.
+		const float local = motion.Elapsed - motion.Delay;
+		const float t = local <= 0.0f
+			? 0.0f
+			: (motion.Duration > 0.0f ? Clamp01(local / motion.Duration) : 1.0f);
 		const float eased = motion.CurveType == Curve::Strike
 			? StrikeEase(t)
 			: (motion.CurveType == Curve::Glide ? GlideRate(t) : EaseInOut(t));
@@ -707,7 +908,7 @@ void BoardView::AdvanceMotions(float dt)
 		if (entity && *entity)
 			entity->GetComponent<Forge::TransformComponent>().Translation = position;
 
-		if (t >= 1.0f)
+		if (motion.Elapsed >= motion.Delay + motion.Duration)
 			it = m_Motions.erase(it);
 		else
 			++it;
@@ -750,7 +951,7 @@ void BoardView::DetectImpact(float dt)
 		++landing.y;
 	const float rows = static_cast<float>(landing.y - previous.Position.y);
 
-	m_LastClearedRows = ClearedRows(m_Snapshot.Board, previous, state.Width, state.Height);
+	m_LastClearedRows = ClearedRows(m_Snapshot.Board, previous, landing, state.Width, state.Height);
 
 	// A lock writes the piece's blocks, at the position it came to rest in,
 	// into the board - or the row it filled is gone in the same step. A move
@@ -783,7 +984,53 @@ void BoardView::DetectImpact(float dt)
 		? rows / frame
 		: 1.0f / std::max(state.PieceDropInterval, kMinFallInterval);
 
-	m_LastImpact = Impact{ true, rows, speed, landing };
+	m_LastImpact = Impact{ true, rows, speed, static_cast<int>(m_LastClearedRows.size()),
+		static_cast<int>(m_LastClearedRows.size()), landing };
+}
+
+void BoardView::AdvanceClearAnimations(float dt)
+{
+	for (auto it = m_ClearingBlocks.begin(); it != m_ClearingBlocks.end(); )
+	{
+		ClearingBlock& cb = it->second;
+		cb.Elapsed += dt;
+
+		// One clock, two phases: a block that completed the line travels from
+		// where the piece drew it into the row it filled, and only then does
+		// the row go. A block already in the row travels nowhere, so the clear
+		// starts at once.
+		const float travel = cb.TravelDuration > 0.0f
+			? Clamp01(cb.Elapsed / cb.TravelDuration)
+			: 1.0f;
+		const float clear = cb.Duration > 0.0f
+			? Clamp01((cb.Elapsed - cb.TravelDuration) / cb.Duration)
+			: 1.0f;
+
+		if (cb.Entity)
+		{
+			auto& transform = cb.Entity.GetComponent<Forge::TransformComponent>();
+			transform.Translation = glm::mix(cb.From, cb.To, StrikeEase(travel));
+			transform.Scale = glm::vec3(kBlockScale * (1.0f - clear));
+
+			// The row lights up as it goes out. The flash lives on the
+			// emissive term, because pbr.frag multiplies albedo into the
+			// texture and adds emissive - a white albedo would wash the tile
+			// out, and the tile is the block's surface.
+			auto& material = cb.Entity.GetComponent<Forge::PBRMaterialComponent>();
+			material.Emissive = FlashTowardWhite(cb.Color, clear);
+		}
+
+		if (cb.Elapsed >= cb.TravelDuration + cb.Duration)
+		{
+			Forge::Entity entity = cb.Entity;
+			DestroyEntity(entity);
+			it = m_ClearingBlocks.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
 }
 
 void BoardView::TakeSnapshot()

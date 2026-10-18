@@ -192,7 +192,7 @@ TEST_CASE("DecomposeTransform round-trips a composed transform", "[math]")
 
     const glm::mat4 composed = transform.GetTransform();
 
-    glm::vec3 translation, rotation, scale;
+    glm::vec3 translation{0.0f}, rotation{0.0f}, scale{0.0f};
     REQUIRE(Forge::Math::DecomposeTransform(composed, translation, rotation, scale));
 
     REQUIRE(translation.x == Approx(1.0f));
@@ -223,7 +223,7 @@ TEST_CASE("DecomposeTransform recovers scale", "[math]")
     transform.Rotation = { 0.0f, 0.0f, 0.0f };
     transform.Scale = { 2.0f, 3.0f, 4.0f };
 
-    glm::vec3 translation, rotation, scale;
+    glm::vec3 translation{0.0f}, rotation{0.0f}, scale{0.0f};
     REQUIRE(Forge::Math::DecomposeTransform(transform.GetTransform(), translation, rotation, scale));
 
     REQUIRE(translation.x == Approx(4.0f));
@@ -239,6 +239,6 @@ TEST_CASE("DecomposeTransform rejects a degenerate matrix", "[math]")
     glm::mat4 degenerate = glm::mat4(1.0f);
     degenerate[3][3] = 0.0f;
 
-    glm::vec3 translation, rotation, scale;
+    glm::vec3 translation{0.0f}, rotation{0.0f}, scale{0.0f};
     REQUIRE_FALSE(Forge::Math::DecomposeTransform(degenerate, translation, rotation, scale));
 }

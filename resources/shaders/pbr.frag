@@ -122,6 +122,8 @@ float SampleShadow(vec3 worldPosition, vec3 normal, float ndotl)
     if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
         return 1.0;
 
+
+
     float bias = u_Shadow.u_ShadowBias.y * (1.0 + slope);
 
     vec2 texel = 1.0 / u_Shadow.u_ShadowMapSize;
@@ -138,14 +140,17 @@ float SampleShadow(vec3 worldPosition, vec3 normal, float ndotl)
 }
 
 // IBL: Sample the environment map for specular reflections.
-vec3 SampleEnvSpecular(vec3 R, float roughness)
+//
+// The engine's cube maps carry a single mip level, so LOD 0 is the only level
+// that exists: asking for 1..6 samples texels that are not there, which Vulkan
+// leaves undefined and which shows up as a patch of someone else's texture.
+// The roughness response that a prefiltered chain would have given is instead
+// expressed as the blend toward the diffuse limit: a rough surface's reflection
+// approaches its irradiance.
+vec3 SampleEnvSpecular(vec3 R, float roughness, vec3 irradianceAtR)
 {
-    // Use the roughness to select the mip level for the environment map.
-    float mipLevel = roughness * (6.0 - 1.0) + 1.0;
-    mipLevel = clamp(mipLevel, 1.0, 6.0);
-
-    vec3 envColor = texture(samplerCube(u_EnvMap, u_EnvSampler), R, mipLevel).rgb;
-    return envColor;
+    vec3 sharp = texture(samplerCube(u_EnvMap, u_EnvSampler), R).rgb;
+    return mix(sharp, irradianceAtR, roughness);
 }
 
 void main()
@@ -180,7 +185,8 @@ void main()
 
     // IBL specular contribution.
     vec3 R = reflect(-V, N);
-    vec3 envSpecular = SampleEnvSpecular(R, roughness);
+    vec3 irradianceAtR = texture(samplerCube(u_IrradianceMap, u_IrradianceSampler), R).rgb;
+    vec3 envSpecular = SampleEnvSpecular(R, roughness, irradianceAtR);
     vec3 envSpecularContrib = envSpecular * F;
 
     vec3 radiance = (diffuse + specular) * u_Camera.u_LightColor.rgb * u_Camera.u_LightColor.a;

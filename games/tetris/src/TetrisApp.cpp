@@ -76,8 +76,14 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 	// Mirror-polish the blocks: redraw the scene from the playfield centre into
 	// a cubemap each frame so the metal surfaces reflect the well, the border
 	// and the block stack. A missing device just means unreflected blocks.
+	//
+	// The probe must not sit inside the playfield: a probe 1.2 units in front of
+	// the centre block captures a close-up of that block, and the block then
+	// reflects itself as a saturated patch of "texture" - the stray tile. Place
+	// it behind the camera instead, so it samples the scene from the viewer's
+	// side rather than from inside the well.
 	if (Forge::Renderer::EnableReflectionProbe())
-		Forge::Renderer::SetReflectionProbePosition(BoardView::BoardCentre() + glm::vec3(0.0f, 0.0f, 1.2f));
+		Forge::Renderer::SetReflectionProbePosition(BoardView::BoardCentre() + glm::vec3(0.0f, 0.0f, 6.0f));
 
 	if (!ParseCommandLineMode(args))
 	{
@@ -260,14 +266,17 @@ void TetrisApp::ApplyViewLayout()
 	auto& lightComponent = m_LightEntity.GetComponent<Forge::LightComponent>();
 	if (m_ThreeDimensional)
 	{
-		lightComponent.Intensity = 1.65f;
-		lightComponent.Direction = glm::normalize(glm::vec3(0.45f, 0.45f, 0.75f));
+		lightComponent.Intensity = 2.2f;
+		lightComponent.Direction = glm::normalize(glm::vec3(0.6f, 0.5f, 0.6f));
 	}
 	else
 	{
 		lightComponent.Intensity = 1.25f;
 		lightComponent.Direction = glm::normalize(glm::vec3(0.20f, 0.20f, 0.95f));
 	}
+	// DIAGNOSTIC ONLY: FG_LIGHT_SCALE scales the key light.
+	if (const char* v = std::getenv("FG_LIGHT_SCALE"))
+		lightComponent.Intensity *= std::atof(v);
 }
 
 void TetrisApp::CreateDecor()
@@ -422,7 +431,7 @@ void TetrisApp::SyncPreview()
 	// previews tells the player nothing.
 	const glm::vec3 previewColour =
 		visible ? TetrisManager::GetTetrominoDefinition(shown).color : glm::vec3(0.0f);
-	const char* previewTexture = GetBlockTexture(shown);
+
 
 	glm::vec3 local[4];
 	if (visible)
@@ -455,11 +464,11 @@ void TetrisApp::SyncPreview()
 			transform.Scale = glm::vec3(kPreviewBlockScale);
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
-			material.Albedo = kBlockAlbedo;
+			material.Albedo = previewColour;
 			material.Metallic = kBlockMetallic;
 			material.Roughness = kBlockRoughness;
 			material.AO = 1.0f;
-			material.AlbedoTexturePath = previewTexture;
+
 			material.Emissive = previewColour;
 			material.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -476,11 +485,11 @@ void TetrisApp::SyncPreview()
 			cached->second.GetComponent<Forge::TransformComponent>().Translation = offset;
 
 			auto& cachedMaterial = cached->second.GetComponent<Forge::PBRMaterialComponent>();
-			cachedMaterial.Albedo = kBlockAlbedo;
+			cachedMaterial.Albedo = previewColour;
 			cachedMaterial.Metallic = kBlockMetallic;
 			cachedMaterial.Roughness = kBlockRoughness;
 			cachedMaterial.AO = 1.0f;
-			cachedMaterial.AlbedoTexturePath = previewTexture;
+
 			cachedMaterial.Emissive = previewColour;
 			cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 		}
@@ -490,14 +499,21 @@ void TetrisApp::SyncPreview()
 void TetrisApp::ApplyImpactShake(float dt)
 {
 	const BoardView::Impact impact = m_BoardView.GetLastImpact();
-	if (impact.Occurred)
+	const int clearedLines = static_cast<int>(m_BoardView.GetLastClearedRows().size());
+	const bool lineCleared = clearedLines > 0;
+
+	if (impact.Occurred || lineCleared)
 	{
-		const float amplitude = ShakeAmplitudeForSpeed(impact.Speed, kShakeMaxAmplitude);
+		const int lines = impact.Occurred ? impact.LinesCleared : clearedLines;
+		const int totalLines = lines > 0 ? lines : clearedLines;
+		const float speed = impact.Occurred ? impact.Speed : 0.0f;
+		const float amplitude = ShakeAmplitudeForClear(totalLines, speed, kShakeMaxAmplitude);
 		if (amplitude > m_ShakeAmplitude)
 		{
 			// A harder landing takes over a softer one, and the rumble starts
 			// at the impact rather than continuing whatever swing the camera
-			// happened to be mid-way through.
+			// happened to be mid-way through. Line clears shake too, harder
+			// with more lines and with how fast the blocks were moving.
 			m_ShakeAmplitude = amplitude;
 			m_ShakePhase = 0.0f;
 		}
@@ -545,6 +561,9 @@ void TetrisApp::Run()
 			autoExitFrames = static_cast<uint64_t>(parsed);
 	}
 
+	// DIAGNOSTIC ONLY: fill the board so a capture shows every tile at once.
+	// Applied after the first Update, because StartGame() clears the board.
+
 	while (IsRunning())
 	{
 		FG_PROFILE_SCOPE("Frame");
@@ -554,6 +573,99 @@ void TetrisApp::Run()
 
 		// Advance the game and mirror it into the scene before anything draws.
 		m_BoardView.Update(frameTime);
+
+		// DIAGNOSTIC ONLY: fill the board so a capture shows every tile at once.
+		// Seeded after an Update so StartGame() has already cleared the board.
+		if (std::getenv("FG_SEED_BOARD") && m_FrameCount == 0)
+		{
+			const int rows = std::getenv("FG_SEED_ROWS") ? std::atoi(std::getenv("FG_SEED_ROWS")) : 6;
+			TetrisGameState& seeded = m_BoardView.GetManager().GetState();
+			for (uint32_t row = 0; row < static_cast<uint32_t>(rows); ++row)
+				for (uint32_t col = 0; col < seeded.Width; ++col)
+					seeded.Board[row * seeded.Width + col] =
+						static_cast<uint8_t>((row + col) % 7 + 1);
+			m_BoardView.Update(frameTime);
+		}
+		// DIAGNOSTIC ONLY: FG_ALL_TEX=<path> gives every board block the same
+		// tile, so a capture separates "the UVs do not address the tile" from
+		// "the tile is sampled and the lighting flattens it".
+		if (const char* allTex = std::getenv("FG_ALL_TEX"))
+		{
+			if (m_FrameCount == 0)
+			{
+				for (auto handle : m_Scene->GetAllEntitiesWith<Forge::TagComponent, Forge::PBRMaterialComponent>())
+				{
+					Forge::Entity entity(handle, m_Scene.get());
+					const std::string tag = entity.GetComponent<Forge::TagComponent>().Tag;
+					if (tag.rfind("TetBlock_", 0) != 0)
+						continue;
+					entity.GetComponent<Forge::PBRMaterialComponent>().AlbedoTexturePath = allTex;
+				}
+			}
+		}
+		// DIAGNOSTIC ONLY: strip every albedo path, so a capture separates "the
+		// tile is not bound" from "the tile is bound and the lighting drowns it".
+		if (std::getenv("FG_NO_TEX") && m_FrameCount == 0)
+		{
+			for (auto handle : m_Scene->GetAllEntitiesWith<Forge::PBRMaterialComponent>())
+			{
+				Forge::Entity entity(handle, m_Scene.get());
+				entity.GetComponent<Forge::PBRMaterialComponent>().AlbedoTexturePath.clear();
+			}
+		}
+		// DIAGNOSTIC ONLY: paint every board cell with a unique flat colour so
+		// the frame becomes a map from screen position to grid cell.
+		if (std::getenv("FG_COLOR_CELLS") && m_FrameCount == 0)
+		{
+			auto hsv = [](float h, float s, float v) {
+				const float i = std::floor(h * 6.0f);
+				const float f = h * 6.0f - i;
+				const float p = v * (1.0f - s), q = v * (1.0f - f * s), t = v * (1.0f - (1.0f - f) * s);
+				switch (static_cast<int>(i) % 6)
+				{
+				case 0: return glm::vec3(v, t, p);
+				case 1: return glm::vec3(q, v, p);
+				case 2: return glm::vec3(p, v, t);
+				case 3: return glm::vec3(p, q, v);
+				case 4: return glm::vec3(t, p, v);
+				default: return glm::vec3(v, p, q);
+				}
+			};
+			for (auto handle : m_Scene->GetAllEntitiesWith<Forge::TagComponent, Forge::PBRMaterialComponent>())
+			{
+				Forge::Entity entity(handle, m_Scene.get());
+				const std::string tag = entity.GetComponent<Forge::TagComponent>().Tag;
+				int a = -1, b = -1;
+				if (std::sscanf(tag.c_str(), "TetBlock_%d_%d", &a, &b) != 2)
+					continue;
+				auto& material = entity.GetComponent<Forge::PBRMaterialComponent>();
+				const float hue = static_cast<float>((a * 10 + b) % 20) / 20.0f;
+				material.AlbedoTexturePath.clear();
+				material.Albedo = hsv(hue, 1.0f, 1.0f);
+				material.Metallic = 0.0f;
+				material.EmissiveIntensity = 0.0f;
+			}
+		}
+		if (m_FrameCount == 0)
+		{
+			const bool noEmit = []() { const char* v = std::getenv("FG_NO_EMIT"); return v && v[0] == '1'; }();
+			const bool noMetal = []() { const char* v = std::getenv("FG_NO_METAL"); return v && v[0] == '1'; }();
+			const bool flatMetal = []() { const char* v = std::getenv("FG_FLAT_METAL"); return v && v[0] == '1'; }();
+			if (noEmit || noMetal || flatMetal)
+			{
+				for (auto handle : m_Scene->GetAllEntitiesWith<Forge::PBRMaterialComponent>())
+				{
+					Forge::Entity entity(handle, m_Scene.get());
+					auto& material = entity.GetComponent<Forge::PBRMaterialComponent>();
+					if (noEmit)
+						material.EmissiveIntensity = 0.0f;
+					if (noMetal)
+						material.Metallic = 0.0f;
+					if (flatMetal)
+						material.Roughness = 1.0f;
+				}
+			}
+		}
 		// The landing animation is written onto the scene by the view; the
 		// camera answers to the same impact, so the strike and the shake are
 		// two readings of one event rather than two events.
@@ -574,7 +686,17 @@ void TetrisApp::Run()
 			// actually reaches the swapchain image. Without it the window stays
 			// black no matter what the scene contains.
 			Forge::Renderer::RenderScene(m_Scene.get(), swapchainImage);
-			Forge::Renderer::BeginSSAOPass();
+			// DIAGNOSTIC ONLY: report what the draw loop actually bound.
+			if (std::getenv("FG_STATS"))
+			{
+				const Forge::RendererStatistics stats = Forge::Renderer::GetStatistics();
+				FG_INFO("Tetris DIAG frame {0}: draws={1} tris={2} texturesBound={3} culled={4}",
+					m_FrameCount, stats.DrawCalls3D, stats.TrianglesSubmitted, stats.TexturesBound,
+					stats.FrustumCulled);
+			}
+			// DIAGNOSTIC ONLY: FG_NO_SSAO skips the SSAO pass.
+			if (![]() { const char* v = std::getenv("FG_NO_SSAO"); return v && v[0] == '1'; }())
+				Forge::Renderer::BeginSSAOPass();
 			Forge::Renderer::BeginBloomPass();
 			Forge::Renderer::BeginHDRPass();
 			Forge::Renderer::BeginFinalPass();
@@ -600,8 +722,13 @@ void TetrisApp::Run()
 			// verification script cannot make sense of.
 			if (const char* capturePath = std::getenv("FG_CAPTURE_PATH"))
 			{
+				const long long want = std::getenv("FG_CAPTURE_FRAME")
+					? std::atoll(std::getenv("FG_CAPTURE_FRAME"))
+					: 1LL;
 				if (m_Captured)
-					(void)0;
+					(void)0;  // one capture per run: see the comment above
+				else if (static_cast<long long>(m_FrameCount) + 1 < want)
+					(void)0;  // DIAGNOSTIC ONLY: capture a later frame
 				else if (!Forge::Renderer::CaptureSwapchainImage(swapchainImage, capturePath))
 					FG_ERROR("Tetris: failed to capture frame to '{0}'", capturePath);
 				else

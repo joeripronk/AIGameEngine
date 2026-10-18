@@ -208,6 +208,30 @@ namespace Forge {
 		envFallbackDesc.initialState = nvrhi::ResourceStates::ShaderResource;
 		m_EnvMapFallback = device->createTexture(envFallbackDesc);
 
+		// ... and it has to be *filled*. A texture that is created and never
+		// written contains whatever the driver handed out, and this one is bound
+		// as the environment for every probe draw and for every draw when no probe
+		// exists - so an uninitialised fallback makes the specular term read
+		// undefined texels, which shows up as a saturated patch of "texture" on
+		// whichever surface samples it. Black is the defined value that means
+		// what the fallback is for: there is no environment to reflect.
+		if (m_EnvMapFallback)
+		{
+			// RGBA16_FLOAT: 4 channels x 2 bytes = 8 bytes per texel. One texel
+			// per face (1x1) and six faces -> 48 bytes of defined zeros.
+			const uint32_t envSlices = std::max(1u, m_EnvMapFallback->getDesc().arraySize);
+			const size_t sliceBytes = 8;
+			std::vector<uint8_t> envBlack(sliceBytes * envSlices, 0);
+
+			nvrhi::CommandListHandle envUpload = device->createCommandList();
+			envUpload->open();
+			envUpload->writeTexture(m_EnvMapFallback, 0, 0, envBlack.data(),
+				sliceBytes, sliceBytes);
+			envUpload->close();
+			device->executeCommandList(envUpload.Get());
+			device->waitForIdle();
+		}
+
 		// ShadowMapParams uniform buffer.
 		//
 		// A constant buffer binding must be a multiple of 256 bytes. At 32 the
@@ -302,6 +326,15 @@ namespace Forge {
 		if (m_DepthTexture && m_DepthWidth == width && m_DepthHeight == height)
 			return true;
 
+		// `isRenderTarget` is what asks nvrhi for an attachment usage at all, and
+		// for a depth format it resolves to DEPTH_STENCIL_ATTACHMENT (see
+		// nvrhi's pickImageUsage). The *layout* is chosen by the state name, and
+		// ResourceStates::RenderTarget is COLOR_ATTACHMENT_OPTIMAL - which the
+		// driver rejects for a depth image, every frame: "newLayout
+		// (COLOR_ATTACHMENT_OPTIMAL) is not compatible with VkImage ...
+		// DEPTH_STENCIL_ATTACHMENT_BIT". A rejected barrier leaves the depth
+		// buffer in a layout nothing established, so the pass reads depth the
+		// driver never wrote. DepthWrite is the layout a depth attachment lives in.
 		nvrhi::TextureDesc depthDesc;
 		depthDesc.width = width;
 		depthDesc.height = height;
@@ -309,7 +342,7 @@ namespace Forge {
 		depthDesc.isRenderTarget = true;
 		depthDesc.debugName = "PbrRenderer.Depth";
 		depthDesc.keepInitialState = true;
-		depthDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		depthDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::DepthRead;
 
 		m_DepthTexture = device->createTexture(depthDesc);
 		m_DepthWidth = width;
@@ -688,7 +721,7 @@ namespace Forge {
 		depthDesc.format = nvrhi::Format::D32;
 		depthDesc.isRenderTarget = true;
 		depthDesc.keepInitialState = true;
-		depthDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		depthDesc.initialState = nvrhi::ResourceStates::DepthWrite;
 		depthDesc.debugName = "PbrRenderer.ReflectionProbeDepth";
 		m_ReflectionDepth = device->createTexture(depthDesc);
 		if (!m_ReflectionDepth)
@@ -781,6 +814,9 @@ namespace Forge {
 		if (!device || width == 0 || height == 0)
 			return false;
 
+		// Depth, not colour: see the note on PbrRenderer.Depth. The shadow map is
+		// also sampled, so it keeps a shader-resource usage and nvrhi inserts the
+		// DepthWrite -> ShaderResource transition itself.
 		nvrhi::TextureDesc shadowDesc;
 		shadowDesc.width = width;
 		shadowDesc.height = height;
@@ -789,7 +825,7 @@ namespace Forge {
 		shadowDesc.isShaderResource = true;
 		shadowDesc.debugName = "PbrRenderer.ShadowMap";
 		shadowDesc.keepInitialState = true;
-		shadowDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		shadowDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::DepthRead;
 
 		m_ShadowMap = device->createTexture(shadowDesc);
 		if (!m_ShadowMap)
@@ -1092,6 +1128,9 @@ namespace Forge {
 		if (m_ShadowMap && m_ShadowMapWidth == width && m_ShadowMapHeight == height)
 			return true;
 
+		// Depth, not colour: see the note on PbrRenderer.Depth. The shadow map is
+		// also sampled, so it keeps a shader-resource usage and nvrhi inserts the
+		// DepthWrite -> ShaderResource transition itself.
 		nvrhi::TextureDesc shadowDesc;
 		shadowDesc.width = width;
 		shadowDesc.height = height;
@@ -1100,7 +1139,7 @@ namespace Forge {
 		shadowDesc.isShaderResource = true;
 		shadowDesc.debugName = "PbrRenderer.ShadowMap";
 		shadowDesc.keepInitialState = true;
-		shadowDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+		shadowDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::DepthRead;
 
 		m_ShadowMap = device->createTexture(shadowDesc);
 		if (!m_ShadowMap)

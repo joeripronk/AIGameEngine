@@ -120,6 +120,11 @@ TEST_CASE("Clearing a line removes the blocks that filled it", "[tetris][view]")
 	fixture.view.GetManager().ClearLines();
 	fixture.view.Update(0.0f);
 
+	// The row is animating away: its blocks shrink over a short window rather
+	// than vanishing in one frame.
+	for (int i = 0; i < 120; ++i)
+		fixture.view.Update(1.0f / 60.0f);
+
 	// The row is gone, so its ten entities have to be gone with it. Leaving them
 	// behind is how a board fills up with the ghost of every cell ever visited.
 	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_0_19"));
@@ -402,26 +407,7 @@ void FillCell(BoardView& view, uint32_t col, uint32_t row, TetrominoType type)
 
 }  // namespace
 
-TEST_CASE("The theme gives every tetromino its own surface", "[tetris][view][theme]")
-{
-	std::set<std::string> seen;
-	for (uint8_t i = 0; i < static_cast<uint8_t>(TetrominoType::Count); ++i)
-	{
-		const char* texture = GetBlockTexture(static_cast<TetrominoType>(i));
-		REQUIRE(texture != nullptr);
-		// A path the engine can actually open, and one per piece: seven pieces
-		// sharing two surfaces is six pieces that are not distinguishable.
-		REQUIRE(std::string(texture).rfind("resources/textures/tetris/block_", 0) == 0);
-		REQUIRE(seen.insert(texture).second == true);
-	}
-
-	// Out of range answers with a surface, not with a read past the end of the
-	// table. `TetrominoType::Count` is a real value - an unassigned piece.
-	REQUIRE(std::string(GetBlockTexture(TetrominoType::Count)) ==
-			std::string(GetBlockTexture(TetrominoType::I)));
-}
-
-TEST_CASE("A locked block is drawn in the surface of the piece that filled it",
+TEST_CASE("A locked block is drawn in the colour of the piece that filled it",
 	"[tetris][view][theme]")
 {
 	RunningView fixture;
@@ -439,8 +425,7 @@ TEST_CASE("A locked block is drawn in the surface of the piece that filled it",
 		const std::string name = "TetBlock_" + std::to_string(col) + "_19";
 		const auto& material = BlockMaterial(*fixture.scene, name);
 
-		REQUIRE(material.AlbedoTexturePath == GetBlockTexture(pieces[col]));
-		REQUIRE(material.Albedo == glm::vec3(1.0f, 1.0f, 1.0f));
+		REQUIRE(material.Albedo == TetrisManager::GetTetrominoDefinition(pieces[col]).color);
 		REQUIRE(material.Emissive == TetrisManager::GetTetrominoDefinition(pieces[col]).color);
 		REQUIRE(material.EmissiveIntensity > 0.0f);
 		REQUIRE(material.Metallic == kBlockMetallic);
@@ -463,8 +448,8 @@ TEST_CASE("A reused piece block takes the surface of the piece it now draws",
 
 	for (uint32_t slot = 0; slot < 4; ++slot)
 	{
-		REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_Piece" + std::to_string(slot)).AlbedoTexturePath ==
-				GetBlockTexture(TetrominoType::S));
+		REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_Piece" + std::to_string(slot)).Emissive ==
+				TetrisManager::GetTetrominoDefinition(TetrominoType::S).color);
 	}
 
 	state.CurrentPiece.Type = TetrominoType::J;
@@ -473,8 +458,8 @@ TEST_CASE("A reused piece block takes the surface of the piece it now draws",
 
 	for (uint32_t slot = 0; slot < 4; ++slot)
 	{
-		REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_Piece" + std::to_string(slot)).AlbedoTexturePath ==
-				GetBlockTexture(TetrominoType::J));
+		REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_Piece" + std::to_string(slot)).Emissive ==
+				TetrisManager::GetTetrominoDefinition(TetrominoType::J).color);
 	}
 }
 
@@ -497,8 +482,8 @@ TEST_CASE("A block a line clear shifts down takes the surface of its new cell",
 		static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::J) + 1);
 
 	fixture.view.Update(0.0f);
-	REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_0_19").AlbedoTexturePath ==
-			GetBlockTexture(TetrominoType::Z));
+	REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_0_19").Emissive ==
+			TetrisManager::GetTetrominoDefinition(TetrominoType::Z).color);
 
 	fixture.view.GetManager().ClearLines();
 	fixture.view.Update(0.0f);
@@ -506,8 +491,234 @@ TEST_CASE("A block a line clear shifts down takes the surface of its new cell",
 	// The J has fallen into cell (0,19). It is the same entity in the same cell,
 	// which is exactly why it needs reassigning: a field left out of the update
 	// path keeps whatever the cell used to be.
-	REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_0_19").AlbedoTexturePath ==
-			GetBlockTexture(TetrominoType::J));
+	REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_0_19").Emissive ==
+			TetrisManager::GetTetrominoDefinition(TetrominoType::J).color);
 	REQUIRE(BlockMaterial(*fixture.scene, "TetBlock_0_19").Emissive ==
 			TetrisManager::GetTetrominoDefinition(TetrominoType::J).color);
 }
+
+// ---------------------------------------------------------------------------
+// The line-clear animation
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// How big a block is being drawn, so a test can say what is shrinking.
+float BlockScale(Forge::Scene& scene, const std::string& name)
+{
+	Forge::Entity entity = scene.FindEntityByName(name);
+	REQUIRE(static_cast<bool>(entity));
+	return entity.GetComponent<Forge::TransformComponent>().Scale.x;
+}
+
+// The bottom row filled everywhere except the two cells the O piece drops into,
+// and the O pinned at its spawn row: the next hard drop is a line clear whose
+// completing blocks are the piece's own, which is the case the animation used
+// to lose.
+void FillBottomRowExceptO(BoardView& view)
+{
+	auto& state = view.GetManager().GetState();
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	for (uint32_t col = 0; col < state.Width; ++col)
+	{
+		if (col == 4 || col == 5)
+			continue;
+		state.Board[state.GetBoardIndex(glm::ivec2(static_cast<int32_t>(col), 19))] =
+			static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::I) + 1);
+	}
+	view.Update(0.0f);
+}
+
+}  // namespace
+
+TEST_CASE("Every block of a cleared row animates away, the ones just placed included",
+	"[tetris][view][clear]")
+{
+	RunningView fixture;
+	auto& state = fixture.view.GetManager().GetState();
+	FillBottomRowExceptO(fixture.view);
+
+	REQUIRE(CountBlockEntities(*fixture.scene) == 12);
+
+	fixture.view.HandleAction(Action::HardDrop, true);
+	fixture.view.Update(1.0f / 60.0f);
+
+	REQUIRE(fixture.view.GetLastClearedRows().size() == 1);
+
+	// The row is full and gone in the step the piece locked, so the two cells
+	// the player just placed have no board cell to be drawn from, and the
+	// cache has no record of them: they were the falling piece. Left out of the
+	// animation, they blink out in the frame the line clears - the instant the
+	// player is looking at - and the row goes out with eight of its ten blocks.
+	for (uint32_t col = 0; col < state.Width; ++col)
+	{
+		const std::string name = "TetBlockClear_" + std::to_string(col) + "_19";
+		INFO(name);
+		REQUIRE(HasEntityNamed(*fixture.scene, name));
+	}
+
+	// The row's old blocks are already shrinking, and one frame into a 0.25s
+	// clear they are not gone: a row that vanishes in one frame is a pop.
+	for (uint32_t col = 0; col < state.Width; ++col)
+	{
+		if (col == 4 || col == 5)
+			continue;
+		const float scale = BlockScale(*fixture.scene, "TetBlockClear_" + std::to_string(col) + "_19");
+		INFO("column " << col << " scale " << scale);
+		REQUIRE(scale > 0.0f);
+		REQUIRE(scale < 0.92f);
+	}
+
+	// The blocks that completed the line start where the piece drew them, above
+	// the row, and travel into it. They cannot start at the row: the row is
+	// where they are going, not where they were.
+	const float rowY = BoardView::CellToWorld(4, 19).y;
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlockClear_4_19").y > rowY);
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlockClear_5_19").y > rowY);
+
+	// Mid-clear the row is lit: every block of it has its emissive term pulled
+	// toward white. A row that only shrinks reads as the blocks getting
+	// smaller, not as a line being cleared.
+	for (int i = 0; i < 12; ++i)  // 0.2s, near the middle of the 0.25s clear
+		fixture.view.Update(1.0f / 60.0f);
+
+	const glm::vec3 pieceColor = TetrisManager::GetTetrominoDefinition(TetrominoType::I).color;
+	for (uint32_t col = 0; col < state.Width; ++col)
+	{
+		if (col == 4 || col == 5)
+			continue;
+		const glm::vec3 lit = BlockMaterial(*fixture.scene, "TetBlockClear_" + std::to_string(col) + "_19").Emissive;
+		INFO("column " << col << " emissive " << lit.x << "," << lit.y << "," << lit.z);
+		REQUIRE(lit.x > pieceColor.x);
+		REQUIRE(lit.y > pieceColor.y);
+		REQUIRE(lit.z > pieceColor.z);
+	}
+
+	// The placed blocks light up once they have landed and their own clear is
+	// under way: they travel into the row first, and their flash cannot start
+	// before the row they filled begins to go.
+	for (int i = 0; i < 10; ++i)
+		fixture.view.Update(1.0f / 60.0f);
+
+	for (uint32_t col = 4; col <= 5; ++col)
+	{
+		const glm::vec3 lit = BlockMaterial(*fixture.scene, "TetBlockClear_" + std::to_string(col) + "_19").Emissive;
+		INFO("placed block at column " << col);
+		REQUIRE(lit.x > pieceColor.x);
+		REQUIRE(lit.y > pieceColor.y);
+		REQUIRE(lit.z > pieceColor.z);
+	}
+
+	// The O's upper cells drop into the bottom row, drawn by the entities that
+	// were drawing them: the cache follows the block, not the cell.
+	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_4_19"));
+	REQUIRE(CountBlockEntities(*fixture.scene) == 6);
+
+	// After the clear the row's blocks are gone, and the stack has arrived
+	// exactly where the rules put it.
+	for (int i = 0; i < 120; ++i)
+		fixture.view.Update(1.0f / 60.0f);
+
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlockClear_4_19"));
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlockClear_0_19"));
+	REQUIRE(CountBlockEntities(*fixture.scene) == 6);
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_4_19") == BoardView::CellToWorld(4, 19));
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_5_19") == BoardView::CellToWorld(5, 19));
+}
+
+TEST_CASE("The stack above a cleared row keeps its blocks and falls after the row is gone",
+	"[tetris][view][clear]")
+{
+	RunningView fixture;
+	auto& state = fixture.view.GetManager().GetState();
+	FillBottomRowExceptO(fixture.view);
+
+	// One block sitting on the row that is about to clear.
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 18))] =
+		static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::J) + 1);
+	fixture.view.Update(0.0f);
+
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_18") == BoardView::CellToWorld(0, 18));
+
+	fixture.view.HandleAction(Action::HardDrop, true);
+	fixture.view.Update(1.0f / 60.0f);
+
+	// Board row 18's J is board row 19's now. Keyed by cell, the entity was
+	// found under its old row, the new row found nothing, and the stack above a
+	// cleared row arrived in one frame - which is what the motion that measures
+	// a block against the row it was written in was written to prevent, and
+	// could never reach.
+	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_0_19"));
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_0_18"));
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19").y ==
+			Catch::Approx(BoardView::CellToWorld(0, 18).y).margin(1e-3f));
+
+	// It is standing on its old row, because the row it falls into is still
+	// animating away. A block sliding through a shrinking row is two
+	// animations in one cell, and the clear reads as the stack moving through a
+	// fading wall.
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19").y ==
+			Catch::Approx(BoardView::CellToWorld(0, 18).y).margin(1e-3f));
+
+	for (int i = 0; i < 13; ++i)  // 0.217s, inside the 0.25s clear
+		fixture.view.Update(1.0f / 60.0f);
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19").y ==
+			Catch::Approx(BoardView::CellToWorld(0, 18).y).margin(1e-3f));
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19").x ==
+			Catch::Approx(BoardView::CellToWorld(0, 18).x).margin(1e-3f));
+
+	// Then it falls, and lands exactly where the rules say it is.
+	for (int i = 0; i < 60; ++i)
+		fixture.view.Update(1.0f / 60.0f);
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19") == BoardView::CellToWorld(0, 19));
+}
+
+TEST_CASE("Clearing two lines at once animates both rows", "[tetris][view][clear]")
+{
+	RunningView fixture;
+	auto& state = fixture.view.GetManager().GetState();
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	for (uint32_t row = 18; row <= 19; ++row)
+	{
+		for (uint32_t col = 0; col < state.Width; ++col)
+		{
+			if (col == 4 || col == 5)
+				continue;
+			state.Board[state.GetBoardIndex(glm::ivec2(static_cast<int32_t>(col), static_cast<int32_t>(row)))] =
+				static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::I) + 1);
+		}
+	}
+	fixture.view.Update(0.0f);
+	REQUIRE(CountBlockEntities(*fixture.scene) == 20);
+
+	fixture.view.HandleAction(Action::HardDrop, true);
+	fixture.view.Update(1.0f / 60.0f);
+
+	REQUIRE(fixture.view.GetLastClearedRows().size() == 2);
+
+	// Both rows, every cell of both, animating: the four the piece placed, two
+	// in each row, included.
+	for (uint32_t row = 18; row <= 19; ++row)
+	{
+		for (uint32_t col = 0; col < state.Width; ++col)
+		{
+			const std::string name = "TetBlockClear_" + std::to_string(col) + "_" + std::to_string(row);
+			INFO(name);
+			REQUIRE(HasEntityNamed(*fixture.scene, name));
+		}
+	}
+
+	for (int i = 0; i < 120; ++i)
+		fixture.view.Update(1.0f / 60.0f);
+
+	// Both rows gone, the board empty, only the falling piece drawn.
+	REQUIRE(CountBlockEntities(*fixture.scene) == 4);
+}
+

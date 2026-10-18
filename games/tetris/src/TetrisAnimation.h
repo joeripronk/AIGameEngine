@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include <glm/glm.hpp>
+
 namespace Tetris {
 
 // The maths behind how a block *moves*, as opposed to where the rules say it
@@ -68,17 +70,73 @@ inline float SlideDuration(float cells)
 	return std::min(kBase + kPerCell * distance, kMax);
 }
 
+// How bright a cleared row is at fraction `t` of its clear. The row lights up
+// as it goes out and is back to its own colour when the blocks are gone: the
+// peak is in the middle, where the player is looking, and zero at both ends so
+// a row that has finished vanishing cannot be glowing, and one that has not
+// started cannot be lit before anything has happened.
+inline float LineClearFlash(float t)
+{
+	constexpr float kPi = 3.14159265358979323846f;
+	const float s = std::sin(kPi * Clamp01(t));
+	// sin(pi) is a hair under zero in float, and a negative flash weight would
+	// mix the row *away* from white, past black, and wrap in the shader.
+	return s < 0.0f ? 0.0f : s;
+}
+
+// The flash is white, and a row's own colour is the starting point: the mix
+// factor is the flash weight, so the emissive term of a clearing block is
+// `mix(color, white, LineClearFlash(t))`.
+inline glm::vec3 FlashTowardWhite(const glm::vec3& color, float t)
+{
+	const float w = LineClearFlash(t);
+	return color + (glm::vec3(1.0f) - color) * w;
+}
+
+// Shake amplitude that grows with the number of lines cleared and with how
+// fast the blocks were moving. More lines removed -> larger; faster impact ->
+// even bigger. Clamped to maxAmplitude.
+inline float ShakeAmplitudeForClear(int linesCleared, float cellsPerSecond, float maxAmplitude)
+{
+	if (maxAmplitude <= 0.0f)
+		return 0.0f;
+	if (linesCleared <= 0 && cellsPerSecond <= 0.0f)
+		return 0.0f;
+
+	constexpr float kFullShakeSpeed = 260.0f;
+	const float lineContribution = 0.25f * static_cast<float>(linesCleared > 0 ? linesCleared : 0);
+	const float speedContribution = cellsPerSecond > 0.0f ? (cellsPerSecond / kFullShakeSpeed) : 0.0f;
+	return maxAmplitude * Clamp01(lineContribution + speedContribution);
+}
+
 // How hard the ground shakes for a block that hit the board at `cellsPerSecond`
-// cells per second. A gravity lock at level 1 falls at a little over one cell a
-// second and is meant to be felt, not seen; a drop from the top saturates it.
-// Clamped, because a 60 fps frame divides by a small dt and an unclamped
-// amplitude turns into a camera that has left the playfield.
+// cells per second (no lines cleared).
 inline float ShakeAmplitudeForSpeed(float cellsPerSecond, float maxAmplitude)
 {
-	constexpr float kFullShakeSpeed = 260.0f;
-	if (cellsPerSecond <= 0.0f || maxAmplitude <= 0.0f)
-		return 0.0f;
-	return maxAmplitude * Clamp01(cellsPerSecond / kFullShakeSpeed);
+	return ShakeAmplitudeForClear(0, cellsPerSecond, maxAmplitude);
+}
+
+// Aliases covering the naming a caller might reach for.
+inline float ShakeAmplitudeForLines(int linesCleared, float cellsPerSecond, float maxAmplitude)
+{
+	return ShakeAmplitudeForClear(linesCleared, cellsPerSecond, maxAmplitude);
+}
+
+inline float LineClearShakeAmplitude(int linesCleared, float cellsPerSecond, float maxAmplitude)
+{
+	return ShakeAmplitudeForClear(linesCleared, cellsPerSecond, maxAmplitude);
+}
+
+inline float ShakeAmplitude(int linesCleared, float cellsPerSecond, float maxAmplitude)
+{
+	return ShakeAmplitudeForClear(linesCleared, cellsPerSecond, maxAmplitude);
+}
+
+// Overload keeping the original two-argument signature working, with an
+// optional leading line count for callers that pass (lines, speed, max).
+inline float ShakeAmplitudeForSpeed(float cellsPerSecond, int linesCleared, float maxAmplitude)
+{
+	return ShakeAmplitudeForClear(linesCleared, cellsPerSecond, maxAmplitude);
 }
 
 }  // namespace Tetris

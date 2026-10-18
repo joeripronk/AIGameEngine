@@ -528,7 +528,8 @@ namespace Forge {
 
 		// Create HDR framebuffer (offscreen target for PBR rendering).
 		{
-			// Depth texture for HDR buffer.
+			// Depth texture for HDR buffer. The layout must be a depth layout;
+			// see the note on PbrRenderer.Depth.
 			nvrhi::TextureDesc hdrDepthDesc;
 			hdrDepthDesc.width = width;
 			hdrDepthDesc.height = height;
@@ -537,7 +538,7 @@ namespace Forge {
 			hdrDepthDesc.isShaderResource = true;
 			hdrDepthDesc.debugName = "HDR_Depth";
 			hdrDepthDesc.keepInitialState = true;
-			hdrDepthDesc.initialState = nvrhi::ResourceStates::RenderTarget;
+			hdrDepthDesc.initialState = nvrhi::ResourceStates::ShaderResource | nvrhi::ResourceStates::DepthRead;
 			s_HDRDepth = s_Device->createTexture(hdrDepthDesc);
 
 			// HDR framebuffer with color + depth.

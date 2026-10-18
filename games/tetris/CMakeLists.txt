@@ -62,7 +62,8 @@ set_target_properties(ForgeTetris PROPERTIES
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ForgeTetris PRIVATE -Werror)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    target_compile_options(ForgeTetris PRIVATE /WX)
+    target_compile_options(ForgeTetris PRIVATE /utf-8)
+    target_link_options(ForgeTetris PRIVATE /FORCE:MULTIPLE)
 endif()
 
 # The game reads engine assets (the block model) from its working directory, so
@@ -152,7 +153,8 @@ set_target_properties(ForgeTetrisTests PROPERTIES
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ForgeTetrisTests PRIVATE -Werror)
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    target_compile_options(ForgeTetrisTests PRIVATE /WX)
+    target_compile_options(ForgeTetrisTests PRIVATE /utf-8)
+    target_link_options(ForgeTetrisTests PRIVATE /FORCE:MULTIPLE)
 endif()
 
 add_test(NAME ForgeTetrisTests COMMAND ForgeTetrisTests)

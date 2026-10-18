@@ -100,3 +100,46 @@ TEST_CASE("Shake amplitude tracks the falling speed and saturates", "[tetris][an
 	REQUIRE(ShakeAmplitudeForSpeed(1000.0f, 0.4f) == Catch::Approx(0.4f));
 	REQUIRE(ShakeAmplitudeForSpeed(1.0e9f, 0.4f) == Catch::Approx(0.4f));
 }
+
+TEST_CASE("The line-clear flash lights up and goes out", "[tetris][animation][clear]")
+{
+	// A row that has finished vanishing cannot still be glowing, and one that
+	// has not started cannot be lit before anything has happened.
+	REQUIRE(LineClearFlash(0.0f) == Catch::Approx(0.0f));
+	REQUIRE(LineClearFlash(1.0f) == Catch::Approx(0.0f));
+	REQUIRE(LineClearFlash(-1.0f) == 0.0f);
+	REQUIRE(LineClearFlash(4.0f) == 0.0f);
+
+	// The peak is in the middle, where the player is looking, and the row is
+	// brightest there - a flash that only ever brightens never goes out, and
+	// one that peaks at the start is a blink, not a clear.
+	REQUIRE(LineClearFlash(0.5f) == Catch::Approx(1.0f).margin(0.001f));
+	REQUIRE(LineClearFlash(0.25f) < LineClearFlash(0.5f));
+	REQUIRE(LineClearFlash(0.75f) < LineClearFlash(0.5f));
+	REQUIRE(LineClearFlash(0.25f) == Catch::Approx(LineClearFlash(0.75f)).margin(0.001f));
+
+	// The mix the view uses: the row's own colour at the ends of the clear,
+	// white at the peak, and never past white on the way.
+	const glm::vec3 red(1.0f, 0.2f, 0.1f);
+	REQUIRE(FlashTowardWhite(red, 0.0f) == red);
+	REQUIRE(FlashTowardWhite(red, 1.0f) == red);
+
+	const glm::vec3 peak = FlashTowardWhite(red, 0.5f);
+	REQUIRE(peak.x == Catch::Approx(1.0f));
+	REQUIRE(peak.y == Catch::Approx(1.0f).margin(0.001f));
+	REQUIRE(peak.z == Catch::Approx(1.0f).margin(0.001f));
+
+	// Monotonic toward the peak and back: a channel that overshoots white
+	// would wrap in the shader.
+	for (float t = 0.0f; t <= 1.0f; t += 0.05f)
+	{
+		const glm::vec3 mixed = FlashTowardWhite(red, t);
+		REQUIRE(mixed.x >= red.x);
+		REQUIRE(mixed.y >= red.y);
+		REQUIRE(mixed.z >= red.z);
+		REQUIRE(mixed.x <= 1.0f);
+		REQUIRE(mixed.y <= 1.0f);
+		REQUIRE(mixed.z <= 1.0f);
+	}
+}
+

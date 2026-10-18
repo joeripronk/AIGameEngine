@@ -28,9 +28,9 @@ namespace Tetris {
 // art disappearing into the field rather than covering it. A modest metallic
 // keeps the metal character in the specular; a roughness that spreads the
 // highlight lets the whole face read as the surface the artist drew.
-constexpr float kBlockMetallic = 0.35f;
-constexpr float kBlockRoughness = 0.45f;
-constexpr float kBlockEmissiveIntensity = 0.06f;
+constexpr float kBlockMetallic = 0.15f;
+constexpr float kBlockRoughness = 0.4f;
+constexpr float kBlockEmissiveIntensity = 0.2f;
 
 // Albedo is white because the theme's art supplies the colour.
 //
@@ -40,39 +40,7 @@ constexpr float kBlockEmissiveIntensity = 0.06f;
 // alone, which is what makes the art the theme rather than a tint over one.
 constexpr glm::vec3 kBlockAlbedo{ 1.0f };
 
-// One surface per tetromino.
-//
-// Every tile is a crop of "Colored Metal tiles 1b" by sgtcrispy (CC0, public
-// domain) - a sheet of eight colour palettes crossed with six metal patterns:
-// diamond plate, a solid plate, panels, rivets, a grate and slats. Each piece
-// takes one tile, so the art supplies a colour *and* a pattern, and the
-// pattern is what still tells two pieces apart when the lighting flattens
-// their hues.
-//
-// The sheet has no yellow or orange palette, so these are not the classic
-// cyan/yellow/magenta/green/red/blue/orange set; `TetrominoDefinition::color`
-// was retuned to each tile's own dominant colour, and that colour is what the
-// emissive term, the preview and the state components use.
-constexpr struct BlockTheme
-{
-	const char* Texture;
-} kBlockTheme[static_cast<size_t>(TetrominoType::Count)] = {
-	{ "resources/textures/tetris/block_i_diamond_plate.png" },  // I  teal,    diamond plate
-	{ "resources/textures/tetris/block_o_solid_plate.png" },    // O  magenta, solid plate
-	{ "resources/textures/tetris/block_t_panels.png" },         // T  pink,    panels
-	{ "resources/textures/tetris/block_s_rivets.png" },         // S  green,   rivets
-	{ "resources/textures/tetris/block_z_grate.png" },          // Z  crimson, grate
-	{ "resources/textures/tetris/block_j_gold_slats.png" },      // J  blue,    slats
-	{ "resources/textures/tetris/block_l_diamond_plate.png" },  // L  indigo,  diamond plate
-};
-
-// The surface a piece is drawn with. An out-of-range type falls back to the
-// first entry rather than indexing past the end of the table.
-inline const char* GetBlockTexture(TetrominoType type)
-{
-	const size_t index = static_cast<size_t>(type);
-	return kBlockTheme[index < static_cast<size_t>(TetrominoType::Count) ? index : 0].Texture;
-}
+// Pieces are distinguished by colour alone (emissive + albedo), no textures.
 
 class BoardView
 {
@@ -134,12 +102,18 @@ public:
 		bool Occurred = false;
 		float Rows = 0.0f;           // cells fallen in the step that locked
 		float Speed = 0.0f;          // cells per second at the moment of impact
+		int LinesCleared = 0;        // lines removed by this lock
+		int ClearedLines = 0;        // alias for LinesCleared
 		glm::ivec2 Landing = glm::ivec2(0, 0);  // piece origin it locked at
 	};
 
 	// The impact of the most recent Update, cleared by each one so a caller
 	// cannot act twice on the same landing.
 	const Impact& GetLastImpact() const { return m_LastImpact; }
+
+	// Rows removed by the most recent lock, in ascending order. Empty when no
+	// line was cleared this frame.
+	const std::vector<uint32_t>& GetLastClearedRows() const { return m_LastClearedRows; }
 
 private:
 	// Which curve carries a block from From to To.
@@ -158,6 +132,12 @@ private:
 		float Elapsed = 0.0f;
 		float Duration = 0.0f;
 		Curve CurveType = Curve::Slide;
+
+		// Seconds before the motion starts. The stack above a cleared row has
+		// to wait for the row to go; a block sliding through a row that is
+		// still animating away is two animations occupying the same cell, and
+		// the clear reads as the stack moving through a fading wall.
+		float Delay = 0.0f;
 	};
 
 	// The state and the drawn positions at the end of the previous Update. The
@@ -184,6 +164,9 @@ private:
 	// Write every in-flight motion onto its entity, and retire the finished ones.
 	void AdvanceMotions(float dt);
 
+	// Animate blocks in cleared rows shrinking away, then destroy them.
+	void AdvanceClearAnimations(float dt);
+
 	// Measure the landing that just happened, if any.
 	void DetectImpact(float dt);
 
@@ -193,6 +176,11 @@ private:
 	// Entities created by Initialize, torn down by Shutdown.
 	void DestroyEntity(Forge::Entity& entity);
 	void DestroyPieceBlocks();
+
+	// A block that moves to a new cell has to carry its name with it, because
+	// the name is where the block is: a tool reading the scene by name, and the
+	// tests that say what the player sees, both find a block by its cell.
+	void RenameEntity(Forge::Entity entity, const std::string& name);
 
 	// Grid cell -> entity handle, so a cell keeps its entity between frames
 	// instead of being destroyed and rebuilt every tick.
@@ -218,7 +206,28 @@ private:
 	Forge::Entity m_PieceBlocks[4] = {};
 	glm::vec3 m_SlotPosition[4] = {};
 
+	// A block in a cleared row, travelling into the row it filled and then
+	// shrinking out of it. The blocks the player just placed have no board cell
+	// to be found in - the row is removed in the same step the piece locked -
+	// so they need this record to be part of the animation at all.
+	struct ClearingBlock
+	{
+		Forge::Entity Entity;
+		glm::vec3 Color = glm::vec3(1.0f);
+
+		// Where the block was drawn when the line filled, and the cell it
+		// filled. A block already in the row has them equal, so it only shrinks.
+		glm::vec3 From = glm::vec3(0.0f);
+		glm::vec3 To = glm::vec3(0.0f);
+
+		// The two phases share one clock: travel, then flash and shrink.
+		float TravelDuration = 0.0f;
+		float Elapsed = 0.0f;
+		float Duration = 0.0f;
+	};
+
 	std::map<uint64_t, Motion> m_Motions;
+	std::map<uint64_t, ClearingBlock> m_ClearingBlocks;
 	Snapshot m_Snapshot;
 	Impact m_LastImpact;
 

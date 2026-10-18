@@ -245,16 +245,16 @@ TEST_CASE("Albedo textures hot-reload from disk", "[renderer][assets]")
 	// The failed load must not be cached forever: as soon as the file
 	// appears, the next call returns the decoded texture.
 	WriteBmp(file, 2, 3);
-	Forge::Ref<Forge::Texture> small = Forge::Renderer::GetAlbedoTexture(path);
-	REQUIRE(small);
-	REQUIRE(small->GetWidth() == 2u);
-	REQUIRE(small->GetHeight() == 3u);
+	Forge::Ref<Forge::Texture> smallTex = Forge::Renderer::GetAlbedoTexture(path);
+	REQUIRE(smallTex);
+	REQUIRE(smallTex->GetWidth() == 2u);
+	REQUIRE(smallTex->GetHeight() == 3u);
 
 	// An unchanged file returns the identical texture, not a re-decode:
 	// the per-frame stat is the cost, and the identity check proves the
 	// cache held.
 	Forge::Ref<Forge::Texture> same = Forge::Renderer::GetAlbedoTexture(path);
-	REQUIRE(same.get() == small.get());
+	REQUIRE(same.get() == smallTex.get());
 
 	// Rewriting the file re-decodes: the new dimensions are observable.
 	//
@@ -269,7 +269,7 @@ TEST_CASE("Albedo textures hot-reload from disk", "[renderer][assets]")
 	REQUIRE(large);
 	REQUIRE(large->GetWidth() == 4u);
 	REQUIRE(large->GetHeight() == 3u);
-	REQUIRE(large.get() != small.get());
+	REQUIRE(large.get() != smallTex.get());
 
 	// A reload that fails (the file was deleted) keeps the texture that
 	// worked - a broken file must not turn a good texture into a missing

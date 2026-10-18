@@ -1,5 +1,20 @@
 #pragma once
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+#ifdef small
+#undef small
+#endif
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
+
 #include <iostream>
 #include <memory>
 #include <unordered_map>
@@ -28,6 +43,15 @@
 // GL development package, with an error naming a file no source includes.
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#ifdef small
+#undef small
+#endif
+#ifdef min
+#undef min
+#endif
+#ifdef max
+#undef max
+#endif
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>

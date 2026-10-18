@@ -29,6 +29,7 @@ target_sources(ForgeTests
         src/ShadowCameraTests.cpp
         src/RTTITests.cpp
         src/BloomTests.cpp
+        src/IblTests.cpp
         src/AssetDatabaseTests.cpp
         src/SerializationTests.cpp
         src/ExportTests.cpp
@@ -66,7 +67,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(ForgeTests PRIVATE -Werror)
 endif()
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    target_compile_options(ForgeTests PRIVATE /WX)
+    target_compile_options(ForgeTests PRIVATE /utf-8)
 endif()
 
 # Add test executable

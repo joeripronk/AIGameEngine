@@ -87,7 +87,7 @@ inline OStream& operator<<(OStream& os, glm::qua<T, Q> quaternion)
 #ifdef FG_ENABLE_ASSERTS
 	#define FG_ASSERT(x, ...) do { if(!(x)) { FG_CORE_ERROR(__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
 	#define FG_CORE_ASSERT(x) do { if(!(x)) { FG_CORE_ERROR("Assertion failed: " #x); FG_DEBUGBREAK(); } } while(0)
-	#define FG_CORE_ASSERT_MSG(x, msg, ...) do { if(!(x)) { FG_CORE_ERROR(msg, ##__VA_ARGS__); FG_DEBUGBREAK(); } } while(0)
+	#define FG_CORE_ASSERT_MSG(x, msg, ...) do { if(!(x)) { FG_CORE_ERROR(msg); FG_DEBUGBREAK(); } } while(0)
 #else
 	#define FG_ASSERT(...) ((void)0)
 	#define FG_CORE_ASSERT(...) ((void)0)
