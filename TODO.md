@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (405 test cases, 11626 assertions - all passing, order-independent
+### Tests (406 test cases, 11630 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -94,7 +94,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] RendererTests (null stubs)
 - [x] ImGuiLayerTests (overlay layer contract: inert before attach, window-less
       attach rolls back and is retryable, style keeps the scene visible,
-      clean detach and reuse)
+      clean detach and reuse, context configuration contract: keyboard
+      navigation + docking flags applied additively)
 - [x] AssetWatcherTests (file signatures: existence/size/timestamp, rewrite
       with restored timestamp means no reload; added/modified/removed/returned
       event edges, multi-file polls, unwatched silence; albedo hot-reload:
@@ -186,6 +187,9 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       `AssetImporter::Import` proving a file decodes with the engine's loaders
 - [x] Editor status bar (the Hazel bottom strip): scene path, play state,
       selection, last-frame draw calls
+- [x] DockSpace layout (from the public editor layer's ImGui docking
+      pattern; the docking feature itself required the ImGui vendor swap
+      noted under the editor section)
 - [x] Instrumentor overlay panel (the live profiling view): per-scope
        aggregation in the Instrumentor (`GetProfileSnapshot`: samples, total,
        min, mean, max per scope, heaviest first; `ResetProfileStats`), the
@@ -314,6 +318,19 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       selection and last-frame draw calls, always visible
 - [x] Live Profiler panel: per-scope samples, total/mean/max milliseconds,
       heaviest first, reset control - the same measurements as the trace file
+- [x] Dockable editor layout (the DockSpace pattern from Hazel's public
+      editor layer): fullscreen docking host, every panel dockable by
+      dragging, layout persisted in imgui.ini. Needed the vendored ImGui
+      upgraded from vanilla 1.91.9 to **v1.91.9-docking** (the docking
+      feature is branch-only in this version; the swap is file-for-file,
+      no engine patches, full suite green on it). The initial arrangement
+      (hierarchy left, inspector/properties right, viewport centre, asset
+      shelf bottom) is built by DockBuilder exactly once and only when the
+      ini holds no saved layout - rebuilding it every launch would discard
+      what the author arranged
+- [x] Chrome stays chrome: the gizmo toolbar, status bar and notifications
+      are NoDocking windows - they float above the layout and cannot be
+      dragged into it
 - [x] Component types enumerable and name-addressable for agents:
       `GetRegisteredComponentTypes`, `AddComponentByName`,
       `RemoveComponentByName` (structural components refused)

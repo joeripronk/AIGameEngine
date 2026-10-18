@@ -14,6 +14,7 @@
 #include "Forge/Scripting/ScriptEngine.h"
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
@@ -239,6 +240,11 @@ namespace Forge {
 				ImGui_ImplVulkan_NewFrame();
 				ImGui::NewFrame();
 
+				// The docking host first: every panel Begin below docks into
+				// it. The menu bar, toolbar, status bar and notifications
+				// are chrome and stay floating above the layout.
+				DrawDockspace();
+
 				DrawMenuBar();
 				DrawGizmoToolbar();
 				DrawGizmoInteraction();
@@ -309,7 +315,8 @@ namespace Forge {
 			| ImGuiWindowFlags_AlwaysAutoResize
 			| ImGuiWindowFlags_NoSavedSettings
 			| ImGuiWindowFlags_NoFocusOnAppearing
-			| ImGuiWindowFlags_NoNav;
+			| ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoDocking;
 
 		ImGui::Begin("##Notification", nullptr, flags);
 
@@ -349,7 +356,8 @@ namespace Forge {
 			| ImGuiWindowFlags_NoSavedSettings
 			| ImGuiWindowFlags_NoFocusOnAppearing
 			| ImGuiWindowFlags_NoNav
-			| ImGuiWindowFlags_NoBringToFrontOnFocus;
+			| ImGuiWindowFlags_NoBringToFrontOnFocus
+			| ImGuiWindowFlags_NoDocking;
 
 		ImGui::Begin("##StatusBar", nullptr, flags);
 
@@ -455,9 +463,84 @@ namespace Forge {
 		ImGui::EndMainMenuBar();
 	}
 
+	// Fullscreen docking host (the DockSpace pattern from Hazel's public
+	// editor layer): one invisible window covering the viewport that every
+	// panel docks into. Panels rearrange by dragging them onto a highlighted
+	// edge/tab, and ImGui persists the layout in imgui.ini, so the editor
+	// reopens exactly the way the author left it.
+	//
+	// The host flags are the public editor layer's recipe: NoDocking (a
+	// dockable DockSpace host is a confusion of two drop targets), the
+	// fullscreen no-chrome flags, NoBackground for the passthru central
+	// node, and zero window padding so panel contents line up with the
+	// viewport pixel grid the picking maths already uses.
+	void EditorApp::DrawDockspace()
+	{
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		ImGui::SetNextWindowPos(viewport->WorkPos);
+		ImGui::SetNextWindowSize(viewport->WorkSize);
+		ImGui::SetNextWindowViewport(viewport->ID);
+
+		ImGuiWindowFlags hostFlags = ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse
+			| ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus
+			| ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBackground;
+
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+		ImGui::Begin("##Dockspace", nullptr, hostFlags);
+		ImGui::PopStyleVar(3);
+
+		const ImGuiID dockspaceId = ImGui::GetID("ForgeDockSpace");
+
+		// Initial layout, built exactly once and only when the .ini has no
+		// saved layout to honor. Rebuilding it every launch would silently
+		// discard the arrangement the author dragged into.
+		ImGuiIO& io = ImGui::GetIO();
+		const bool hasSavedLayout = io.IniFilename != nullptr && std::filesystem::exists(io.IniFilename);
+		if (!m_DockLayoutBuilt && !hasSavedLayout)
+		{
+			// 20% hierarchy on the left; the rest splits into the viewport
+			// centre, a 30%-deep asset shelf at the bottom, and a right
+			// column (inspector above, properties + profiler tabbed below).
+			ImGuiID left = 0, right = 0, centre = 0, bottom = 0, rightTop = 0, rightBottom = 0;
+			ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+			ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
+
+			ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.20f, &left, &right);
+			ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.30f, &bottom, &centre);
+			ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, &rightTop, &centre);
+			ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.55f, &rightBottom, &rightTop);
+
+			ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+			ImGui::DockBuilderDockWindow("Viewport", centre);
+			ImGui::DockBuilderDockWindow("Inspector", rightTop);
+			ImGui::DockBuilderDockWindow("Properties", rightBottom);
+			ImGui::DockBuilderDockWindow("Profiler", rightBottom);
+			ImGui::DockBuilderDockWindow("Assets", bottom);
+			ImGui::DockBuilderFinish(dockspaceId);
+		}
+		m_DockLayoutBuilt = true;
+
+		// A panel with a 370-pixel minimum cannot survive a half-width
+		// split; the public editor layer lowers the minimum for the dock
+		// layout and restores it after.
+		ImGuiStyle& style = ImGui::GetStyle();
+		const float minWinSizeX = style.WindowMinSize.x;
+		style.WindowMinSize.x = 370.0f;
+
+		ImGui::DockSpace(dockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_PassthruCentralNode);
+
+		style.WindowMinSize.x = minWinSizeX;
+
+		ImGui::End();
+	}
+
 	void EditorApp::DrawGizmoToolbar()
 	{
-		ImGui::Begin("Gizmo");
+		// A chrome strip, not a panel: it floats above the docking layout
+		// and refuses to be docked into it.
+		ImGui::Begin("Gizmo", nullptr, ImGuiWindowFlags_NoDocking);
 		ImGui::Text("Mode:");
 		ImGui::SameLine();
 		if (ImGui::RadioButton("Move", m_Editor.GetGizmoMode() == Gizmo::Mode::Translate))

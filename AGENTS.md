@@ -53,7 +53,7 @@ ForgeEngine/
 | assimp | Model loading (glTF) |
 | yaml-cpp | Scene serialization |
 | Catch2 | Testing |
-| ImGui | Editor UI |
+| ImGui | Editor UI (**v1.91.9-docking** branch - docking is branch-only in this version; vanilla main lacks `ImGuiConfigFlags_DockingEnable`) |
 
 Physics is **not** an external dependency. `Forge/Physics` implements its own
 solver (AABB/sphere broadphase, impulse response, friction, optional adaptive
@@ -404,11 +404,16 @@ The editor must be fully controllable by AI agents:
 
 ### Editor Architecture
 
+- **DockSpace**: fullscreen docking host - every panel is dockable by
+  dragging, the layout persists in `imgui.ini`, and the initial arrangement
+  is built by DockBuilder only when no saved layout exists
 - **Scene Hierarchy Panel**: Shows all entities in the scene, supports selection
 - **Inspector Panel**: Shows component properties of selected entity, allows editing
 - **Viewport**: 3D rendering area with editor camera
 - **Toolbar**: File operations, entity creation, play/pause/stop
 - **Properties Panel**: Global editor settings
+- **Chrome** (gizmo toolbar, status bar, notifications): `NoDocking` windows -
+  they float above the layout and cannot be dragged into it
 
 ### Editor API for AI Agents
 

@@ -58,6 +58,12 @@ namespace Forge {
 		// context; pure, so it is unit-testable without a device.
 		static void ApplyStyle(ImGuiStyle& style);
 
+		// The shared context configuration: keyboard navigation over the 3D
+		// scene, and window docking (the editor's DockSpace layout). Applied
+		// by AttachTo; pure, so the contract is unit-testable with a bare
+		// context.
+		static void ApplyConfigFlags(ImGuiIO& io);
+
 	private:
 		bool m_HasContext = false;
 		bool m_Ready = false;

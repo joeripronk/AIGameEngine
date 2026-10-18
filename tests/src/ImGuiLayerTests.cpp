@@ -60,6 +60,30 @@ TEST_CASE("ImGuiLayer overlay style keeps the scene visible", "[renderer][imgui]
 	ImGui::DestroyContext();
 }
 
+TEST_CASE("ImGuiLayer configures the context for keyboard navigation and docking", "[renderer][imgui]")
+{
+	ImGui::CreateContext();
+
+	ImGuiIO& io = ImGui::GetIO();
+	const ImGuiConfigFlags before = io.ConfigFlags;
+
+	ImGuiLayer::ApplyConfigFlags(io);
+
+	// Navigation over the scene without a mouse, and docking for the
+	// editor's DockSpace layout. These two flags are the whole contract -
+	// AttachTo applies exactly this function.
+	CHECK(io.ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard);
+	CHECK(io.ConfigFlags & ImGuiConfigFlags_DockingEnable);
+
+	// Additive: whatever the embedder configured survives.
+	io.ConfigFlags = before;
+	ImGuiLayer::ApplyConfigFlags(io);
+	CHECK((io.ConfigFlags & ImGuiConfigFlags_NavEnableKeyboard) == ImGuiConfigFlags_NavEnableKeyboard);
+	CHECK((io.ConfigFlags & ImGuiConfigFlags_DockingEnable) == ImGuiConfigFlags_DockingEnable);
+
+	ImGui::DestroyContext();
+}
+
 TEST_CASE("ImGuiLayer detaches cleanly after a context-only attach", "[renderer][imgui]")
 {
 	ImGuiLayer layer;

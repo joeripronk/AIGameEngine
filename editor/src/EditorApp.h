@@ -48,6 +48,12 @@ namespace Forge {
 		void DrawPropertiesPanel();
 		void DrawGizmoToolbar();
 
+		// Fullscreen docking host (the Hazel editor's DockSpace): panels
+		// rearrange by dragging, and the layout lives in the ImGui .ini so
+		// the editor reopens the way the author left it. The initial layout
+		// is built once, only when no saved layout exists.
+		void DrawDockspace();
+
 		// Live profiling view (the Hazel profiler overlay panel): per-scope
 		// sample counts and timings from the instrumentor's aggregation,
 		// refreshed every frame.
@@ -118,6 +124,10 @@ namespace Forge {
 		// from the asset browser and the project, and Ctrl+S has to write back
 		// where the work came from, not where the last session left it.
 		std::string m_CurrentScenePath = "resources/scenes/editor.forge";
+
+		// The DockBuilder initial layout runs exactly once per session, and
+		// only when the .ini has no saved layout to honor.
+		bool m_DockLayoutBuilt = false;
 	};
 
 }

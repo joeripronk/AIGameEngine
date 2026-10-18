@@ -55,6 +55,15 @@ namespace Forge {
 		AttachTo(Application::Get().GetWindow().GetNativeWindow());
 	}
 
+	void ImGuiLayer::ApplyConfigFlags(ImGuiIO& io)
+	{
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		// Docking (the editor's DockSpace): panels rearrange by dragging
+		// and the layout persists in the .ini. The Tetris overlay is
+		// unaffected - a single window with nothing to dock onto it.
+		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+	}
+
 	bool ImGuiLayer::AttachTo(void* nativeWindow)
 	{
 		if (m_HasContext)
@@ -64,7 +73,7 @@ namespace Forge {
 		m_HasContext = true;
 
 		ImGuiIO& io = ImGui::GetIO();
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		ImGuiLayer::ApplyConfigFlags(io);
 		ImGuiLayer::ApplyStyle(ImGui::GetStyle());
 
 #ifndef FG_NO_VULKAN_RUNTIME
