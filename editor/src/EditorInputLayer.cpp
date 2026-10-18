@@ -135,6 +135,16 @@ namespace Forge {
 				editor.SetPlaying(!editor.IsPlaying());
 				break;
 			}
+			case Key::F9:
+			{
+				// Simulate toggle: run the scene's scripts on the scene's own
+				// camera, the mode a script author debugs in.
+				if (editor.IsSimulate())
+					editor.Stop();
+				else
+					editor.Simulate();
+				break;
+			}
 			default:
 				break;
 		}

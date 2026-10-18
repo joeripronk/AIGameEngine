@@ -53,11 +53,16 @@ namespace Forge {
 
 		// --- Playback ---------------------------------------------------------
 		void Play();
+		void Simulate();
 		void Pause();
 		void Stop();
 		void Step(int frames = 1);
 		bool IsPlaying() const { return m_IsPlaying; }
 		bool IsPaused() const { return m_IsPaused; }
+		// Simulate runs the scene's scripts on the live editor scene while the
+		// viewport watches through the scene's own primary camera. Play runs the
+		// scripts under the editor camera, which the author steers by hand.
+		bool IsSimulate() const { return m_IsSimulate; }
 		// Toggle play/pause; used by UI checkbox bindings.
 		void SetPlaying(bool playing);
 
@@ -74,7 +79,9 @@ namespace Forge {
 
 		// --- Camera -----------------------------------------------------------
 		EditorCamera& GetCamera() { return m_Camera; }
-		const glm::mat4& GetViewProjection() const { return m_Camera.GetViewProjectionMatrix(); }
+		// The matrix the viewport renders with: the editor camera, except while
+		// simulating, where the scene's primary camera drives the view.
+		glm::mat4 GetViewProjection() const;
 
 		// --- Project ----------------------------------------------------------
 		// A project records where the assets are and which scene the game starts
@@ -116,6 +123,7 @@ namespace Forge {
 
 		bool m_IsPlaying = false;
 		bool m_IsPaused = false;
+		bool m_IsSimulate = false;
 
 		Gizmo::Mode m_GizmoMode = Gizmo::Mode::Translate;
 		Gizmo::Space m_GizmoSpace = Gizmo::Space::World;

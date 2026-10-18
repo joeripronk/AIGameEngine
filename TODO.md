@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (408 test cases, 11643 assertions - all passing, order-independent
+### Tests (410 test cases, 11657 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions, event contracts: window-drop path/type/
       category, dispatcher routing to its handler and silence for unrelated
@@ -333,6 +333,17 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Chrome stays chrome: the gizmo toolbar, status bar and notifications
       are NoDocking windows - they float above the layout and cannot be
       dragged into it
+- [x] Play / Simulate / Stop state machine (the public editor layer's
+      `SceneState::Play`/`Simulate`): **Play** runs the scripts under the
+      author-steered editor camera; **Simulate** runs them on the scene's
+      own primary camera, which the viewport then renders through
+      (`EditorContext::GetViewProjection` switches, `SyncEditorCamera`
+      stands down, F9 toggles, buttons flip to Stop while their mode is
+      live). Simulate from Play stops the session first, Play from
+      Simulate hands the camera back, Stop clears both. The scene
+      cameras' projections now follow the viewport panel's real aspect
+      (`OnViewportResize` was never wired to the editor - latent since
+      the 16:9 projection was drawn into arbitrary panel shapes)
 - [x] Window drag-and-drop opens files (the public editor layer's
       `OnWindowDrop` - its event class is not in the public core, so
       `WindowDropEvent` was built to the same shape as the events here):

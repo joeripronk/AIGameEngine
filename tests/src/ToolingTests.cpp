@@ -582,7 +582,84 @@ TEST_CASE("Stop is safe to call repeatedly and outside playback", "[editor][tool
     Forge::Physics::Shutdown();
 }
 
-TEST_CASE("EditorContext exposes gizmo mode, space and snap", "[editor][tooling]")
+	TEST_CASE("Simulate runs the scene under its own camera state machine", "[editor][simulate][tooling]")
+	{
+		Forge::Log::Init();
+		Forge::ScriptEngine::Init();
+		Forge::Physics::Init();
+
+		Forge::EditorContext context;
+
+		context.Simulate();
+		REQUIRE(context.IsPlaying());
+		REQUIRE(context.IsSimulate());
+		REQUIRE(!context.IsPaused());
+
+		// The toolbar's Simulate button doubles as Stop while simulating.
+		context.Simulate();
+		REQUIRE(!context.IsPlaying());
+		REQUIRE(!context.IsSimulate());
+
+		// Simulate from Play tears the play session down before restarting.
+		context.Play();
+		REQUIRE(!context.IsSimulate());
+		context.Simulate();
+		REQUIRE(context.IsSimulate());
+
+		// Play takes the camera back under the author without dropping scripts.
+		context.Play();
+		REQUIRE(context.IsPlaying());
+		REQUIRE(!context.IsSimulate());
+
+		// Pause is orthogonal to the mode: a paused frame keeps its viewpoint.
+		context.Simulate();
+		context.Pause();
+		REQUIRE(context.IsSimulate());
+		REQUIRE(context.IsPaused());
+
+		context.Stop();
+		REQUIRE(!context.IsPlaying());
+		REQUIRE(!context.IsSimulate());
+
+		Forge::ScriptEngine::Shutdown();
+		Forge::Physics::Shutdown();
+	}
+
+	TEST_CASE("Simulate renders through the scene's primary camera", "[editor][simulate][tooling]")
+	{
+		Forge::Log::Init();
+		Forge::ScriptEngine::Init();
+		Forge::Physics::Init();
+
+		Forge::EditorContext context;
+
+		const glm::mat4 sentinel = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f, 3.0f, 4.0f));
+
+		Forge::Entity camera = context.CreateEntity("Cam");
+		auto& cc = camera.AddComponent<Forge::CameraComponent>();
+		cc.Primary = true;
+		cc.ViewProjectionMatrix = sentinel;
+
+		// Edit and play both view through the editor camera; only simulate
+		// hands the view to the scene's camera.
+		REQUIRE(context.GetViewProjection() != sentinel);
+		context.Play();
+		REQUIRE(context.GetViewProjection() != sentinel);
+
+		context.Simulate();
+		REQUIRE(context.GetViewProjection() == sentinel);
+
+		context.Pause();
+		REQUIRE(context.GetViewProjection() == sentinel);
+
+		context.Stop();
+		REQUIRE(context.GetViewProjection() != sentinel);
+
+		Forge::ScriptEngine::Shutdown();
+		Forge::Physics::Shutdown();
+	}
+
+	TEST_CASE("EditorContext exposes gizmo mode, space and snap", "[editor][tooling]")
 {
     Forge::Log::Init();
 

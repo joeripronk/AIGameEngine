@@ -411,7 +411,7 @@ The editor must be fully controllable by AI agents:
 - **Scene Hierarchy Panel**: Shows all entities in the scene, supports selection
 - **Inspector Panel**: Shows component properties of selected entity, allows editing
 - **Viewport**: 3D rendering area with editor camera
-- **Toolbar**: File operations, entity creation, play/pause/stop
+- **Toolbar**: File operations, entity creation, play/simulate/pause/stop
 - **Properties Panel**: Global editor settings
 - **Chrome** (gizmo toolbar, status bar, notifications): `NoDocking` windows -
   they float above the layout and cannot be dragged into it
@@ -422,6 +422,11 @@ The editor must be fully controllable by AI agents:
   `Save Project As...` go through `Forge::FileDialog::OpenFile/SaveFile`
   (nativefiledialog-extended). Cancel is not an error; failures surface as
   notifications. Ctrl+S keeps its silent save-to-current-path contract
+- **Playback modes**: `Play` runs the scripts under the editor camera,
+  `Simulate` runs them on the scene's primary camera, which the viewport
+  then renders through (`GetViewProjection` answers with the scene
+  camera only while simulating); `Pause`/`Step` are orthogonal to the
+  mode, `Stop` clears both. F5 toggles play, F9 toggles simulate
 
 ### Editor API for AI Agents
 

@@ -120,17 +120,43 @@ namespace Forge {
 		// than returning early and leaving the caller stuck.
 		if (m_IsPlaying)
 		{
+			// Play from a simulate session takes the camera back under the
+			// author's control; the scripts keep running.
+			m_IsSimulate = false;
 			m_IsPaused = false;
 			m_Scene->SetPaused(false);
 			return;
 		}
 
 		m_IsPlaying = true;
+		m_IsSimulate = false;
 		m_IsPaused = false;
 
 		// The Scene holds its own pause flag and OnUpdateRuntime reads it, so
 		// the context and the scene must be told together. Pause() may have been
 		// called before playback ever started.
+		m_Scene->SetPaused(false);
+		m_Scene->OnRuntimeStart();
+	}
+
+	void EditorContext::Simulate()
+	{
+		// The toolbar's Simulate button doubles as Stop while simulating.
+		if (m_IsPlaying && m_IsSimulate)
+		{
+			Stop();
+			return;
+		}
+
+		// Entering simulate from play mode tears the play session down first so
+		// the scripts see OnRuntimeStop/OnRuntimeStart for the new mode, as
+		// leaving Play does in the Hazel editor.
+		if (m_IsPlaying)
+			Stop();
+
+		m_IsPlaying = true;
+		m_IsSimulate = true;
+		m_IsPaused = false;
 		m_Scene->SetPaused(false);
 		m_Scene->OnRuntimeStart();
 	}
@@ -154,6 +180,7 @@ namespace Forge {
 		m_Scene->OnRuntimeStop();
 		m_IsPlaying = false;
 		m_IsPaused = false;
+		m_IsSimulate = false;
 		m_Scene->SetPaused(false);
 	}
 
@@ -168,6 +195,20 @@ namespace Forge {
 	void EditorContext::Step(int frames)
 	{
 		m_Scene->Step(frames);
+	}
+
+	glm::mat4 EditorContext::GetViewProjection() const
+	{
+		// Simulate watches the scene through its own camera: script motion moves
+		// the view. Play and edit keep the author-steered editor camera.
+		if (m_IsSimulate && m_Scene)
+		{
+			Entity camera = m_Scene->GetPrimaryCameraEntity();
+			if (camera && camera.HasComponent<CameraComponent>())
+				return camera.GetComponent<CameraComponent>().ViewProjectionMatrix;
+		}
+
+		return m_Camera.GetViewProjectionMatrix();
 	}
 
 	void EditorContext::Update(Timestep ts)

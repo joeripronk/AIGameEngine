@@ -187,6 +187,11 @@ namespace Forge {
 
 	void EditorApp::SyncEditorCamera()
 	{
+		// Simulate is the opposite of syncing: the scene camera runs free and the
+		// author watches it from their own fixed viewpoint.
+		if (m_Editor.IsSimulate())
+			return;
+
 		// Follow the primary camera so the viewport matches the scene.
 		auto cameraEntity = m_Editor.GetScene()->GetPrimaryCameraEntity();
 		if (cameraEntity)
@@ -365,7 +370,7 @@ namespace Forge {
 		const RendererStatistics stats = Renderer::GetStatistics();
 		ImGui::Text("%s", m_CurrentScenePath.c_str());
 		ImGui::SameLine();
-		ImGui::Text("|  %s", m_Editor.IsPlaying() ? (m_Editor.IsPaused() ? "Playing (paused)" : "Playing") : "Stopped");
+		ImGui::Text("|  %s", m_Editor.IsPlaying() ? (m_Editor.IsPaused() ? (m_Editor.IsSimulate() ? "Simulating (paused)" : "Playing (paused)") : (m_Editor.IsSimulate() ? "Simulating" : "Playing")) : "Stopped");
 		ImGui::SameLine();
 		ImGui::Text("|  Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
 		ImGui::SameLine();
@@ -878,6 +883,12 @@ namespace Forge {
 		const ImVec2 panelSize = ImGui::GetContentRegionAvail();
 		m_Editor.GetCamera().SetViewportSize(panelSize.x, panelSize.y);
 
+		// The scene cameras' projections follow the same panel: the simulate view
+		// renders through a scene camera, and a 16:9 projection shown in a 3:1
+		// panel is a stretched view.
+		if (panelSize.x > 0.0f && panelSize.y > 0.0f)
+			m_Editor.GetScene()->OnViewportResize((uint32_t)panelSize.x, (uint32_t)panelSize.y);
+
 		m_Viewport.Render(m_Editor.GetScene().get(), m_Editor.GetViewProjection());
 
 		if (m_Viewport.GetRenderTexture())
@@ -966,13 +977,28 @@ namespace Forge {
 	{
 		ImGui::Begin("Properties");
 
-		bool playing = m_Editor.IsPlaying();
-		ImGui::Checkbox("Playing", &playing);
-		if (playing != m_Editor.IsPlaying())
-			m_Editor.SetPlaying(playing);
+		// The Hazel toolbar's state machine: Play runs the scripts under the
+		// author's camera, Simulate runs them on the scene's own camera, and each
+		// button becomes Stop while its own mode is live.
+		const bool playLive = m_Editor.IsPlaying() && !m_Editor.IsSimulate();
+		if (ImGui::Button(playLive ? "Stop" : "Play"))
+		{
+			if (playLive)
+				m_Editor.Stop();
+			else
+				m_Editor.Play();
+		}
 		ImGui::SameLine();
-		if (ImGui::Button(m_Editor.IsPlaying() ? "Stop" : "Play"))
-			m_Editor.SetPlaying(!m_Editor.IsPlaying());
+		if (ImGui::Button(m_Editor.IsSimulate() ? "Stop" : "Simulate"))
+		{
+			if (m_Editor.IsSimulate())
+				m_Editor.Stop();
+			else
+				m_Editor.Simulate();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button(m_Editor.IsPlaying() && !m_Editor.IsPaused() ? "Pause" : "Resume") && m_Editor.IsPlaying())
+			m_Editor.Pause();
 
 		ImGui::SameLine();
 		if (ImGui::Button("Step") && m_Editor.IsPlaying())
