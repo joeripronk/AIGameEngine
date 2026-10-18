@@ -153,6 +153,7 @@ namespace Forge {
 					// drawn to and the window stays black.
 					Renderer::RenderScene(m_Scene.get(), swapchainImage);
 					Renderer::BeginSSAOPass();
+					Renderer::BeginBloomPass();
 					Renderer::BeginHDRPass();
 					Renderer::BeginFinalPass();
 				}

@@ -141,6 +141,16 @@ namespace Forge {
 		if (finalShader)
 			s_ShaderLibrary.Add(finalShader);
 
+		// Bloom chain: luminance filter + 13-tap downsample, and the
+		// 16-tap golden-spiral blur used for its iterations.
+		auto bloomShader = Shader::CreateFromSPIRV("Bloom", "resources/shaders/fullscreen.vert.spv", "resources/shaders/bloom.frag.spv");
+		if (bloomShader)
+			s_ShaderLibrary.Add(bloomShader);
+
+		auto blurShader = Shader::CreateFromSPIRV("BloomBlur", "resources/shaders/fullscreen.vert.spv", "resources/shaders/blur.frag.spv");
+		if (blurShader)
+			s_ShaderLibrary.Add(blurShader);
+
 		auto shadowShader = Shader::CreateFromSPIRV("Shadow", "resources/shaders/shadow.vert.spv", "resources/shaders/shadow.frag.spv");
 		if (shadowShader)
 			s_ShaderLibrary.Add(shadowShader);
@@ -915,6 +925,33 @@ namespace Forge {
 
 	void Renderer::EndSSAOPass()
 	{
+	}
+
+	void Renderer::BeginBloomPass()
+	{
+		FG_PROFILE_FUNCTION();
+		// Bloom pass: soft-threshold luminance + 13-tap downsample to half
+		// res, then three golden-spiral blurs. Reads the HDR buffer (before
+		// the tonemap) and leaves the blurred glow in the bloom target the
+		// HDR pass binds.
+		if (!s_CommandList)
+			return;
+
+		VulkanRendererAPI::RenderBloomPass(s_CommandList.Get());
+	}
+
+	void Renderer::EndBloomPass()
+	{
+	}
+
+	void Renderer::SetBloomIntensity(float intensity)
+	{
+		VulkanRendererAPI::SetBloomIntensity(intensity);
+	}
+
+	float Renderer::GetBloomIntensity()
+	{
+		return VulkanRendererAPI::GetBloomIntensity();
 	}
 
 	void Renderer::BeginHDRPass()

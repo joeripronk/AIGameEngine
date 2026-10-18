@@ -125,6 +125,18 @@ namespace Forge {
 		static nvrhi::GraphicsPipelineHandle GetHDRPipeline() { return s_HDRPipeline; }
 		static nvrhi::GraphicsPipelineHandle GetFinalPipeline() { return s_FinalPipeline; }
 
+		// Bloom (luminance -> 13-tap downsample -> 3x golden-spiral blur).
+		// The pass runs on the HDR buffer before the tonemap; the final
+		// blurred target is bound by the HDR pass.
+		static void RenderBloomPass(nvrhi::ICommandList* commandList);
+		static nvrhi::TextureHandle GetBloomTexture() { return s_BloomA; }
+
+		// Bloom composite intensity, Forge::BloomParams::Intensity semantics:
+		// 0 disables the effect (the pass still runs at half res - cheap -
+		// and adds nothing).
+		static void SetBloomIntensity(float intensity);
+		static float GetBloomIntensity();
+
 		// Post-processing binding layout accessors.
 		static nvrhi::BindingLayoutHandle GetSSAOBindingLayout() { return s_SSAOBindingLayout; }
 		static nvrhi::BindingLayoutHandle GetHDRBindingLayout() { return s_HDRBindingLayout; }
@@ -169,6 +181,24 @@ namespace Forge {
 
 		// SSAO buffer.
 		static nvrhi::TextureHandle s_SSAOOutput;
+
+		// Bloom chain: half-res luminance-filtered downsample and two
+		// ping-pong targets for the blur iterations. s_BloomA holds the
+		// last blur.
+		static nvrhi::TextureHandle s_BloomHalf;
+		static nvrhi::TextureHandle s_BloomA;
+		static nvrhi::TextureHandle s_BloomB;
+		static nvrhi::FramebufferHandle s_BloomHalfFb;
+		static nvrhi::FramebufferHandle s_BloomAFb;
+		static nvrhi::FramebufferHandle s_BloomBFb;
+		static nvrhi::BindingLayoutHandle s_BloomBindingLayout;
+		static nvrhi::GraphicsPipelineHandle s_BloomPipeline;
+		static nvrhi::GraphicsPipelineHandle s_BlurPipeline;
+		static nvrhi::BufferHandle s_BloomUniformBuffer;
+		static nvrhi::BufferHandle s_BlurUniformBuffer;
+		static float s_BloomIntensity;
+		static void CreateBloomPipeline();
+		static void CreateBlurPipeline();
 
 		// Tonemapped buffer.
 		static nvrhi::TextureHandle s_TonemappedBuffer;

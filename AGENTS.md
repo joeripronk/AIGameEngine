@@ -582,8 +582,28 @@ editor.ResolveProjectPath("textures/albedo.png");
 2. **Shadow Pass**: Render shadow map from light perspective
 3. **HDR Pass**: Apply PBR lighting, accumulate to HDR buffer
 4. **SSAO Pass**: Screen-space ambient occlusion
-5. **Tonemapping Pass**: ACES tonemapping, convert to LDR
-6. **Final Pass**: Composite SSAO, output to swapchain
+5. **Bloom Pass**: Soft-threshold luminance + 13-tap downsample to half
+   res, 3x 16-tap golden-spiral blur (ping-pong), added to the HDR radiance
+   **before** tonemapping so glow rolls off through the same ACES curve
+6. **Tonemapping Pass**: ACES tonemapping, convert to LDR
+7. **Final Pass**: Composite SSAO, output to swapchain
+
+### Bloom
+
+The chain's maths lives in `Forge/Renderer/Bloom.h` - pure and unit-tested;
+`bloom.frag`/`blur.frag` evaluate the same formulas:
+
+```cpp
+Renderer::BeginBloomPass();                 // between SSAO and HDR passes
+Renderer::SetBloomIntensity(0.05f);        // 0 disables; composite weight
+Forge::BloomLumaWeight(luma, params);      // the filter definition
+Forge::BloomKernel::BlurOffsets();         // 16 golden-spiral taps
+```
+
+The normalized weight (`soft / luminance`) **saturates** past the knee -
+that is the anti-crawl property the division exists for, and BloomTests
+asserts it: a filter that grew with luminance would smear bright texels
+over each other.
 
 ### Who draws
 
@@ -598,7 +618,9 @@ renderer state at all.
 
 - **PBR Shader**: Main mesh rendering with PBR materials
 - **SSAO Shader**: Screen-space ambient occlusion
-- **HDR Shader**: HDR accumulation and tonemapping
+- **Bloom Shader**: Luminance filter + 13-tap downsample (half res)
+- **Blur Shader**: 16-tap golden-spiral disc blur (bloom iterations)
+- **HDR Shader**: HDR accumulation, bloom composite and ACES tone mapping
 - **Final Shader**: Final composite with SSAO overlay
 - **Shadow Shader**: Shadow map rendering
 

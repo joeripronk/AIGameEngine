@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (400 test cases, 11210 assertions - all passing, order-independent
+### Tests (405 test cases, 11626 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -138,6 +138,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       enumeration, EditorContext add/remove-component-by-name incl. the
       structural-component rule and a mid-sim collider added by name becoming
       physical)
+- [x] BloomTests (luminance filter: silence below threshold, positive and
+      bounded above, saturation past the knee - the anti-crawl normalization
+      - zero-knee degeneracy staying finite, scale linearity; 13-tap
+      downsample box: bounds, centre tap, distinct taps; 16-tap golden-spiral
+      blur: unit-disc bound, distinct taps, radii filling outward, no
+      directional bias)
 
 ### Hazel parity (upstream `TheCherno/Hazel`)
 - [x] `Core/Timer.h` + an engine clock (`Time::GetTime`) that tests can replace
@@ -200,19 +206,28 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       Not ported as-is: a texture-array binding set and an MSDF atlas pipeline
       nothing in the engine, the editor or Tetris currently renders. The useful
       slice (`Texture::Bind(slot)` + draw-call statistics) is now done above.
-- [ ] Bloom post-processing pass (Hazel's post chain luminance → downsample →
-      blur → composite). Needs new GLSL passes, framebuffers and binding sets
-      on the Vulkan side - not expressible as a headless unit test, so it is
-      listed rather than claimed.
+- [x] Bloom post-processing pass (the luminance → 13-tap downsample → 3x
+      golden-spiral blur → composite chain Cherno presents publicly): half-res
+      `bloom.frag` (soft-threshold luminance + 13-tap box) and `blur.frag`
+      (16-tap golden spiral, widening radius per iteration), ping-ponging
+      between two half-res RGBA16_FLOAT targets, composed **before**
+      tonemapping so glow rolls off with the frame through the same ACES
+      curve. The maths lives in `Forge/Renderer/Bloom.h` where unit tests
+      hold it; the GLSL evaluates the same formulas. The public Hazel
+      repository contains no bloom code (checked: every public branch), so
+      this is the documented chain, built and compiled - the GPU path is
+      verified by the Vulkan target building and the passes recording, not
+      by a headless assertion.
 
 > Checked against every public Hazel branch (master, projects, scripting,
 > asset-manager): there is no ProfilerOverlayPanel, no FileSystem
-> directory/path utilities, no Lua ScriptGlue, and no RTTI in the public
-> source - every published branch is Mono-based. The Lua glue, the overlay
-> panel and the type registry here follow Cherno's documented patterns
-> (the Workshop / Toy Engine RTTI is public, the Hazel one is not), not
-> verbatim ports, and the parity list stays honest about that: items are
-> claimed when the behaviour exists and is tested, not when a file name
+> directory/path utilities, no Lua ScriptGlue, no RTTI and no bloom code in
+> the public source - every published branch is Mono-based. The Lua glue,
+> the overlay panel, the type registry and the bloom chain here follow
+> Cherno's documented patterns (the Workshop / Toy Engine RTTI and the
+> public bloom videos are public material; the Hazel code itself is not),
+> not verbatim ports, and the parity list stays honest about that: items
+> are claimed when the behaviour exists and is tested, not when a file name
 > matches.
 
 ### Fixed while comparing against Hazel
@@ -258,6 +273,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Post-processing framebuffer infrastructure (tonemapped, SSAO buffers)
 - [x] SSAO pass (depth reconstruction - shader requires G-Buffer inputs)
 - [x] HDR tonemapping pass (reads HDR buffer, applies ACES tone mapping)
+- [x] Bloom pass (soft-threshold luminance + 13-tap downsample to half res,
+      3x 16-tap golden-spiral blur ping-pong, composite into the tonemap
+      before ACES; `Renderer::BeginBloomPass` between the SSAO and HDR
+      passes in all three apps, `Renderer::SetBloomIntensity` with an editor
+      control, half-res targets rebuilt on resize)
 - [x] Final composite pass (reads tonemapped + SSAO, outputs to swapchain)
 - [x] IBL prefiltering / irradiance maps (irradiance cubemap + prefilter mipmapped cubemap)
 - [x] ImGui Vulkan backend init + viewport present (ImGui draw data rendered to swapchain)

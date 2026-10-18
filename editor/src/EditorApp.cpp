@@ -228,6 +228,7 @@ namespace Forge {
 				Renderer::BeginScene();
 				Renderer::RenderScene(m_Editor.GetScene().get(), swapchainImage);
 				Renderer::BeginSSAOPass();
+				Renderer::BeginBloomPass();
 				Renderer::BeginHDRPass();
 				Renderer::BeginFinalPass();
 
@@ -867,6 +868,20 @@ namespace Forge {
 		const RendererStatistics stats = Renderer::GetStatistics();
 		ImGui::Text("Draw calls: %u  Culled: %u", stats.DrawCalls3D, stats.FrustumCulled);
 		ImGui::Text("Triangles: %u  Textures bound: %u", stats.TrianglesSubmitted, stats.TexturesBound);
+
+		ImGui::Separator();
+
+		// Bloom (the Hazel post chain): glow is added to the HDR radiance
+		// before tonemapping, so 0 turns the effect off at the composite -
+		// the half-res chain is cheap enough to always record.
+		float bloom = Renderer::GetBloomIntensity();
+		ImGui::Text("Bloom:");
+		ImGui::SameLine();
+		if (ImGui::SliderFloat("##bloom", &bloom, 0.0f, 0.5f, "%.3f"))
+			Renderer::SetBloomIntensity(bloom);
+		ImGui::SameLine();
+		if (ImGui::Button("Off"))
+			Renderer::SetBloomIntensity(0.0f);
 
 		ImGui::Separator();
 

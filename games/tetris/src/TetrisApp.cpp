@@ -457,6 +457,7 @@ void TetrisApp::Run()
 			// black no matter what the scene contains.
 			Forge::Renderer::RenderScene(m_Scene.get(), swapchainImage);
 			Forge::Renderer::BeginSSAOPass();
+			Forge::Renderer::BeginBloomPass();
 			Forge::Renderer::BeginHDRPass();
 			Forge::Renderer::BeginFinalPass();
 

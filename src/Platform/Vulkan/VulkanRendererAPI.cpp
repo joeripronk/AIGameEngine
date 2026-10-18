@@ -7,6 +7,7 @@
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Renderer/RendererAPI.h"
 #include "Forge/Renderer/ShaderLibrary.h"
+#include "Forge/Renderer/Bloom.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanSwapchain.h"
 
@@ -72,6 +73,19 @@ namespace Forge {
 	nvrhi::TextureHandle VulkanRendererAPI::s_HDRDepth;
 	nvrhi::FramebufferHandle VulkanRendererAPI::s_HDRFramebuffer;
 	nvrhi::TextureHandle VulkanRendererAPI::s_SSAOInput;
+
+	nvrhi::TextureHandle VulkanRendererAPI::s_BloomHalf;
+	nvrhi::TextureHandle VulkanRendererAPI::s_BloomA;
+	nvrhi::TextureHandle VulkanRendererAPI::s_BloomB;
+	nvrhi::FramebufferHandle VulkanRendererAPI::s_BloomHalfFb;
+	nvrhi::FramebufferHandle VulkanRendererAPI::s_BloomAFb;
+	nvrhi::FramebufferHandle VulkanRendererAPI::s_BloomBFb;
+	nvrhi::BindingLayoutHandle VulkanRendererAPI::s_BloomBindingLayout;
+	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_BloomPipeline;
+	nvrhi::GraphicsPipelineHandle VulkanRendererAPI::s_BlurPipeline;
+	nvrhi::BufferHandle VulkanRendererAPI::s_BloomUniformBuffer;
+	nvrhi::BufferHandle VulkanRendererAPI::s_BlurUniformBuffer;
+	float VulkanRendererAPI::s_BloomIntensity = BloomParams{}.Intensity;
 	nvrhi::TextureHandle VulkanRendererAPI::s_SSAOOutput;
 	nvrhi::TextureHandle VulkanRendererAPI::s_TonemappedBuffer;
 	nvrhi::TextureHandle VulkanRendererAPI::s_FinalBuffer;
@@ -476,6 +490,68 @@ namespace Forge {
 		// Create SSAO Buffer
 		CreateSSAOBuffer(width, height);
 
+		// Create Bloom targets (half resolution).
+		{
+			const uint32_t halfWidth = std::max(1u, width / 2u);
+			const uint32_t halfHeight = std::max(1u, height / 2u);
+
+			auto makeBloomTexture = [&](const char* name)
+			{
+				nvrhi::TextureDesc desc;
+				desc.width = halfWidth;
+				desc.height = halfHeight;
+				desc.format = nvrhi::Format::RGBA16_FLOAT;  // bloom operates on HDR radiance
+				desc.isShaderResource = true;
+				desc.isRenderTarget = true;
+				desc.keepInitialState = true;
+				desc.initialState = nvrhi::ResourceStates::RenderTarget;
+				desc.debugName = name;
+				return s_Device->createTexture(desc);
+			};
+
+			s_BloomHalf = makeBloomTexture("BloomHalf");
+			s_BloomA = makeBloomTexture("BloomA");
+			s_BloomB = makeBloomTexture("BloomB");
+
+			nvrhi::FramebufferDesc halfFbDesc;
+			halfFbDesc.addColorAttachment(s_BloomHalf.Get());
+			s_BloomHalfFb = s_Device->createFramebuffer(halfFbDesc);
+
+			nvrhi::FramebufferDesc aFbDesc;
+			aFbDesc.addColorAttachment(s_BloomA.Get());
+			s_BloomAFb = s_Device->createFramebuffer(aFbDesc);
+
+			nvrhi::FramebufferDesc bFbDesc;
+			bFbDesc.addColorAttachment(s_BloomB.Get());
+			s_BloomBFb = s_Device->createFramebuffer(bFbDesc);
+
+			if (s_BloomHalfFb && s_BloomAFb && s_BloomBFb)
+				FG_CORE_INFO("Bloom targets created: {0}x{1}", halfWidth, halfHeight);
+
+			// Bloom and blur uniform buffers (size independent).
+			if (!s_BloomUniformBuffer)
+			{
+				nvrhi::BufferDesc bloomUboDesc;
+				bloomUboDesc.byteSize = 256;
+				bloomUboDesc.isConstantBuffer = true;
+				bloomUboDesc.debugName = "Bloom_Uniform";
+				bloomUboDesc.keepInitialState = true;
+				bloomUboDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+				s_BloomUniformBuffer = s_Device->createBuffer(bloomUboDesc);
+			}
+
+			if (!s_BlurUniformBuffer)
+			{
+				nvrhi::BufferDesc blurUboDesc;
+				blurUboDesc.byteSize = 256;
+				blurUboDesc.isConstantBuffer = true;
+				blurUboDesc.debugName = "Blur_Uniform";
+				blurUboDesc.keepInitialState = true;
+				blurUboDesc.initialState = nvrhi::ResourceStates::ConstantBuffer;
+				s_BlurUniformBuffer = s_Device->createBuffer(blurUboDesc);
+			}
+		}
+
 		// Create Tonemapped buffer
 		nvrhi::TextureDesc tonemapDesc;
 		tonemapDesc.width = width;
@@ -589,6 +665,10 @@ namespace Forge {
 			CreateHDRPipeline();
 		if (!s_FinalPipeline)
 			CreateFinalPipeline();
+		if (!s_BloomPipeline)
+			CreateBloomPipeline();
+		if (!s_BlurPipeline)
+			CreateBlurPipeline();
 
 		FG_CORE_INFO("Swapchain resources initialized: {0}x{1}", width, height);
 	}
@@ -607,6 +687,9 @@ namespace Forge {
 		s_HDRFramebuffer = nullptr;
 		s_TonemappedFramebuffer = nullptr;
 		s_SSAOFramebuffer = nullptr;
+		s_BloomHalfFb = nullptr;
+		s_BloomAFb = nullptr;
+		s_BloomBFb = nullptr;
 
 		CreateRenderTargets(ScaleForRenderTarget(width), ScaleForRenderTarget(height));
 	}
@@ -780,6 +863,7 @@ namespace Forge {
 		// binding 0: texture2D u_HDRBuffer
 		// binding 1: sampler paired with it
 		// binding 2: HDR params (uniform buffer)
+		// binding 3: texture2D u_BloomBuffer (sampled with the same sampler)
 		nvrhi::BindingLayoutDesc hdrLayoutDesc;
 		hdrLayoutDesc.visibility = nvrhi::ShaderType::All;
 		hdrLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
@@ -787,6 +871,7 @@ namespace Forge {
 			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
 			{ 1, nvrhi::ResourceType::Sampler, 0, 1 },
 			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+			{ 3, nvrhi::ResourceType::Texture_SRV, 0, 1 },
 		};
 		s_HDRBindingLayout = s_Device->createBindingLayout(hdrLayoutDesc);
 
@@ -885,6 +970,122 @@ namespace Forge {
 			FG_CORE_INFO("Final pipeline created");
 		else
 			FG_CORE_ERROR("Failed to create Final pipeline");
+	}
+
+	void VulkanRendererAPI::CreateBloomPipeline()
+	{
+		if (!s_Device)
+			return;
+
+		// Load Bloom shader.
+		auto bloomShader = Renderer::GetShaderLibrary().Get("Bloom");
+		if (!bloomShader)
+		{
+			FG_CORE_WARN("Bloom shader not loaded");
+			return;
+		}
+
+		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(bloomShader);
+		if (!vulkanShader || !vulkanShader->GetVertexShader() || !vulkanShader->GetFragmentShader())
+		{
+			FG_CORE_WARN("Bloom shader not properly compiled");
+			return;
+		}
+
+		// Create binding layout for Bloom:
+		// binding 0: texture2D u_HDRBuffer
+		// binding 1: sampler paired with it
+		// binding 2: Bloom params (uniform buffer)
+		nvrhi::BindingLayoutDesc bloomLayoutDesc;
+		bloomLayoutDesc.visibility = nvrhi::ShaderType::All;
+		bloomLayoutDesc.setBindingOffsets(nvrhi::VulkanBindingOffsets{ 0, 0, 0, 0 });
+		bloomLayoutDesc.bindings = {
+			{ 0, nvrhi::ResourceType::Texture_SRV, 0, 1 },
+			{ 1, nvrhi::ResourceType::Sampler, 0, 1 },
+			{ 2, nvrhi::ResourceType::ConstantBuffer, 0, 1 },
+		};
+		s_BloomBindingLayout = s_Device->createBindingLayout(bloomLayoutDesc);
+
+		// Create pipelines for bloom: the downsample writes the half-res
+		// luminance target, the blur ping-pongs between the two targets.
+		// Same layout, so one layout serves both.
+		nvrhi::GraphicsPipelineDesc pipelineDesc;
+		pipelineDesc.VS = vulkanShader->GetVertexShader();
+		pipelineDesc.PS = vulkanShader->GetFragmentShader();
+		pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+
+		pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+		pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+
+		pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+		pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+
+		pipelineDesc.bindingLayouts.push_back(s_BloomBindingLayout);
+		pipelineDesc.inputLayout = s_FullscreenInputLayout;
+
+		nvrhi::FramebufferInfo fbInfo;
+		fbInfo.colorFormats.push_back(nvrhi::Format::RGBA16_FLOAT);
+		fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
+		fbInfo.sampleCount = 1;
+
+		s_BloomPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
+		if (s_BloomPipeline)
+			FG_CORE_INFO("Bloom pipeline created");
+		else
+			FG_CORE_ERROR("Failed to create Bloom pipeline");
+	}
+
+	void VulkanRendererAPI::CreateBlurPipeline()
+	{
+		if (!s_Device)
+			return;
+
+		// Load Blur shader.
+		auto blurShader = Renderer::GetShaderLibrary().Get("BloomBlur");
+		if (!blurShader)
+		{
+			FG_CORE_WARN("BloomBlur shader not loaded");
+			return;
+		}
+
+		auto vulkanShader = std::dynamic_pointer_cast<VulkanShader>(blurShader);
+		if (!vulkanShader || !vulkanShader->GetVertexShader() || !vulkanShader->GetFragmentShader())
+		{
+			FG_CORE_WARN("BloomBlur shader not properly compiled");
+			return;
+		}
+
+		// Reuses the Bloom layout ({0 tex, 1 sampler, 2 CB}) - same shape.
+		if (!s_BloomBindingLayout)
+		{
+			FG_CORE_WARN("Blur: bloom binding layout missing");
+			return;
+		}
+
+		nvrhi::GraphicsPipelineDesc pipelineDesc;
+		pipelineDesc.VS = vulkanShader->GetVertexShader();
+		pipelineDesc.PS = vulkanShader->GetFragmentShader();
+		pipelineDesc.primType = nvrhi::PrimitiveType::TriangleList;
+
+		pipelineDesc.renderState.depthStencilState.depthTestEnable = false;
+		pipelineDesc.renderState.depthStencilState.depthWriteEnable = false;
+
+		pipelineDesc.renderState.rasterState.cullMode = nvrhi::RasterCullMode::None;
+		pipelineDesc.renderState.rasterState.frontCounterClockwise = true;
+
+		pipelineDesc.bindingLayouts.push_back(s_BloomBindingLayout);
+		pipelineDesc.inputLayout = s_FullscreenInputLayout;
+
+		nvrhi::FramebufferInfo fbInfo;
+		fbInfo.colorFormats.push_back(nvrhi::Format::RGBA16_FLOAT);
+		fbInfo.depthFormat = nvrhi::Format::UNKNOWN;
+		fbInfo.sampleCount = 1;
+
+		s_BlurPipeline = s_Device->createGraphicsPipeline(pipelineDesc, fbInfo);
+		if (s_BlurPipeline)
+			FG_CORE_INFO("Bloom blur pipeline created");
+		else
+			FG_CORE_ERROR("Failed to create Bloom blur pipeline");
 	}
 
 	void VulkanRendererAPI::UpdateDescriptorSets()
@@ -1143,6 +1344,155 @@ namespace Forge {
 		}
 	}
 
+	void VulkanRendererAPI::SetBloomIntensity(float intensity)
+	{
+		s_BloomIntensity = std::clamp(intensity, 0.0f, 1.0f);
+	}
+
+	float VulkanRendererAPI::GetBloomIntensity()
+	{
+		return s_BloomIntensity;
+	}
+
+	void VulkanRendererAPI::RenderBloomPass(nvrhi::ICommandList* commandList)
+	{
+		if (!s_BloomPipeline || !s_BlurPipeline || !s_BloomBindingLayout || !commandList)
+			return;
+
+		if (!s_HDRBuffer || !s_BloomHalf || !s_BloomA || !s_BloomB)
+			return;
+
+		if (!s_BloomHalfFb || !s_BloomAFb || !s_BloomBFb)
+			return;
+
+		const auto halfDesc = s_BloomHalf->getDesc();
+		const uint32_t halfWidth = halfDesc.width;
+		const uint32_t halfHeight = halfDesc.height;
+		if (halfWidth == 0 || halfHeight == 0)
+			return;
+
+		// Bloom uniform: { vec2 texelSize; float threshold; float knee; float scale }
+		// - the scalar-layout payload of BloomParams in bloom.frag.
+		struct BloomGPUParams
+		{
+			glm::vec2 TexelSize;
+			float Threshold;
+			float Knee;
+			float Scale;
+		};
+
+		BloomGPUParams bloomParams;
+		bloomParams.TexelSize = glm::vec2(1.0f / static_cast<float>(halfWidth), 1.0f / static_cast<float>(halfHeight));
+		bloomParams.Threshold = BloomParams{}.Threshold;
+		bloomParams.Knee = BloomParams{}.Knee;
+		bloomParams.Scale = BloomParams{}.Scale;
+
+		if (s_BloomUniformBuffer)
+			commandList->writeBuffer(s_BloomUniformBuffer.Get(), &bloomParams, sizeof(bloomParams), 0);
+
+		// One linear ClampToBorder sampler for every tap of every draw -
+		// taps land between texels on purpose (the blur's 16 taps read as a
+		// 32-sample disc under bilinear filtering). Created before any
+		// binding set references it, kept alive for the whole pass.
+		nvrhi::SamplerDesc samplerDesc;
+		samplerDesc.addressU = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressV = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.addressW = nvrhi::SamplerAddressMode::ClampToBorder;
+		samplerDesc.setMinFilter(true);
+		samplerDesc.setMagFilter(true);
+		samplerDesc.setMipFilter(true);
+		samplerDesc.setBorderColor(nvrhi::Color(0.0f, 0.0f, 0.0f, 0.0f));
+		nvrhi::SamplerHandle bloomSampler = s_Device->createSampler(samplerDesc);
+		if (!bloomSampler.Get())
+		{
+			FG_CORE_WARN("Bloom: failed to create sampler");
+			return;
+		}
+
+		auto makeTextureItem = [](nvrhi::IResource* texture, nvrhi::Format format, uint32_t slot)
+		{
+			nvrhi::BindingSetItem item{};
+			item.resourceHandle = texture;
+			item.slot = slot;
+			item.type = nvrhi::ResourceType::Texture_SRV;
+			item.dimension = nvrhi::TextureDimension::Texture2D;
+			item.format = format;
+			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			return item;
+		};
+
+		nvrhi::Viewport halfViewport(halfWidth, halfHeight);
+
+		// Step 1 + 2: soft-threshold luminance + 13-tap downsample,
+		// full-res HDR -> half-res.
+		{
+			nvrhi::BindingSetDesc setDesc;
+			setDesc.bindings.push_back(makeTextureItem(s_HDRBuffer.Get(), s_HDRBuffer->getDesc().format, 0));
+			setDesc.bindings.push_back(MakeSamplerItem(bloomSampler.Get(), 1));
+			if (s_BloomUniformBuffer)
+				setDesc.bindings.push_back(MakeConstantBufferItem(s_BloomUniformBuffer.Get(), 2));
+
+			nvrhi::BindingSetHandle set = CreateBindingSet(s_Device, setDesc, s_BloomBindingLayout.Get());
+			if (!set)
+			{
+				FG_CORE_WARN("Bloom: failed to create downsample binding set");
+				return;
+			}
+
+			nvrhi::GraphicsState state;
+			state.framebuffer = s_BloomHalfFb.Get();
+			state.viewport.addViewportAndScissorRect(halfViewport);
+			state.pipeline = s_BloomPipeline.Get();
+			state.bindings.push_back(set.Get());
+
+			DrawFullscreenQuad(commandList, state);
+		}
+
+		// Step 3: three 16-tap golden-spiral blurs, ping-ponging
+		// Half -> A -> B -> A, with growing radius. Each iteration widens
+		// the disc; the final blur leaves the result in s_BloomA, which the
+		// tonemap pass binds.
+		struct BlurGPUParams
+		{
+			glm::vec2 TexelSize;
+			float Radius;
+		};
+
+		nvrhi::IResource* sources[3] = { s_BloomHalf.Get(), s_BloomA.Get(), s_BloomB.Get() };
+		nvrhi::IFramebuffer* targets[3] = { s_BloomAFb.Get(), s_BloomBFb.Get(), s_BloomAFb.Get() };
+
+		for (int iteration = 0; iteration < 3; ++iteration)
+		{
+			BlurGPUParams blurParams;
+			blurParams.TexelSize = glm::vec2(1.0f / static_cast<float>(halfWidth), 1.0f / static_cast<float>(halfHeight));
+			blurParams.Radius = 1.0f + static_cast<float>(iteration);  // widening disc per iteration
+
+			if (s_BlurUniformBuffer)
+				commandList->writeBuffer(s_BlurUniformBuffer.Get(), &blurParams, sizeof(blurParams), 0);
+
+			nvrhi::BindingSetDesc setDesc;
+			setDesc.bindings.push_back(makeTextureItem(sources[iteration], nvrhi::Format::RGBA16_FLOAT, 0));
+			setDesc.bindings.push_back(MakeSamplerItem(bloomSampler.Get(), 1));
+			if (s_BlurUniformBuffer)
+				setDesc.bindings.push_back(MakeConstantBufferItem(s_BlurUniformBuffer.Get(), 2));
+
+			nvrhi::BindingSetHandle set = CreateBindingSet(s_Device, setDesc, s_BloomBindingLayout.Get());
+			if (!set)
+			{
+				FG_CORE_WARN("Bloom: failed to create blur binding set (iteration {0})", iteration);
+				return;
+			}
+
+			nvrhi::GraphicsState state;
+			state.framebuffer = targets[iteration];
+			state.viewport.addViewportAndScissorRect(halfViewport);
+			state.pipeline = s_BlurPipeline.Get();
+			state.bindings.push_back(set.Get());
+
+			DrawFullscreenQuad(commandList, state);
+		}
+	}
+
 	void VulkanRendererAPI::RenderHDRPass(nvrhi::ICommandList* commandList)
 	{
 
@@ -1152,9 +1502,15 @@ namespace Forge {
 		if (!s_HDRBuffer || !s_TonemappedFramebuffer)
 			return;
 
+		if (!s_BloomA)
+		{
+			FG_CORE_WARN("HDR: bloom target is null - skipping tonemap");
+			return;
+		}
 
-		// Upload HDR uniform buffer (exposure).
-		glm::vec4 hdrParams(1.0f, 0.0f, 0.0f, 0.0f); // exposure
+		// Upload HDR uniform buffer (exposure + bloom composite weight).
+		// The GLSL HDRParams is { float u_Exposure; float u_BloomIntensity; }.
+		const float hdrParams[2] = { 1.0f, s_BloomIntensity };
 		if (s_HDRUniformBuffer)
 		{
 			commandList->writeBuffer(s_HDRUniformBuffer.Get(), &hdrParams, sizeof(hdrParams), 0);
@@ -1202,6 +1558,20 @@ namespace Forge {
 
 		if (s_HDRUniformBuffer)
 			hdrSetDesc.bindings.push_back(MakeConstantBufferItem(s_HDRUniformBuffer.Get(), 2));
+
+		// Bloom at binding 3. The pass samples it with the same sampler as
+		// the HDR buffer (binding 1) - one sampler descriptor, two textures,
+		// which is the Final pass's convention.
+		{
+			nvrhi::BindingSetItem bloomItem{};
+			bloomItem.resourceHandle = s_BloomA.Get();
+			bloomItem.slot = 3;
+			bloomItem.type = nvrhi::ResourceType::Texture_SRV;
+			bloomItem.dimension = nvrhi::TextureDimension::Texture2D;
+			bloomItem.format = s_BloomA->getDesc().format;
+			bloomItem.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			hdrSetDesc.bindings.push_back(bloomItem);
+		}
 
 		// Same helper for HDR pass.
 		// Separate scope forces a distinct stack slot from commandList.

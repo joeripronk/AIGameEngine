@@ -10,9 +10,13 @@ layout(binding = 0) uniform texture2D u_HDRBuffer;
 
 layout(binding = 1) uniform sampler u_HDRSampler;
 
+// Blurred bloom (half-res, upsampled by the shared linear sampler).
+layout(binding = 3) uniform texture2D u_BloomBuffer;
+
 layout(binding = 2) uniform HDRParams
 {
     float u_Exposure;
+    float u_BloomIntensity;
 } u_HDR;
 
 const float PI = 3.14159265359;
@@ -31,6 +35,13 @@ vec3 ACESFilm(vec3 x)
 void main()
 {
     vec3 hdrColor = texture(sampler2D(u_HDRBuffer, u_HDRSampler), vUV).rgb;
+
+    // Bloom is light: it is added to the HDR radiance before the tonemap,
+    // so glows roll off with the rest of the frame through the same curve.
+    // Tonemapping first and adding glow after would clip the glow flat.
+    vec3 bloom = texture(sampler2D(u_BloomBuffer, u_HDRSampler), vUV).rgb;
+    hdrColor += bloom * u_HDR.u_BloomIntensity;
+
     hdrColor *= u_HDR.u_Exposure;
 
     // ACES tonemap then gamma-correct to sRGB.

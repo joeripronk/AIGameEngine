@@ -89,14 +89,22 @@ namespace Forge {
 		// editor's stats display (the Hazel statistics pattern).
 		static RendererStatistics GetStatistics();
 
-		// Post-processing passes: SSAO, HDR tonemapping, final composite.
+		// Post-processing passes: SSAO, bloom, HDR tonemapping, final composite.
 		// These must be called between BeginScene() and EndScene(), after RenderScene().
 		static void BeginSSAOPass();
 		static void EndSSAOPass();
+		static void BeginBloomPass();
+		static void EndBloomPass();
 		static void BeginHDRPass();
 		static void EndHDRPass();
 		static void BeginFinalPass();
 		static void EndFinalPass();
+
+		// Bloom composite weight, added to the HDR radiance before tonemapping.
+		// 0 disables the effect; call after BeginBloomPass has run (the pass
+		// records every frame, the weight decides what the tonemap adds).
+		static void SetBloomIntensity(float intensity);
+		static float GetBloomIntensity();
 
 		// Reads the given swapchain image back to the CPU and writes it as a
 		// binary PPM. Used to verify rendering without a windowing system.

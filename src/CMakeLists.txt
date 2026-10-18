@@ -55,6 +55,7 @@ target_sources(ForgeCore
         Forge/Renderer/EditorCamera.h
         Forge/Renderer/EditorCamera.cpp
         Forge/Renderer/RendererStats.h
+        Forge/Renderer/Bloom.h
         Forge/Renderer/CpuTexture.h
         Forge/Renderer/CpuTexture.cpp
         Forge/Renderer/CpuMesh.h
