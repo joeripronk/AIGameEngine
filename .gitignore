@@ -83,6 +83,7 @@ vendor/physx/build/
 /test_prefab_fixtures/
 /test_audio/
 test_reverb/
+/test_asset_db/
 
 # Editor and debugging scratch
 imgui.ini

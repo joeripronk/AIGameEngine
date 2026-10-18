@@ -65,6 +65,10 @@ namespace Forge {
 		// Draws and then clears any pending notification.
 		void DrawNotification();
 
+		// The bottom status strip (the Hazel status bar): what is open, what is
+		// playing, and what the last frame drew, in one place.
+		void DrawStatusBar();
+
 		// Mirrors the currently playing scene's camera into the editor camera.
 		void SyncEditorCamera();
 

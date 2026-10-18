@@ -749,6 +749,12 @@ TEST_CASE("Lua input bindings answer the headless contract", "[scripting][input]
     REQUIRE_FALSE(flag);
     REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "KeyDownSpace", flag));
     REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "MouseDownLeft", flag));
+    REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "MouseDownRight", flag));
+    REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "MouseUpLeft", flag));
+    REQUIRE_FALSE(flag);
 
     // The mouse position must be real numbers, not nil: a script that does
     // arithmetic on them must not be the place this is discovered.

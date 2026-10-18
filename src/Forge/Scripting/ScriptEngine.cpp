@@ -1000,6 +1000,18 @@ namespace Forge {
 			return 2;
 		}
 
+		int LuaGetMouseButtonDown(lua_State* L)
+		{
+			lua_pushboolean(L, Input::IsMouseButtonPressed(static_cast<MouseCode>(luaL_checkinteger(L, 1))));
+			return 1;
+		}
+
+		int LuaGetMouseButtonUp(lua_State* L)
+		{
+			lua_pushboolean(L, Input::IsMouseButtonReleased(static_cast<MouseCode>(luaL_checkinteger(L, 1))));
+			return 1;
+		}
+
 	}
 
 	void ScriptEngine::Init()
@@ -1047,6 +1059,8 @@ namespace Forge {
 		lua_register(L, "GetKeyDown", LuaGetKeyDown);
 		lua_register(L, "GetKeyReleased", LuaGetKeyReleased);
 		lua_register(L, "GetMousePosition", LuaGetMousePosition);
+		lua_register(L, "GetMouseButtonDown", LuaGetMouseButtonDown);
+		lua_register(L, "GetMouseButtonUp", LuaGetMouseButtonUp);
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
 		lua_register(L, "PlaySound", LuaPlaySound);
 		lua_register(L, "StopSound", LuaStopSound);

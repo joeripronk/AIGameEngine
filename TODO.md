@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (382 test cases, 11052 assertions - all passing, order-independent
+### Tests (388 test cases, 11103 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -122,6 +122,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       misses, camera position/rotation following, renderer statistics
       accumulation and reset, DecomposeTransform round-trip and rejection of
       a degenerate matrix)
+- [x] AssetDatabaseTests (handle assignment and lookup agreement, idempotent
+      Add and rejection of non-assets, database round-trip preserving handles,
+      handle reuse rules, corrupt/truncated database reporting false with the
+      registry unchanged, AssetImporter proving decode for texture/model/audio/
+      scene and refusing a fake png, a missing file and shader/script paths)
 
 ### Hazel parity (upstream `TheCherno/Hazel`)
 - [x] `Core/Timer.h` + an engine clock (`Time::GetTime`) that tests can replace
@@ -158,6 +163,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Lua input bindings (Hazel ScriptGlue's `Input_IsKeyDown` pattern):
       `GetKeyDown(key)`, `GetKeyReleased(key)`, `GetMousePosition()`,
       answering false/zero with no window like the rest of `Input`
+- [x] Asset manager handles and importer (Hazel `EditorAssetManager` /
+      `AssetImporter` / `TextureImporter`): `AssetHandle` in the registry,
+      `Add`, `Serialize`/`Deserialize` of the asset database, and
+      `AssetImporter::Import` proving a file decodes with the engine's loaders
+- [x] Editor status bar (the Hazel bottom strip): scene path, play state,
+      selection, last-frame draw calls
 - [ ] Sprite / 2D renderer (`Renderer2D`, `SpriteRendererComponent`) and text.
       Not ported as-is: a texture-array binding set and an MSDF atlas pipeline
       nothing in the engine, the editor or Tetris currently renders. The useful
@@ -169,6 +180,14 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [ ] Instrumentor overlay panel (Hazel's live profiling view in the editor).
 - [ ] RTTI / type registry (`Core/RTTI`: RuntimeTypeInfo, TypeRegistry,
       TypeEventBus) - Hazel ships it; nothing in Forge consumes it yet.
+
+> Checked against every public Hazel branch (master, projects, scripting,
+> asset-manager): there is no ProfilerOverlayPanel, no FileSystem
+> directory/path utilities, and no Lua ScriptGlue in the public source -
+> every published branch is Mono-based. The Lua glue here follows Hazel's
+> documented pattern, not a verbatim port, and the parity list stays honest
+> about that: items are claimed when the behaviour exists and is tested, not
+> when a file name matches.
 
 ### Fixed while comparing against Hazel
 - [x] A saved scene never loaded `MeshComponent::ModelPath`, so every modelled
@@ -245,6 +264,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       through `EditorContext::SelectEntityAtRay`), keyboard shortcuts as an
       input layer (Ctrl+N/S/D, Delete, W/E/R gizmo, F5 play), a per-frame
       draw-statistics display, and saving to the scene file the work came from
+- [x] Status bar (the Hazel bottom strip): current scene path, play state,
+      selection and last-frame draw calls, always visible
 
 ### Assets & Resources
 - [x] AssetRegistry / asset browser backend + panel
@@ -261,6 +282,16 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       as soon as the file appears, and a failed reload keeps the texture that
       worked; the editor polls the watcher on a 0.5s cadence and surfaces
       added/modified/removed as notifications
+- [x] Asset handles + serialized asset database (Hazel's EditorAssetManager:
+      handle→metadata registry, ImportAsset, Serialize/DeserializeAssetRegistry):
+      `AssetHandle` per asset, idempotent `Add` for mid-session files,
+      `Serialize`/`Deserialize` with magic+version checks where a corrupt file
+      reports false and changes nothing, handles stable across save/load and
+      never reused by `Add`
+- [x] AssetImporter dispatch (Hazel's AssetImporter → TextureImporter pattern):
+      `AssetImporter::Import(path)` proves the file decodes with the engine's
+      own loaders (texture, model, audio, scene) and reports false for a
+      missing file, a fake png and types with no loader
 
 ### Engine Polish
 - [x] Physics-driven transform updates (Scene sync, both directions)
@@ -290,6 +321,7 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       update, physics, audio update and each render pass are instrumented
 - [x] Lua input bindings: GetKeyDown/GetKeyReleased/GetMousePosition (Hazel's
       ScriptGlue Input pattern), answering the headless no-window contract
+- [x] Lua mouse buttons: GetMouseButtonDown/GetMouseButtonUp
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

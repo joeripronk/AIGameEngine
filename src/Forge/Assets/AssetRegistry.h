@@ -28,9 +28,19 @@ namespace Forge {
 	AssetType ClassifyAsset(const std::filesystem::path& path);
 	const char* AssetTypeToString(AssetType type);
 
+	// An asset named by a number rather than a string, the way Hazel's asset
+	// manager identifies them: a scene, a script and an editor panel can all
+	// refer to "the brick texture" without repeating a path that any of them
+	// can typo. Handles are assigned by the registry and survive
+	// Serialize/Deserialize, which is what makes them referenceable from a
+	// file at all.
+	using AssetHandle = int64_t;
+	inline constexpr AssetHandle InvalidAssetHandle = -1;
+
 	// A single asset known to the registry.
 	struct AssetMetadata
 	{
+		AssetHandle Handle = InvalidAssetHandle;
 		std::string Path;        // absolute or project-relative path
 		std::string Name;        // filename without extension
 		std::string Extension;   // lowercase extension including dot
@@ -50,18 +60,43 @@ namespace Forge {
 	{
 	public:
 		static void Scan(const std::string& rootDirectory = "");
-		static void Clear() { s_Assets.clear(); s_Root.clear(); }
+		static void Clear() { s_Assets.clear(); s_AssetsByHandle.clear(); s_NextHandle = 1; s_Root.clear(); }
 
 		static const std::vector<AssetMetadata>& GetAllAssets() { return s_Assets; }
 		static const std::vector<AssetMetadata>& GetAssetsOfType(AssetType type);
 		static const AssetMetadata* FindByPath(const std::string& path);
 		static std::string GetRoot() { return s_Root; }
 
+		// Registers one file - the ImportAsset entry Hazel's editor uses for
+		// assets an agent creates mid-session, which a rescan would pick up
+		// only at the next poll. Idempotent: adding a known path returns the
+		// handle it already has. Returns InvalidAssetHandle for a missing file
+		// or a file that is not a supported asset type.
+		[[nodiscard]]
+		static AssetHandle Add(const std::string& path);
+
+		static AssetHandle GetHandleByPath(const std::string& path);
+		static const AssetMetadata* FindByHandle(AssetHandle handle);
+
+		// The on-disk asset database (Hazel's serialized asset registry): a
+		// scan is a fact about a machine's files, while the database is the
+		// handles themselves, and handles referenced by anything are only
+		// meaningful if they survive. A corrupt file reports false and leaves
+		// the registry exactly as it was - half a registry is worse than the
+		// one you had.
+		[[nodiscard]]
+		static bool Serialize(const std::string& filepath);
+		[[nodiscard]]
+		static bool Deserialize(const std::string& filepath);
+
 	private:
 		static void ScanRecursive(const std::filesystem::path& directory);
+		static AssetHandle RegisterAsset(AssetMetadata metadata);
 
 		static std::string s_Root;
 		static std::vector<AssetMetadata> s_Assets;
+		static std::unordered_map<AssetHandle, size_t> s_AssetsByHandle;
+		static AssetHandle s_NextHandle;
 	};
 
 }

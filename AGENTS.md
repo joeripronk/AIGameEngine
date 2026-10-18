@@ -459,6 +459,28 @@ editor.Update(Forge::Timestep(1.0f / 60.0f));
 editor.Stop();
 ```
 
+## Asset Handles, Database and Import
+
+`AssetRegistry` gives every scanned asset an `AssetHandle` (the Hazel asset
+manager pattern): `FindByHandle` / `GetHandleByPath` agree by construction,
+`Add(path)` is idempotent (re-adding a known path returns the same handle -
+a handle that changes when nothing changed is a reference to nothing), and
+a handle assigned after a `Deserialize` never reuses a saved one.
+
+`Serialize`/`Deserialize` persist the registry (a `.fgad` file with magic and
+version). A corrupt, truncated or absent file reports false and leaves the
+registry exactly as it was: half a registry is worse than the one you had.
+Scan re-assigns handles; the database is what makes handles referenceable
+from files at all.
+
+`AssetImporter::Import(path)` dispatches by type to the loaders the engine
+already has (CpuTexture, CpuMesh, AudioEngine, SceneSerializer) and reports
+whether the asset **decodes**. A texture is imported by decoding it, a scene
+by opening it, a sound by loading its buffer; a fake `.png` is not imported
+because its bytes do not decode, and shader/script paths answer false rather
+than pretending a loader exists. This is the single answer an agent gets to
+"is this file usable?".
+
 ## Projects
 
 A project file (`.forgeproject`) says where a project's assets are and which
@@ -1031,7 +1053,8 @@ correctly.
   `SpawnPrefab(name, x, y, z)`,
   `PlaySound(path, volume, pitch, loop)` -> `ok, handle`,
   `StopSound(handle)`, `SetBusVolume(name, v)`, `GetBusVolume(name)`,
-  `GetKeyDown(key)`, `GetKeyReleased(key)`, `GetMousePosition()` -> `x, y`, `Scene`
+  `GetKeyDown(key)`, `GetKeyReleased(key)`, `GetMousePosition()` -> `x, y`,
+  `GetMouseButtonDown(button)`, `GetMouseButtonUp(button)`, `Scene`
 - Entity: `PlaySound(path, volume, pitch, loop)`, `StopSound`,
   `GetName/SetName`, `Get/SetPosition`, `Get/SetRotation`,
   `Get/SetScale`, `HasComponent`, `AddComponent`, `RemoveComponent`,

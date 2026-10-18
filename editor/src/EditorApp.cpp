@@ -246,6 +246,7 @@ namespace Forge {
 				DrawViewportPanel();
 				DrawAssetBrowserPanel();
 				DrawPropertiesPanel();
+				DrawStatusBar();
 
 				// Drawn last so it sits above every other panel.
 				DrawNotification();
@@ -326,6 +327,40 @@ namespace Forge {
 		ImGui::End();
 
 		--m_NotificationFramesRemaining;
+	}
+
+	void EditorApp::DrawStatusBar()
+	{
+		// Anchored to the bottom of the main viewport as a thin strip that
+		// never moves and never overlaps a panel - the status bar answers
+		// "what is the editor doing right now" without being asked.
+		const ImGuiViewport* viewport = ImGui::GetMainViewport();
+		const float barHeight = ImGui::GetFrameHeight() * 1.1f;
+
+		ImGui::SetNextWindowPos(ImVec2(viewport->Pos.x, viewport->Pos.y + viewport->Size.y - barHeight),
+			ImGuiCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(viewport->Size.x, barHeight), ImGuiCond_Always);
+
+		const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration
+			| ImGuiWindowFlags_NoMove
+			| ImGuiWindowFlags_NoResize
+			| ImGuiWindowFlags_NoSavedSettings
+			| ImGuiWindowFlags_NoFocusOnAppearing
+			| ImGuiWindowFlags_NoNav
+			| ImGuiWindowFlags_NoBringToFrontOnFocus;
+
+		ImGui::Begin("##StatusBar", nullptr, flags);
+
+		const RendererStatistics stats = Renderer::GetStatistics();
+		ImGui::Text("%s", m_CurrentScenePath.c_str());
+		ImGui::SameLine();
+		ImGui::Text("|  %s", m_Editor.IsPlaying() ? (m_Editor.IsPaused() ? "Playing (paused)" : "Playing") : "Stopped");
+		ImGui::SameLine();
+		ImGui::Text("|  Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
+		ImGui::SameLine();
+		ImGui::Text("|  Draw calls: %u  Culled: %u", stats.DrawCalls3D, stats.FrustumCulled);
+
+		ImGui::End();
 	}
 
 	void EditorApp::DrawMenuBar()
