@@ -58,6 +58,26 @@ void InputLayer::OnEvent(Forge::Event& event)
 					m_OnViewToggle();
 			}
 
+			// Same for the music mute.
+			if (pressed->GetKeyCode() == GLFW_KEY_M)
+			{
+				if (m_OnMusicToggle)
+					m_OnMusicToggle();
+			}
+
+			// And for skipping songs: the delta is the only thing the
+			// application needs, so one callback carries it.
+			if (pressed->GetKeyCode() == GLFW_KEY_N)
+			{
+				if (m_OnMusicSkip)
+					m_OnMusicSkip(+1);
+			}
+			else if (pressed->GetKeyCode() == GLFW_KEY_B)
+			{
+				if (m_OnMusicSkip)
+					m_OnMusicSkip(-1);
+			}
+
 			Action action = MapKey(pressed->GetKeyCode());
 			m_Manager->HandleAction(action, true);
 

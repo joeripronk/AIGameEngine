@@ -26,6 +26,7 @@ target_sources(ForgeTests
         src/PhysicsTests.cpp
         src/ScriptingTests.cpp
         src/FrustumTests.cpp
+        src/ShadowCameraTests.cpp
         src/RTTITests.cpp
         src/BloomTests.cpp
         src/AssetDatabaseTests.cpp

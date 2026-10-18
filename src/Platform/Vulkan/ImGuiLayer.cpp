@@ -64,6 +64,41 @@ namespace Forge {
 		io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 	}
 
+	bool ImGuiLayer::HasSavedDockLayout(const std::string& iniText)
+	{
+		// ImGui writes the dock tree as a [Docking] section whose every entry
+		// is one dock node. Only a section header selects a section, so a
+		// window that happens to be named "Docking" ("[Window][Docking]") is
+		// not a layout, and the header line itself is not an entry.
+		size_t pos = 0;
+		bool inDocking = false;
+
+		while (pos < iniText.size())
+		{
+			const size_t lineEnd = iniText.find('\n', pos);
+			const std::string line = iniText.substr(pos, lineEnd == std::string::npos ? std::string::npos : lineEnd - pos);
+			pos = lineEnd == std::string::npos ? iniText.size() : lineEnd + 1;
+
+			const size_t first = line.find_first_not_of(" \t\r");
+			if (first == std::string::npos)
+				continue;
+
+			if (line[first] == '[')
+			{
+				const size_t close = line.find(']', first + 1);
+				if (close == std::string::npos)
+					continue;
+				inDocking = line.compare(first + 1, close - first - 1, "Docking") == 0;
+				continue;
+			}
+
+			if (inDocking)
+				return true;
+		}
+
+		return false;
+	}
+
 	bool ImGuiLayer::AttachTo(void* nativeWindow)
 	{
 		if (m_HasContext)

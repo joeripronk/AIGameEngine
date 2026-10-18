@@ -20,7 +20,7 @@ layout(binding = 0) uniform CameraData
     vec4 u_LightColor;       // rgb = colour, a = intensity
     vec4 u_CameraPosition;   // xyz = world position
     vec4 u_AmbientLight;     // rgb = ambient colour
-    vec4 u_SSAOParams;       // x = shadow bias, y = ao strength, zw unused
+    vec4 u_SSAOParams;       // x unused (the shadow bias lives in ShadowMapParams), y = ao strength, zw unused
 } u_Camera;
 
 // Set 0, binding 1: per-object data.

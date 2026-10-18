@@ -56,6 +56,24 @@ public:
 		m_InputLayer.SetViewToggledCallback(std::move(callback));
 	}
 
+	// Forward the app's music-mute callback to the input layer.
+	void SetMusicToggledCallback(std::function<void()> callback)
+	{
+		m_InputLayer.SetMusicToggledCallback(std::move(callback));
+	}
+
+	// Forward the app's music-skip callback to the input layer.
+	void SetMusicSkippedCallback(std::function<void(int)> callback)
+	{
+		m_InputLayer.SetMusicSkippedCallback(std::move(callback));
+	}
+
+	// Let the HUD show which song the music is on.
+	void SetMusic(const TetrisMusic* music)
+	{
+		m_OverlayLayer.SetMusic(music);
+	}
+
 private:
 	InputLayer m_InputLayer;
 	OverlayLayer m_OverlayLayer;

@@ -22,6 +22,7 @@
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanSwapchain.h"
 #include "Platform/Vulkan/VulkanTexture.h"
+#include "Platform/Vulkan/ImGuiLayer.h"
 
 #include <nvrhi/common/resource.h>
 
@@ -81,10 +82,21 @@ namespace Forge {
 		}
 
 		ImGui::CreateContext();
+		m_ImGuiContextLive = true;
+
 		ImGuiIO& io = ImGui::GetIO();
-		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+		// The engine's shared overlay configuration: keyboard navigation *and*
+		// docking. Setting the navigation flag alone is what killed the editor:
+		// DrawDockspace runs the DockBuilder calls, and with docking disabled
+		// ImGui::DockSpace() returns without creating the node, so
+		// DockBuilderAddNode() dereferenced the node it did not get on the
+		// first frame. The window appeared and the process died in the frame
+		// that was supposed to draw the UI - an editor that shows no GUI.
+		ImGuiLayer::ApplyConfigFlags(io);
 
 		ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetWindow().GetNativeWindow()), true);
+		m_GlfwBackendLive = true;
 
 		// Initialise the ImGui Vulkan backend with dynamic rendering (the engine
 		// uses nvrhi's vk::RenderingInfo / beginRendering, not VkRenderPass).
@@ -114,7 +126,35 @@ namespace Forge {
 		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_ImGuiRenderFormat;
 		m_ImGuiRenderFormat = VulkanRendererAPI::GetSwapchain().GetVkFormat();
 
-		IM_ASSERT(ImGui_ImplVulkan_Init(&m_ImGuiVulkanInitInfo));
+		// A checked call, not an assertion. IM_ASSERT() discards its expression
+		// when NDEBUG is defined, so every build without asserts never called
+		// ImGui_ImplVulkan_Init at all: the renderer backend stayed null and the
+		// first ImGui_ImplVulkan_NewFrame() dereferenced it. The shipping
+		// builds had no UI for the same reason the Debug build crashed - with
+		// no log line to say so.
+		if (!VulkanRendererAPI::GetSwapchain().IsValid())
+		{
+			FG_CORE_ERROR("Editor: no swapchain; the editor UI is disabled");
+		}
+		else if (!ImGui_ImplVulkan_Init(&m_ImGuiVulkanInitInfo))
+		{
+			FG_CORE_ERROR("Editor: ImGui Vulkan backend init failed; the editor UI is disabled");
+		}
+		else
+		{
+			m_ImGuiReady = true;
+		}
+
+		if (!m_ImGuiReady)
+		{
+			// Roll the backends and the context back the same way OnDetach
+			// does, so the editor runs without its UI rather than dying with it.
+			ImGui_ImplGlfw_Shutdown();
+			m_GlfwBackendLive = false;
+			ImGui::DestroyContext();
+			m_ImGuiContextLive = false;
+			Notify("Editor UI is disabled - see Forge.log", true);
+		}
 
 		m_Editor.GetCamera().SetPosition({ 0.0f, 5.0f, 12.0f });
 		m_Editor.GetCamera().SetRotation({ 20.0f, 0.0f, 0.0f });
@@ -148,8 +188,10 @@ namespace Forge {
 		if (!StartupSucceeded())
 			return;
 
-		ImGui_ImplVulkan_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
+		if (m_ImGuiReady)
+			ImGui_ImplVulkan_Shutdown();
+		if (m_GlfwBackendLive)
+			ImGui_ImplGlfw_Shutdown();
 		m_Viewport.Shutdown();
 
 		if (m_ViewportSampler != VK_NULL_HANDLE)
@@ -160,7 +202,8 @@ namespace Forge {
 			m_ViewportSampler = VK_NULL_HANDLE;
 		}
 
-		ImGui::DestroyContext();
+		if (m_ImGuiContextLive)
+			ImGui::DestroyContext();
 	}
 
 	void EditorApp::CreateDefaultScene()
@@ -250,34 +293,40 @@ namespace Forge {
 
 				// Render ImGui into the command list BEFORE it is closed.
 				// GetCurrentCommandBuffer() is only valid between BeginScene()
-				// and EndScene().
-				ImGui_ImplGlfw_NewFrame();
-				ImGui_ImplVulkan_NewFrame();
-				ImGui::NewFrame();
+				// and EndScene(). When the backend init failed the whole block is
+				// skipped: the editor keeps rendering the scene and keeps
+				// answering its agent, which is the engine's contract for a
+				// missing overlay - run without the UI, do not die with it.
+				if (m_ImGuiReady)
+				{
+					ImGui_ImplGlfw_NewFrame();
+					ImGui_ImplVulkan_NewFrame();
+					ImGui::NewFrame();
 
-				// The docking host first: every panel Begin below docks into
-				// it. The menu bar, toolbar, status bar and notifications
-				// are chrome and stay floating above the layout.
-				DrawDockspace();
+					// The docking host first: every panel Begin below docks into
+					// it. The menu bar, toolbar, status bar and notifications
+					// are chrome and stay floating above the layout.
+					DrawDockspace();
 
-				DrawMenuBar();
-				DrawGizmoToolbar();
-				DrawGizmoInteraction();
-				DrawHierarchyPanel();
-				DrawInspectorPanel();
-				DrawViewportPanel();
-			DrawAssetBrowserPanel();
-			DrawPropertiesPanel();
-			DrawProfilerPanel();
-			DrawStatusBar();
+					DrawMenuBar();
+					DrawGizmoToolbar();
+					DrawGizmoInteraction();
+					DrawHierarchyPanel();
+					DrawInspectorPanel();
+					DrawViewportPanel();
+					DrawAssetBrowserPanel();
+					DrawPropertiesPanel();
+					DrawProfilerPanel();
+					DrawStatusBar();
 
-				// Drawn last so it sits above every other panel.
-				DrawNotification();
+					// Drawn last so it sits above every other panel.
+					DrawNotification();
 
-				ImGui::Render();
-				VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
-				if (cmdBuf != VK_NULL_HANDLE)
-					ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
+					ImGui::Render();
+					VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
+					if (cmdBuf != VK_NULL_HANDLE)
+						ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
+				}
 
 				// EndFinalPass is a no-op (the final pass is the last render
 				// pass; EndScene closes the command list).
@@ -546,34 +595,55 @@ namespace Forge {
 
 		const ImGuiID dockspaceId = ImGui::GetID("ForgeDockSpace");
 
-		// Initial layout, built exactly once and only when the .ini has no
-		// saved layout to honor. Rebuilding it every launch would silently
-		// discard the arrangement the author dragged into.
-		ImGuiIO& io = ImGui::GetIO();
-		const bool hasSavedLayout = io.IniFilename != nullptr && std::filesystem::exists(io.IniFilename);
-		if (!m_DockLayoutBuilt && !hasSavedLayout)
+		// A saved layout is honoured; a .ini that describes none is not. The
+		// question is the file's *contents*, not its existence: an .ini written
+		// by a build that docked nothing - which is what any working copy of
+		// this repo has lying next to the executable - restores every panel as
+		// a floating window at its saved size, the Viewport among them at its
+		// 32x35 minimum, all of them stacked at 60,60. The 3D scene then fills
+		// the window and the panels are unreadable fragments in the corner,
+		// which is exactly an editor whose GUI "does not show".
+		if (!m_DockLayoutBuilt)
 		{
-			// 20% hierarchy on the left; the rest splits into the viewport
-			// centre, a 30%-deep asset shelf at the bottom, and a right
-			// column (inspector above, properties + profiler tabbed below).
-			ImGuiID left = 0, right = 0, centre = 0, bottom = 0, rightTop = 0, rightBottom = 0;
-			ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
-			ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
+			m_DockLayoutBuilt = true;
 
-			ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.20f, &left, &right);
-			ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.30f, &bottom, &centre);
-			ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, &rightTop, &centre);
-			ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.55f, &rightBottom, &rightTop);
+			const char* iniText = ImGui::SaveIniSettingsToMemory();
+			if (ImGuiLayer::HasSavedDockLayout(iniText ? iniText : ""))
+			{
+				FG_CORE_INFO("Editor: honouring the saved dock layout");
+			}
+			else
+			{
+				// 20% hierarchy on the left; the rest splits into the viewport
+				// centre, a 30%-deep asset shelf at the bottom, and a right
+				// column (inspector above, properties + profiler tabbed below).
+				ImGuiID left = 0, right = 0, centre = 0, bottom = 0, rightTop = 0, rightBottom = 0;
+				ImGui::DockBuilderAddNode(dockspaceId, ImGuiDockNodeFlags_DockSpace);
+				ImGui::DockBuilderSetNodeSize(dockspaceId, viewport->WorkSize);
 
-			ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
-			ImGui::DockBuilderDockWindow("Viewport", centre);
-			ImGui::DockBuilderDockWindow("Inspector", rightTop);
-			ImGui::DockBuilderDockWindow("Properties", rightBottom);
-			ImGui::DockBuilderDockWindow("Profiler", rightBottom);
-			ImGui::DockBuilderDockWindow("Assets", bottom);
-			ImGui::DockBuilderFinish(dockspaceId);
+				ImGui::DockBuilderSplitNode(dockspaceId, ImGuiDir_Left, 0.20f, &left, &right);
+				ImGui::DockBuilderSplitNode(right, ImGuiDir_Down, 0.30f, &bottom, &centre);
+				ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, &rightTop, &centre);
+				ImGui::DockBuilderSplitNode(rightTop, ImGuiDir_Down, 0.55f, &rightBottom, &rightTop);
+
+				ImGui::DockBuilderDockWindow("Scene Hierarchy", left);
+				ImGui::DockBuilderDockWindow("Viewport", centre);
+				ImGui::DockBuilderDockWindow("Inspector", rightTop);
+				ImGui::DockBuilderDockWindow("Properties", rightBottom);
+				ImGui::DockBuilderDockWindow("Profiler", rightBottom);
+				ImGui::DockBuilderDockWindow("Assets", bottom);
+				ImGui::DockBuilderFinish(dockspaceId);
+
+				// DockBuilderFinish does not mark the settings dirty, so the
+				// layout only reaches disk on a clean exit. Marked here, it is
+				// written within the session: a layout that survives a killed
+				// process is a layout the author can actually keep.
+				ImGui::MarkIniSettingsDirty();
+
+				FG_CORE_INFO("Editor: built the initial dock layout ({0})",
+					(iniText && iniText[0]) ? "no dock layout in the .ini" : "no .ini to honour");
+			}
 		}
-		m_DockLayoutBuilt = true;
 
 		// A panel with a 370-pixel minimum cannot survive a half-width
 		// split; the public editor layer lowers the minimum for the dock

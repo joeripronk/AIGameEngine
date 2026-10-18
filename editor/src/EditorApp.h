@@ -128,6 +128,14 @@ namespace Forge {
 		// The DockBuilder initial layout runs exactly once per session, and
 		// only when the .ini has no saved layout to honor.
 		bool m_DockLayoutBuilt = false;
+
+		// ImGui lifecycle, mirrored so teardown and the frame loop match what
+		// was actually created: a failed backend init leaves the editor running
+		// without its UI, and shutting down a backend that was never initialised
+		// is what asserts.
+		bool m_ImGuiContextLive = false;
+		bool m_GlfwBackendLive = false;
+		bool m_ImGuiReady = false;
 	};
 
 }

@@ -9,21 +9,29 @@ namespace Tetris {
 
 // Static tetromino definitions. `shape` is the rotation-0 layout, with the
 // origin at the piece's top-left bounding-box corner.
+//
+// `color` is the piece's identity colour: the emissive term, the preview and
+// the state components read it. The blocks themselves are drawn in the theme
+// textures (see `kBlockTheme`), and each of these is the dominant colour of
+// the tile that piece uses, so the glow agrees with the surface. They are
+// named per palette rather than per classic colour because the tiles the theme
+// is built from - sgtcrispy's CC0 "Colored Metal tiles 1b" - have no yellow or
+// orange, and a colour no block is painted in is a colour that lies.
 const TetrominoDefinition TetrisGameState::kTetrominoDefinitions[] = {
 	// I
-	{ { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 } }, glm::vec3(0.0f, 1.0f, 1.0f) },
+	{ { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 3, 0 } }, glm::vec3(0.00f, 0.62f, 0.60f) },
 	// O
-	{ { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }, glm::vec3(1.0f, 1.0f, 0.0f) },
+	{ { { 0, 0 }, { 1, 0 }, { 0, 1 }, { 1, 1 } }, glm::vec3(0.85f, 0.00f, 0.80f) },
 	// T
-	{ { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 1, 1 } }, glm::vec3(1.0f, 0.0f, 1.0f) },
+	{ { { 0, 0 }, { 1, 0 }, { 2, 0 }, { 1, 1 } }, glm::vec3(0.97f, 0.35f, 0.60f) },
 	// S
-	{ { { 1, 0 }, { 2, 0 }, { 0, 1 }, { 1, 1 } }, glm::vec3(0.0f, 1.0f, 0.0f) },
+	{ { { 1, 0 }, { 2, 0 }, { 0, 1 }, { 1, 1 } }, glm::vec3(0.20f, 0.72f, 0.05f) },
 	// Z
-	{ { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 } }, glm::vec3(1.0f, 0.0f, 0.0f) },
+	{ { { 0, 0 }, { 1, 0 }, { 1, 1 }, { 2, 1 } }, glm::vec3(0.89f, 0.00f, 0.35f) },
 	// J
-	{ { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, glm::vec3(0.0f, 0.0f, 1.0f) },
+	{ { { 0, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, glm::vec3(0.00f, 0.47f, 0.97f) },
 	// L
-	{ { { 2, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, glm::vec3(1.0f, 0.5f, 0.0f) },
+	{ { { 2, 0 }, { 0, 1 }, { 1, 1 }, { 2, 1 } }, glm::vec3(0.41f, 0.27f, 0.99f) },
 };
 
 namespace {

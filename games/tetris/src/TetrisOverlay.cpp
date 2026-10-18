@@ -30,42 +30,54 @@ void OverlayLayer::OnImGuiRender()
 	ImGui::Separator();
 
 	ImGui::SetCursorPosX(12.0f);
-	Forge::UI::ScopedStyleColor helpColor(ImGuiCol_Text, { 0.75f, 0.80f, 0.85f, 0.90f });
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8.0f);
-	ImGui::Text("  Move:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Arrow keys or A/D");
+	// Scoped to this window: ImGui records the style-colour stack depth at
+	// Begin, and a push that is still live when End runs is the
+	// "Missing PopStyleColor()" assert - in Debug the game aborts, in a
+	// shipping build the colour leaks into every later window.
+	{
+		Forge::UI::ScopedStyleColor helpColor(ImGuiCol_Text, { 0.75f, 0.80f, 0.85f, 0.90f });
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
-	ImGui::Text("  Rotate:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Up/W/X or Z");
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 8.0f);
+		ImGui::Text("  Move:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Arrow keys or A/D");
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
-	ImGui::Text("  Soft drop:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Down/S");
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Rotate:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Up/W/X or Z");
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
-	ImGui::Text("  Hard drop:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Space");
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Soft drop:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Down/S");
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
-	ImGui::Text("  Pause:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "P or Escape");
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Hard drop:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "Space");
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
-	ImGui::Text("  Restart:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "R");
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Pause:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "P or Escape");
 
-	ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
-	ImGui::Text("  View:");
-	ImGui::SameLine();
-	ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "V (2D/3D)");
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Restart:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "R");
+
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  View:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "V (2D/3D)");
+
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Music:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "M mute, N/B skip");
+	}
 
 	ImGui::End();
 
@@ -92,6 +104,16 @@ void OverlayLayer::OnImGuiRender()
 		m_LastState == TetrisGameState::State::Playing ? "PLAYING" :
 		m_LastState == TetrisGameState::State::Paused ? "PAUSED" :
 		m_LastState == TetrisGameState::State::GameOver ? "GAME OVER" : "UNKNOWN");
+
+	// Which song the music is on. The skip keys have no visible effect
+	// otherwise, and a control whose effect cannot be seen is a control that
+	// looks broken when it is working.
+	if (m_Music && m_Music->TrackCount() > 0)
+	{
+		ImGui::TextColored({0.70f, 0.85f, 0.90f, 1.00f}, "MUSIC: %d/%d %s",
+			m_Music->CurrentTrackIndex() + 1, m_Music->TrackCount(),
+			m_Music->IsMuted() ? "muted" : m_Music->CurrentTitle());
+	}
 
 	ImGui::End();
 

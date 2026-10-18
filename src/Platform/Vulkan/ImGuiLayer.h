@@ -5,6 +5,7 @@
 #include "imgui.h"
 
 #include <cstdint>
+#include <string>
 
 namespace Forge {
 
@@ -63,6 +64,15 @@ namespace Forge {
 		// by AttachTo; pure, so the contract is unit-testable with a bare
 		// context.
 		static void ApplyConfigFlags(ImGuiIO& io);
+
+		// True when an ImGui .ini *text* describes a saved docking layout - a
+		// [Docking] section carrying at least one dock-node entry. The file's
+		// existence is not that question: a .ini written by a non-docking
+		// build, and a [Docking] header with no nodes under it, both describe
+		// no layout, and every panel restored from them is a floating window
+		// at its saved (often minimal) size, stacked where the last session
+		// left it. Pure - testable with no context and no device.
+		static bool HasSavedDockLayout(const std::string& iniText);
 
 	private:
 		bool m_HasContext = false;

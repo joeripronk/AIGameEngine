@@ -21,6 +21,13 @@ namespace Forge {
 		bool Exists(const std::string& name) const;
 		uint32_t GetShaderCount() const { return (uint32_t)m_Shaders.size(); }
 
+		// Drops every shader. A compiled shader holds GPU objects, and the
+		// renderer's library is a static - so left to static destruction, those
+		// GPU objects are destroyed after the device they came from. The
+		// renderer clears the library while shutting down, with the device
+		// still alive.
+		void Clear() { m_Shaders.clear(); }
+
 	private:
 		std::unordered_map<std::string, Ref<Shader>> m_Shaders;
 	};

@@ -48,10 +48,12 @@ layout(binding = 5) uniform sampler u_ShadowSampler;
 // Set 0, binding 6: linear sampler kept for compatibility with other shaders.
 layout(binding = 6) uniform sampler u_LinearSampler;
 
-// Shadow map dimensions (used for PCF).
+// Shadow map dimensions and bias (used for PCF and for fitting a surface to
+// the map it is sampling against).
 layout(binding = 7) uniform ShadowMapParams
 {
     vec2 u_ShadowMapSize;
+    vec2 u_ShadowBias;   // x = normal offset (world units), y = depth bias (NDC)
 } u_Shadow;
 
 // Set 0, binding 8: environment map (cube map for IBL).
@@ -97,9 +99,19 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 }
 
 // 3x3 percentage-closer filtering for a soft shadow edge.
-float SampleShadow(vec3 worldPosition)
+float SampleShadow(vec3 worldPosition, vec3 normal, float ndotl)
 {
-    vec4 lightClip = u_Camera.u_ShadowViewProjection * vec4(worldPosition, 1.0);
+    // Acne: a surface sampled against a map built from itself differs from its
+    // own texel by a fraction of a texel, and the sign of that fraction is the
+    // surface's slope against the light. A constant bias that is large enough
+    // to cover a grazing surface detaches every shadow from the object that
+    // cast it, so the offset scales with the slope and with the texel's own
+    // world size - both of which the camera knows and the shader cannot guess.
+    float slope = clamp((1.0 - clamp(ndotl, 0.0, 1.0)) / max(ndotl, 0.05), 0.0, 8.0);
+
+    vec3 offset = normalize(normal) * (u_Shadow.u_ShadowBias.x * slope);
+
+    vec4 lightClip = u_Camera.u_ShadowViewProjection * vec4(worldPosition + offset, 1.0);
 
     if (lightClip.w <= 0.0)
         return 1.0;
@@ -110,7 +122,7 @@ float SampleShadow(vec3 worldPosition)
     if (proj.z > 1.0 || proj.x < 0.0 || proj.x > 1.0 || proj.y < 0.0 || proj.y > 1.0)
         return 1.0;
 
-    float bias = u_Camera.u_SSAOParams.x;
+    float bias = u_Shadow.u_ShadowBias.y * (1.0 + slope);
 
     vec2 texel = 1.0 / u_Shadow.u_ShadowMapSize;
     float shadow = 0.0;
@@ -164,7 +176,7 @@ void main()
     vec3 kD = (1.0 - kS) * (1.0 - metallic);
     vec3 diffuse = kD * albedo / PI;
 
-    float shadow = SampleShadow(vWorldPosition);
+    float shadow = SampleShadow(vWorldPosition, vNormal, NdotL);
 
     // IBL specular contribution.
     vec3 R = reflect(-V, N);

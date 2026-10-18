@@ -32,6 +32,7 @@
 #include <limits>
 #include <vector>
 #include "Forge/Renderer/CpuTexture.h"
+#include "Forge/Renderer/ShadowCamera.h"
 #include "Forge/Assets/AssetWatcher.h"
 #include "Forge/Debug/Instrumentor.h"
 
@@ -54,7 +55,25 @@ namespace Forge {
 
 		std::unordered_map<std::string, UploadedMesh> s_UploadedMeshes;
 
+		// One texture per albedo path, keyed by the file's signature so a
+		// changed file re-decodes. A function-local static would be destroyed
+		// at exit, in an order nobody controls and after the device it was
+		// uploaded to; living here is what lets Renderer::Shutdown release it
+		// while the device is still alive.
+		struct AlbedoCacheEntry
+		{
+			Ref<Texture> Albedo;
+			FileSignature Signature;
+		};
+
+		std::unordered_map<std::string, AlbedoCacheEntry> s_AlbedoTextureCache;
+
 		RendererStatistics s_Statistics;
+
+		// "No shadow camera this frame" is reported once per outage, not once per
+		// frame: a scene with no mesh is a legitimate state, and a warning inside
+		// the frame loop fills the log with the same line.
+		bool s_ShadowCameraWarned = false;
 
 		// The AABB of the shared fallback cube, so a meshless entity is culled
 		// against the box it is actually drawn as.
@@ -302,18 +321,51 @@ namespace Forge {
 	{
 		// Wait for GPU work to complete and retire command buffers before
 		// releasing any resources.
-		auto device = VulkanRendererAPI::GetStaticDevice();
-		if (device)
+		//
+		// Scoped on purpose: this handle is a reference to the device, and a
+		// reference that outlives the backend's own release makes *this*
+		// function the one that destroys the device - after the VkDevice and
+		// VkInstance are gone, which is a call through an unloaded driver.
 		{
-			VulkanRendererAPI::WaitForGpuIdle();
-			device->runGarbageCollection();
-			device->runGarbageCollection(); // second pass
+			auto device = VulkanRendererAPI::GetStaticDevice();
+			if (device)
+			{
+				VulkanRendererAPI::WaitForGpuIdle();
+				device->runGarbageCollection();
+				device->runGarbageCollection(); // second pass
+			}
 		}
 
 		// Released here rather than at static destruction so the GPU buffers go
-		// away while the Vulkan device is still alive.
-		s_DefaultCube = nullptr;
+		// away while the Vulkan device is still alive. That rule is the whole
+		// point, and it has to cover *every* handle: an nvrhi object's
+		// destructor calls through the device, so a handle that outlives it is
+		// a use-after-free. Leaving these to static destruction gave an order
+		// nobody controls, and ASan caught the device deleted first.
+		//
+		// Order: the draw caches reference textures and meshes, the PBR
+		// renderer owns the G-buffer/shadow/IBL objects, and the platform layer
+		// owns the device everything else needs.
+		s_AlbedoTextureCache.clear();
 		s_UploadedMeshes.clear();
+		s_DefaultCube = nullptr;
+		s_FullscreenQuad = nullptr;
+
+		s_ShadowFramebuffer = nullptr;
+		s_TonemappedFramebuffer = nullptr;
+		s_SSAOFramebuffer = nullptr;
+		s_CommandList = nullptr;
+
+		s_PbrRenderer = nullptr;
+
+		// The compiled shaders hold GPU objects too, and the library is a
+		// static: cleared here, they go away with the device alive.
+		s_ShaderLibrary.Clear();
+
+		// The backend releases its own device last: everything above is gone by
+		// now, so the device outlives every handle that needs it.
+		if (auto* api = RenderCommand::GetRendererAPI())
+			api->Shutdown();
 	}
 
 	bool Renderer::CaptureSwapchainImage(uint32_t imageIndex, const std::string& path)
@@ -395,31 +447,63 @@ namespace Forge {
 			}
 		}
 
-		// Compute real shadow view-projection from the directional light.
-		glm::mat4 shadowViewProjection = glm::mat4(1.0f);
-		if (hasDirectionalLight)
+		// The shadow transform is built from the scene's bounds and the light's
+		// direction, and built *once*: the shadow pass and the fragment-side
+		// lookup are two readings of one transform. They used to be computed in
+		// two places, each requiring the light to carry a TransformComponent and
+		// each falling back to the identity without one - and an identity
+		// view-projection is not "no shadows". It projects geometry by its own
+		// world position, so the map holds a picture of the scene from nowhere,
+		// every fragment compares itself against texels describing something
+		// else, and shading lands at arbitrary places in the field.
+		//
+		// Fitting the volume to the bounds matters for the same reason: the
+		// shader declines to shade anything outside the map, so a fixed box
+		// smaller than the scene leaves most of the scene unshadowed.
+		std::vector<std::pair<glm::vec3, glm::vec3>> shadowBoxes;
+		const auto shadowCasters = scene->GetAllEntitiesWith<MeshComponent, TransformComponent>();
+		for (auto handle : shadowCasters)
 		{
-			auto lightWithTransform = scene->GetAllEntitiesWith<LightComponent, TransformComponent>();
-			for (auto handle : lightWithTransform)
+			const auto& shadowMesh = shadowCasters.get<MeshComponent>(handle);
+			const auto& shadowTransform = shadowCasters.get<TransformComponent>(handle);
+
+			const glm::mat4 model = glm::translate(glm::mat4(1.0f), shadowTransform.Translation)
+				* glm::toMat4(glm::quat(shadowTransform.Rotation))
+				* glm::scale(glm::mat4(1.0f), shadowTransform.Scale);
+
+			const glm::vec3 boundsMin = shadowMesh.CpuMeshData ? shadowMesh.CpuMeshData->GetMin() : DefaultCubeMin();
+			const glm::vec3 boundsMax = shadowMesh.CpuMeshData ? shadowMesh.CpuMeshData->GetMax() : DefaultCubeMax();
+
+			glm::vec3 worldMin, worldMax;
+			TransformAABB(boundsMin, boundsMax, model, worldMin, worldMax);
+			shadowBoxes.emplace_back(worldMin, worldMax);
+		}
+
+		const float mapResolution = s_PbrRenderer ? s_PbrRenderer->GetShadowMapSize().x : 2048.0f;
+		const ShadowCamera shadowCamera = BuildShadowCamera(shadowBoxes, lightDirection, mapResolution);
+		glm::mat4 shadowViewProjection = glm::mat4(1.0f);
+		if (shadowCamera.Valid)
+		{
+			shadowViewProjection = shadowCamera.ViewProjection;
+			s_ShadowCameraWarned = false;
+
+			// The bias travels with the map: it is a number of texels, and the
+			// texels are only known next to the volume they cover.
+			if (s_PbrRenderer)
 			{
-				const auto& light = lightWithTransform.get<LightComponent>(handle);
-				if (light.Type != LightComponent::Type::Directional)
-					continue;
-
-				const auto& lightTransform = lightWithTransform.get<TransformComponent>(handle);
-				glm::mat4 lightTransformMatrix =
-					glm::translate(glm::mat4(1.0f), lightTransform.Translation)
-					* glm::toMat4(glm::quat(lightTransform.Rotation));
-
-				glm::mat4 lightView = glm::inverse(lightTransformMatrix);
-				glm::mat4 lightProj = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
-				shadowViewProjection = lightProj * lightView;
-				break;
+				const ShadowBias bias = ComputeShadowBias(shadowCamera.TexelWorld, shadowCamera.TexelDepth);
+				s_PbrRenderer->SetShadowBias(glm::vec2(bias.NormalOffsetWorld, bias.DepthBiasNdc));
 			}
+		}
+		else if (!s_ShadowCameraWarned)
+		{
+			s_ShadowCameraWarned = true;
+			FG_CORE_WARN("Renderer: no shadow camera this frame ({}): shadows are off",
+				shadowBoxes.empty() ? "no mesh geometry in the scene" : "the directional light has no direction");
 		}
 
 		// Shadow pass: render all meshes to the shadow map.
-		BeginShadowPass(scene);
+		BeginShadowPass(scene, shadowViewProjection);
 
 		// Get the HDR framebuffer (offscreen target).
 		// The PBR renderer stores its HDR framebuffer after initialization.
@@ -657,13 +741,6 @@ namespace Forge {
 
 	Ref<Texture> Renderer::GetAlbedoTexture(const std::string& path)
 	{
-		struct AlbedoCacheEntry
-		{
-			Ref<Texture> Albedo;
-			FileSignature Signature;
-		};
-		static std::unordered_map<std::string, AlbedoCacheEntry> s_AlbedoTextureCache;
-
 		// Hot-reload contract (the Hazel AssetManager pattern): the file is
 		// re-stat-ed per path per frame - one stat - and a size/timestamp
 		// change re-decodes and re-uploads it. A failed load is retried as
@@ -845,7 +922,7 @@ namespace Forge {
 		}
 	}
 
-	void Renderer::BeginShadowPass(class Scene* scene)
+ 	void Renderer::BeginShadowPass(class Scene* scene, const glm::mat4& shadowViewProjection)
 	{
 		if (!s_CommandList || !s_PbrRenderer || !s_PbrRenderer->IsValid())
 			return;
@@ -853,27 +930,9 @@ namespace Forge {
 		if (!scene)
 			return;
 
-		// Find the primary directional light to compute the shadow view-projection.
-		glm::mat4 shadowViewProjection = glm::mat4(1.0f);
-		Entity lightEntity;
-
-		auto lights = scene->GetAllEntitiesWith<LightComponent, TransformComponent>();
-		for (auto handle : lights)
-		{
-			const auto& light = lights.get<LightComponent>(handle);
-			if (light.Type == LightComponent::Type::Directional)
-			{
-				const auto& transform = lights.get<TransformComponent>(handle);
-				glm::mat4 lightTransform = glm::translate(glm::mat4(1.0f), transform.Translation)
-					* glm::toMat4(glm::quat(transform.Rotation));
-
-				glm::mat4 lightView = glm::inverse(lightTransform);
-				glm::mat4 lightProj = glm::ortho(-10.0f, 10.0f, -10.0f, 10.0f, 0.1f, 100.0f);
-				shadowViewProjection = lightProj * lightView;
-
-				break;
-			}
-		}
+		// The transform arrives from RenderScene, which builds it once per frame:
+		// the map and the lookup must be the same projection, and a second copy
+		// of the computation here is a second thing to keep correct.
 
 		// Update the shadow camera buffer with the light's view-projection.
 		auto shadowFb = s_PbrRenderer->GetShadowFramebuffer();

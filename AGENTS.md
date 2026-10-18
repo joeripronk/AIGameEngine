@@ -284,6 +284,34 @@ without either, a multi-mesh model collapses into the origin and indexes past
 the end of its vertex buffer. Imported indices are checked against the vertex
 count before the importer reports success.
 
+A mesh with no `TEXCOORD_0` is **box-projected** onto the texture, one face per
+dominant axis, normalised against the mesh's own bounds. Leaving its UVs at zero
+is not “untextured”: every triangle samples texel (0, 0), so the model comes out
+in whatever colour one corner pixel holds, and a material with an albedo map is
+indistinguishable from one without. `resources/models/cube.glb` stores only
+POSITION and NORMAL, which is how the tetris blocks named a metal map and never
+showed a pixel of it. Authored UVs always win — the projection runs only when
+the file declares none, because an unwrap is deliberate.
+
+Degenerate normals are repaired, not normalised. `glm::normalize` of a zero
+vector answers NaN, and NaN in a vertex attribute is undefined behaviour on the
+GPU — not a black triangle. `cube.glb` carries seven zero normals and one
+flattened, which the importer was writing straight through into the vertex
+buffer; a repaired normal falls back to “outward from the mesh's centre”, and
+the node transform's result is checked too, because a zero scale on one axis
+flattens a good normal as well. Tangent frames are derived from the normal
+(unit, orthogonal, right-handed) wherever the file supplies none — the constant
+`(1, 0, 0)` the importer used to fall back to is not perpendicular to the faces
+it was attached to.
+
+An albedo map is not "on the model" at `Metallic = 1`. `pbr.frag` computes
+`kD = (1 - kS) * (1 - metallic)`, so full metallic zeroes the diffuse term and
+the map survives only as the tint of a razor-sharp specular glint — its colour
+lands wherever the reflection happens to point, on some faces and not others.
+That is why the tetris blocks are a painted plate (`kBlockMetallic = 0.35`,
+`kBlockRoughness = 0.45`) and not a mirror: the map has to reach the diffuse
+term to read as the block's own surface.
+
 ### Cameras
 
 `CameraComponent::ProjectionType` is perspective or orthographic, with
@@ -668,6 +696,43 @@ that is the anti-crawl property the division exists for, and BloomTests
 asserts it: a filter that grew with luminance would smear bright texels
 over each other.
 
+### Shadows
+
+The shadow transform lives in `Forge/Renderer/ShadowCamera.h` - pure and
+unit-tested - and is computed **once per frame** from the scene's mesh bounds
+and the directional light's `Direction`:
+
+```cpp
+const ShadowCamera camera = Forge::BuildShadowCamera(boxes, lightDirection, mapSize);
+const ShadowBias bias = Forge::ComputeShadowBias(camera.TexelWorld, camera.TexelDepth);
+```
+
+A directional light needs **no TransformComponent**: a direction is the whole
+of its orientation, and the light entity in a scene file is free to carry only
+`LightComponent`. The map is fitted to the scene's corners measured *in light
+space*, so every fragment that draws is inside the map - `pbr.frag` declines to
+shade anything outside it, so a fixed box smaller than the scene leaves most of
+the scene unshadowed by a rule that has nothing to do with the geometry.
+
+The transform used to be computed in two places (the HDR pass and
+`BeginShadowPass`), each requiring a `TransformComponent` on the light and each
+falling back to the **identity** without one. An identity view-projection is not
+"no shadows": it projects geometry by its own world position, so the map holds a
+picture of the scene from nowhere, fragments compare themselves against texels
+that describe something else, and shading lands at arbitrary places in the field
+(only the fragments whose world coordinates happened to fall in the NDC cube got
+an answer at all). `BeginShadowPass` now takes the transform as a parameter, and
+an invalid camera is reported once per outage rather than drawn with a
+placeholder.
+
+The bias travels with the map, in `ShadowMapParams`, because it is a number of
+texels: `ComputeShadowBias` scales the normal offset and the depth bias by the
+world width of one texel, and `pbr.frag` multiplies both by the fragment's slope
+against the light (`(1 - NdotL) / NdotL`). The constant `0.002` NDC bias this
+replaced was sized for no particular map: large enough to peter-pan a fine map,
+too small to clear a grazing surface on a coarse one - which is a checkerboard
+of lit and shadowed blocks, and reads as textures appearing on random cells.
+
 ### Who draws
 
 The application draws, not the scene. `Scene::RenderScene` used to open and
@@ -807,6 +872,8 @@ The dependency arrows only point one way:
 TetrisManager      → GLM only. The rules.
 TetrisBoardView    → Forge::Scene. Mirrors the rules into entities.
 TetrisInputLayer   → Forge events. Maps key codes to actions.
+TetrisMusicTrack   → nothing. The melody, the synth and the tempo curve.
+TetrisMusic        → Forge::Audio. Plays the music playlist; the rules never hear it.
 TetrisApp          → all of the above, plus the window and renderer.
 src/Forge/**       → none of them.
 ```

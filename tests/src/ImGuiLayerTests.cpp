@@ -100,6 +100,79 @@ TEST_CASE("ImGuiLayer detaches cleanly after a context-only attach", "[renderer]
 	layer.OnDetach();
 }
 
+TEST_CASE("HasSavedDockLayout reads the layout from the .ini contents", "[renderer][imgui]")
+{
+	// The editor builds its initial dock layout only when the .ini describes
+	// one, so the predicate is the whole difference between "reopen the way
+	// the author left it" and "no panels at all".
+
+	// Nothing loaded: no layout.
+	CHECK_FALSE(ImGuiLayer::HasSavedDockLayout(""));
+
+	// A .ini written by a build that docked nothing - the window entries are
+	// all there is. Honouring this is the bug: every panel comes back as a
+	// floating window at its saved size, stacked where the last session left
+	// it, which reads as an editor with no GUI.
+	const std::string windowOnly =
+		"[Window][Debug##Default]\n"
+		"Pos=69,66\n"
+		"Size=400,400\n"
+		"Collapsed=0\n"
+		"\n"
+		"[Window][Viewport]\n"
+		"Pos=60,60\n"
+		"Size=32,35\n"
+		"Collapsed=0\n"
+		"\n";
+	CHECK_FALSE(ImGuiLayer::HasSavedDockLayout(windowOnly));
+
+	// A window *named* "Docking" is not a dock layout. Only a section header
+	// selects a section.
+	const std::string decoy =
+		"[Window][Docking]\n"
+		"Pos=10,10\n"
+		"Size=200,200\n"
+		"Collapsed=0\n"
+		"\n";
+	CHECK_FALSE(ImGuiLayer::HasSavedDockLayout(decoy));
+
+	// The header alone: a docking build that never built a tree. There is no
+	// arrangement to honour, so the initial layout must be built.
+	CHECK_FALSE(ImGuiLayer::HasSavedDockLayout("[Docking][Data]\n"));
+
+	// Windows that claim a dock id with no tree to place them in.
+	const std::string orphanDockId =
+		"[Window][Viewport]\n"
+		"Pos=60,60\n"
+		"Size=32,35\n"
+		"Collapsed=0\n"
+		"DockNode=0x12345678\n"
+		"DockPos=100,100\n"
+		"\n";
+	CHECK_FALSE(ImGuiLayer::HasSavedDockLayout(orphanDockId));
+
+	// A real saved tree: the dockspace node and its children.
+	const std::string savedLayout =
+		"[Window][Viewport]\n"
+		"Pos=60,60\n"
+		"Size=32,35\n"
+		"Collapsed=0\n"
+		"DockNode=0x8F1E1D5C\n"
+		"DockPos=321,0\n"
+		"\n"
+		"[Docking][Data]\n"
+		"DockSpace       ID=0x8F1E1D5C Window=0x1A2B3C4D Pos=0,19 Size=1600,881 Split=X\n"
+		"  DockNode      ID=0x11111111 Parent=0x8F1E1D5C SizeRef=319,881 Split=Y\n"
+		"    DockNode    ID=0x22222222 Parent=0x11111111 SizeRef=319,610 selected=0x33333333\n"
+		"\n";
+	CHECK(ImGuiLayer::HasSavedDockLayout(savedLayout));
+
+	// Indentation, tabs, CRLF and a trailing line without a newline are all
+	// shapes ImGui actually writes; none of them may hide the entries.
+	CHECK(ImGuiLayer::HasSavedDockLayout("[Docking][Data]\r\n\tDockSpace ID=0x1 Pos=0,0 Size=800,600\r\n"));
+	CHECK(ImGuiLayer::HasSavedDockLayout("[Docking][Data]\nDockSpace ID=0x1"));
+}
+
 TEST_CASE("ScopedStyleColor pops on every path out of a scope", "[renderer][imgui]")
 {
 	ImGui::CreateContext();

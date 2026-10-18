@@ -2,6 +2,7 @@
 
 #include "TetrisBoardView.h"
 #include "TetrisInputOverlayLayer.h"
+#include "TetrisMusic.h"
 
 #include "Forge/Core/Application.h"
 #include "Forge/Scene/Scene.h"
@@ -45,18 +46,43 @@ private:
 	// Point the camera and light at the playfield for the current mode.
 	void ApplyViewLayout();
 
+	// Shake the camera after a landing, by how fast the blocks were moving when
+	// they stopped. The camera's base position is what ApplyViewLayout set; the
+	// shake is an offset off it that decays, and settles back onto it.
+	void ApplyImpactShake(float dt);
+
 	// Switch between the flat 2D view and the angled 3D well. The rules are
 	// untouched: score, board and the queued piece survive the switch.
 	void ToggleViewMode();
 
+	// Mute or unmute the theme. Presentation only - the game state is
+	// untouched, which is why this is a callback from the input layer and not
+	// an Action.
+	void ToggleMusic();
+
+	// Move to another song in the playlist (N is +1, B is -1). Presentation
+	// for the same reason as the mute.
+	void SkipMusic(int delta);
+
 	Forge::Ref<Forge::Scene> m_Scene;
 	BoardView m_BoardView;
+
+	// The theme on the Music bus, driven by the game state each frame.
+	TetrisMusic m_Music;
 
 	// Camera and light kept for the toggle: the entities persist, only their
 	// transforms and parameters change with the mode.
 	Forge::Entity m_CameraEntity;
 	Forge::Entity m_LightEntity;
 	std::vector<Forge::Entity> m_DecorEntities;
+
+	// The camera's home, and the damped oscillation that carries it away from
+	// home after a landing. The shake is an offset, never a drift: it decays
+	// back onto the base position so the playfield is never left off-centre.
+	glm::vec3 m_CameraBasePosition = glm::vec3(0.0f);
+	float m_ShakeAmplitude = 0.0f;
+	float m_ShakePhase = 0.0f;
+	bool m_Shaking = false;
 
 	// Owns the pushed layer: the stack does not take ownership of what is
 	// pushed onto it.

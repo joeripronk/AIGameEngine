@@ -84,6 +84,18 @@ vendor/physx/build/
 /test_audio/
 test_reverb/
 /test_asset_db/
+test_tetris_music/
+
+# The Tetris theme is synthesised by the game on first run (games/tetris/src/
+# TetrisMusicTrack.cpp): a generated playback file, not an authored asset, so
+# it is not tracked. Same rule for every generated song's playback file
+# (games/tetris/src/TetrisMusic.cpp writes resources/audio/gen_<song>.wav).
+resources/audio/tetris_theme.wav
+resources/audio/gen_*.wav
+
+# Tooling dependencies installed by npm; the manifests are tracked, what they
+# install is not.
+node_modules/
 
 # Editor and debugging scratch
 imgui.ini

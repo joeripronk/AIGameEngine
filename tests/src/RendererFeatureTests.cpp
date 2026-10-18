@@ -6,10 +6,15 @@ using Catch::Approx;
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Renderer/CpuTexture.h"
 #include "Forge/Renderer/Camera.h"
+#include "Forge/Assets/AssetImporter.h"
+#include "Forge/Core/Log.h"
 
+#include <algorithm>
+#include <cstdint>
 #include <set>
 #include <array>
 #include <string>
+#include <utility>
 
 #include <glm/glm.hpp>
 
@@ -192,41 +197,86 @@ TEST_CASE("Cube-face view-projections cover the six reflection directions", "[re
     REQUIRE(Forge::BuildCubeFaceViewProjection(99u, origin) == glm::mat4(1.0f));
 }
 
-TEST_CASE("Committed metal albedo fixture decodes as a usable texture", "[texture][renderer]")
+TEST_CASE("Every committed tetris theme tile decodes as a usable albedo map",
+	"[texture][renderer][theme]")
 {
-    const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/textures/metal_blocks.bmp";
-    auto texture = Forge::CpuTexture::Load(path);
+	Forge::Log::Init();
 
-    REQUIRE(texture != nullptr);
-    REQUIRE(texture->IsHDR() == false);
-    REQUIRE(texture->GetWidth() == 256);
-    REQUIRE(texture->GetHeight() == 256);
-    REQUIRE(texture->GetChannels() == 4);
+	// The seven surfaces the tetris blocks are drawn in, cropped from
+	// sgtcrispy's CC0 "Colored Metal tiles 1b" sheet.
+	//
+	// The rule these are checked against is the one that bit the HDRI fixture:
+	// a committed asset that is *nearly* right is worse than none, because it
+	// decodes to plausible garbage. A crop taken from the wrong cell of the
+	// sheet, a palette that did not survive the save, a tile that is one flat
+	// colour - all of them "load" and none of them show a pattern, and a block
+	// drawn in a flat tile is a block with no theme at all.
+	static const char* kThemeTiles[] = {
+		"block_i_diamond_plate.png",
+		"block_o_solid_plate.png",
+		"block_t_panels.png",
+		"block_s_rivets.png",
+		"block_z_grate.png",
+		"block_j_gold_slats.png",
+		"block_l_diamond_plate.png",
+	};
 
-    // The map tints each tetromino albedo, so it must be neutral grey and
-    // actually vary across the surface: a flat buffer decodes fine and still
-    // renders as a featureless block.
-    const uint8_t* bytes = static_cast<const uint8_t*>(texture->GetPixelData());
-    REQUIRE(bytes[0] == 227);
-    REQUIRE(bytes[1] == 227);
-    REQUIRE(bytes[2] == 227);
-    REQUIRE(bytes[3] == 255);
+	std::set<std::string> names;
+	for (const char* tile : kThemeTiles)
+	{
+		const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/textures/tetris/" + tile;
 
-    uint8_t minLuma = 255;
-    uint8_t maxLuma = 0;
-    for (uint32_t y = 0; y < 256; y += 4)
-    {
-        for (uint32_t x = 0; x < 256; x += 4)
-        {
-            const uint8_t* px = bytes + ((size_t)y * 256 + x) * 4;
-            REQUIRE(px[0] == px[1]);
-            REQUIRE(px[1] == px[2]);
-            minLuma = std::min(minLuma, px[0]);
-            maxLuma = std::max(maxLuma, px[0]);
-        }
-    }
-    REQUIRE(maxLuma > minLuma);
+		// The engine's own answer to "is this file usable?".
+		REQUIRE(Forge::AssetImporter::Import(path));
+
+		auto texture = Forge::CpuTexture::Load(path);
+		REQUIRE(texture != nullptr);
+		REQUIRE(texture->IsHDR() == false);
+		REQUIRE(texture->GetWidth() == 128u);
+		REQUIRE(texture->GetHeight() == 128u);
+		REQUIRE(texture->GetChannels() == 4);
+
+		REQUIRE(names.insert(tile).second == true);
+
+		const uint8_t* bytes = static_cast<const uint8_t*>(texture->GetPixelData());
+		const size_t pixels = 128u * 128u;
+
+		uint8_t minLuma = 255, maxLuma = 0;
+		uint32_t opaque = 0, saturated = 0;
+		long sum[3] = {0, 0, 0};
+
+		for (size_t i = 0; i < pixels; ++i)
+		{
+			const uint8_t* px = bytes + i * 4;
+			if (px[3] == 255)
+				++opaque;
+
+			const uint8_t lo = std::min({px[0], px[1], px[2]});
+			const uint8_t hi = std::max({px[0], px[1], px[2]});
+			if (hi - lo > 24)
+				++saturated;  // a coloured texel, not a shade of grey
+
+			sum[0] += px[0];
+			sum[1] += px[1];
+			sum[2] += px[2];
+
+			const uint8_t luma = px[0] / 2 + px[1] / 4 + px[2] / 8;
+			minLuma = std::min(minLuma, luma);
+			maxLuma = std::max(maxLuma, luma);
+		}
+
+		REQUIRE(opaque == pixels);              // no alpha to blend against a skybox
+		REQUIRE(maxLuma > minLuma);             // the pattern is present
+		REQUIRE(saturated > pixels / 8);        // the palette survived the crop
+		REQUIRE(sum[0] + sum[1] + sum[2] > 0);  // not a black tile
+
+		// A tile whose texels are all one value is the failure a "load
+		// succeeded" check cannot see, and the one that renders as an
+		// untextured block.
+		REQUIRE(maxLuma - minLuma > 16);
+	}
 }
+
 TEST_CASE("Committed HDRI fixture decodes as HDR", "[renderer][hdr]")
 {
     const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/environment/sunset.hdr";
@@ -344,6 +394,130 @@ TEST_CASE("Model import reads the material the file declares", "[mesh][import]")
     // A model with no texture names no path, rather than an empty string that
     // a loader would try to open and fail.
     REQUIRE(model.AlbedoTexturePath.empty());
+}
+
+TEST_CASE("A model with no texture coordinates is box-projected onto them",
+	"[mesh][import][uv]")
+{
+	// resources/models/cube.glb stores POSITION and NORMAL and nothing else.
+	//
+	// Leaving its UVs at zero did not draw an untextured cube - it sampled texel
+	// (0, 0) across every triangle, so the whole model came out in whatever
+	// colour one corner pixel held. A material with an albedo map looked
+	// identical to one without, which is what the tetris blocks did: they named
+	// a brushed-metal map and never showed a pixel of it.
+	const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/models/cube.glb";
+
+	Forge::ImportedModel model;
+	REQUIRE(Forge::MeshImport::ImportModel(path, model));
+	REQUIRE(model.Vertices.size() > 1u);
+
+	// The property that was actually broken: the UVs are not all one value.
+	//
+	// Four is the answer for a cube, and it is the interesting one. A box
+	// projection puts each face's four corners on the four corners of the tile,
+	// so every face samples the whole texture and the distinct set is exactly
+	// those corners - not 24 (which would mean the faces were projected
+	// against different axes, i.e. the pattern ran in six directions), and not
+	// 1 (which is the texel-(0,0) collapse this replaced).
+	std::set<std::pair<float, float>> distinct;
+	for (const auto& vertex : model.Vertices)
+	{
+		REQUIRE(vertex.UV.x >= 0.0f);
+		REQUIRE(vertex.UV.x <= 1.0f);
+		REQUIRE(vertex.UV.y >= 0.0f);
+		REQUIRE(vertex.UV.y <= 1.0f);
+		distinct.insert({vertex.UV.x, vertex.UV.y});
+	}
+	REQUIRE(distinct.size() == 4u);
+
+	// Every face covers the whole texture: a projection that clamped, or that
+	// normalised against a fixed unit cube, would leave the corners of the tile
+	// unsampled and the pattern would run off the middle of each face.
+	REQUIRE(distinct.count({0.0f, 0.0f}) == 1u);
+	REQUIRE(distinct.count({1.0f, 0.0f}) == 1u);
+	REQUIRE(distinct.count({1.0f, 1.0f}) == 1u);
+	REQUIRE(distinct.count({0.0f, 1.0f}) == 1u);
+
+	// Each face projects along its own axis, so vertices sharing a position but
+	// facing different ways get different UVs. Six distinct faces, six distinct
+	// (normal, uv) pairs. Keyed by text because glm vectors define no ordering.
+	std::set<std::string> perFace;
+	for (const auto& vertex : model.Vertices)
+	{
+		std::string key;
+		for (int axis = 0; axis < 3; ++axis)
+			key += std::to_string(vertex.Normal[axis]) + ",";
+		key += "|" + std::to_string(vertex.UV.x) + "," + std::to_string(vertex.UV.y);
+		perFace.insert(key);
+	}
+	REQUIRE(perFace.size() >= 6u);
+
+	// The frame a UV implies. A tangent that is not unit length, or not
+	// perpendicular to the normal it belongs to, breaks any normal or parallax
+	// work layered on top - and the fallback this replaced handed every vertex
+	// the constant (1, 0, 0) whatever face it was on.
+	//
+	// Finite first. glm::normalize of a zero vector answers NaN, and this
+	// fixture carries seven exactly-zero normals plus one flattened to
+	// (0, -0.1, 0), so the importer was normalizing them and writing NaN into
+	// the vertex buffer for lighting to read. NaN in a vertex attribute is not
+	// a black triangle - it is undefined behaviour on the GPU, answered by the
+	// driver, and it is invisible in a screenshot until it is not.
+	for (const auto& vertex : model.Vertices)
+	{
+		const glm::vec3* vectors[3] = { &vertex.Normal, &vertex.Tangent, &vertex.Bitangent };
+		for (const glm::vec3* vector : vectors)
+		{
+			for (int axis = 0; axis < 3; ++axis)
+				REQUIRE(std::isfinite((*vector)[axis]));
+		}
+		REQUIRE(glm::length(vertex.Normal) == Approx(1.0f));
+	}
+
+	for (const auto& vertex : model.Vertices)
+	{
+		REQUIRE(glm::length(vertex.Tangent) == Approx(1.0f));
+		REQUIRE(glm::length(vertex.Bitangent) == Approx(1.0f));
+		REQUIRE(glm::dot(vertex.Normal, vertex.Tangent) == Approx(0.0f).margin(1e-4f));
+		REQUIRE(glm::dot(vertex.Normal, vertex.Bitangent) == Approx(0.0f).margin(1e-4f));
+
+		// Right-handed: cross(normal, tangent) is the bitangent. Getting this
+		// right by construction rather than per-face by inspection is the point
+		// of deriving it.
+		REQUIRE(glm::all(glm::epsilonEqual(
+			glm::cross(vertex.Normal, vertex.Tangent), vertex.Bitangent, 1e-4f)));
+	}
+}
+
+TEST_CASE("A model that declares texture coordinates keeps them", "[mesh][import][uv]")
+{
+	// resources/models/uv_triangle.gltf declares TEXCOORD_0 with UVs that a box
+	// projection could not have produced: none of them on a 0/1 grid.
+	//
+	// Without this, the projection above would be indistinguishable from one
+	// that overwrites authored UVs - and an unwrap is something an artist does
+	// deliberately, so a generated one has to lose to a real one.
+	const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/models/uv_triangle.gltf";
+
+	Forge::ImportedModel model;
+	REQUIRE(Forge::MeshImport::ImportModel(path, model));
+	REQUIRE(model.Vertices.size() == 3u);
+
+	const glm::vec2 expected[3] = { { 0.11f, 0.79f }, { 0.63f, 0.22f }, { 0.94f, 0.47f } };
+	for (size_t i = 0; i < 3; ++i)
+	{
+		REQUIRE(model.Vertices[i].UV.x == Approx(expected[i].x));
+		REQUIRE(model.Vertices[i].UV.y == Approx(expected[i].y));
+	}
+
+	// Still a right-handed frame, even though the UVs are no longer ours to
+	// derive an axis from - assimp computes tangents from the authored UVs.
+	for (const auto& vertex : model.Vertices)
+	{
+		REQUIRE(glm::length(vertex.Tangent) == Approx(1.0f));
+		REQUIRE(glm::dot(vertex.Normal, vertex.Tangent) == Approx(0.0f).margin(1e-3f));
+	}
 }
 
 TEST_CASE("Model import reports failure instead of importing nothing", "[mesh][import]")

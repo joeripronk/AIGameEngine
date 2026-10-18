@@ -3,6 +3,8 @@
 
 #include "TetrisApp.h"
 
+#include "TetrisAnimation.h"
+
 #include "Forge/Core/Log.h"
 #include "Forge/Core/Time.h"
 #include "Forge/Events/ApplicationEvent.h"
@@ -28,6 +30,21 @@ constexpr float kPreviewGap = 2.0f;
 constexpr float kPreviewBlockScale = 0.92f;
 
 const char* kBlockMesh = "resources/models/cube.glb";
+
+// The impact shake: a damped oscillation about the camera's base position, in
+// world units (a block is 1.0). The vertical axis leads and the others trail,
+// which is what makes it read as the ground moving rather than as the camera
+// wobbling on its axis. The frequencies sit low - a ground shake is felt as a
+// rumble - and the damping leaves a saturated strike about a second of it.
+constexpr float kPi = 3.14159265358979323846f;
+constexpr float kShakeMaxAmplitude = 0.45f;
+constexpr float kShakeVerticalFrequency = 7.0f;    // Hz
+constexpr float kShakeHorizontalFrequency = 4.3f;  // not a multiple: the axes do not march in step
+constexpr float kShakeDepthFrequency = 3.1f;
+constexpr float kShakeDamping = 5.0f;              // per second
+constexpr float kShakeSettle = 0.003f;             // below this the camera is home
+constexpr float kShakeHorizontalRatio = 0.45f;
+constexpr float kShakeDepthRatio = 0.25f;
 
 // Euler radians for a camera transform whose -Z axis points from `eye` at
 // `target`. Scene::RenderScene builds the view matrix as
@@ -85,16 +102,25 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 		return;
 	}
 
+	// Open the audio device and make sure the theme is on disk. The tune is
+	// silent until the game starts - the menu is silent by design - so all
+	// that happens here is the device and the bake. No device is not a
+	// failure: the game plays silently.
+	m_Music.Start();
+
 	// Input and overlay are combined into a single layer so the window
 	// receives events and pushes ImGui calls from one object.
 	m_InputOverlayLayer = std::make_unique<InputOverlayLayer>(m_BoardView.GetManager());
 	m_InputOverlayLayer->SetViewToggledCallback([this] { ToggleViewMode(); });
+	m_InputOverlayLayer->SetMusicToggledCallback([this] { ToggleMusic(); });
+	m_InputOverlayLayer->SetMusicSkippedCallback([this](int delta) { SkipMusic(delta); });
+	m_InputOverlayLayer->SetMusic(&m_Music);
 	PushLayer(m_InputOverlayLayer.get());
 
 	if (!InitImGui())
 		FG_INFO("Tetris: continuing without the on-screen controls");
 
-	FG_INFO("Tetris: up. Arrows or WASD to move, Up/X to rotate, Space to drop, P to pause, R to restart, V to switch 2D/3D.");
+	FG_INFO("Tetris: up. Arrows or WASD to move, Up/X to rotate, Space to drop, P to pause, R to restart, V to switch 2D/3D, M to mute, N/B to skip music.");
 }
 
 TetrisApp::~TetrisApp()
@@ -112,6 +138,11 @@ TetrisApp::~TetrisApp()
 		GetLayerStack().PopLayer(m_InputOverlayLayer.get());
 		m_InputOverlayLayer.reset();
 	}
+
+	// Music last on the way out: the engine releases its sounds outright at
+	// teardown, which is what shutdown wants - a fade-out is for stopping a
+	// sound in a running game, not for outliving the app that owns it.
+	m_Music.Shutdown();
 
 	m_BoardView.Shutdown();
 
@@ -211,12 +242,15 @@ void TetrisApp::ApplyViewLayout()
 		const glm::vec3 eye = centre + glm::vec3(8.5f, 5.0f, 20.5f);
 		const glm::vec3 target = centre + glm::vec3(-1.5f, 0.5f, -0.5f);
 		cameraTransform.Translation = eye;
+		m_CameraBasePosition = eye;
 		cameraTransform.Rotation = CameraOrientation(eye, target);
 		cameraComponent.FieldOfView = 65.0f;
 	}
 	else
 	{
-		cameraTransform.Translation = centre + glm::vec3(0.0f, 0.0f, 22.0f);
+		const glm::vec3 eye = centre + glm::vec3(0.0f, 0.0f, 22.0f);
+		cameraTransform.Translation = eye;
+		m_CameraBasePosition = eye;
 		cameraTransform.Rotation = { 0.0f, 0.0f, 0.0f };
 		cameraComponent.FieldOfView = 60.0f;
 	}
@@ -329,6 +363,23 @@ void TetrisApp::ToggleViewMode()
 	FG_INFO("Tetris: switched to {0} view", m_ThreeDimensional ? "3D" : "2D");
 }
 
+void TetrisApp::ToggleMusic()
+{
+	const bool muted = !m_Music.IsMuted();
+	m_Music.SetMuted(muted);
+	FG_INFO("Tetris: music {0}", muted ? "muted" : "unmuted");
+}
+
+void TetrisApp::SkipMusic(int delta)
+{
+	m_Music.SkipTrack(delta);
+
+	const char* title = m_Music.CurrentTitle();
+	if (title && *title)
+		FG_INFO("Tetris: music {0}/{1} - {2}",
+			m_Music.CurrentTrackIndex() + 1, m_Music.TrackCount(), title);
+}
+
 bool TetrisApp::InitImGui()
 {
 	// The engine owns the ImGui context and the GLFW/Vulkan backends; the
@@ -360,21 +411,25 @@ void TetrisApp::SyncPreview()
 	const TetrisGameState& state = m_BoardView.GetManager().GetState();
 
 	// Four blocks of whatever is queued, laid out in its rotation-0 shape.
-	const glm::ivec2 origin(
-		-static_cast<int32_t>(kPreviewColumns) / 2,
-		-static_cast<int32_t>(kPreviewRows) / 2);
-
 	TetrominoType shown = TetrominoType::Count;
 	if (state.CurrentState == TetrisGameState::State::Playing)
 		shown = state.NextPiece.Type;
 
-	glm::ivec2 blocks[4];
-	if (shown != TetrominoType::Count)
-		GetRotatedBlocks(shown, 0, blocks);
+	const bool visible = shown != TetrominoType::Count;
+
+	// The preview draws the piece the board will show next, so it uses the same
+	// theme table - a preview in a different surface from the piece it
+	// previews tells the player nothing.
+	const glm::vec3 previewColour =
+		visible ? TetrisManager::GetTetrominoDefinition(shown).color : glm::vec3(0.0f);
+	const char* previewTexture = GetBlockTexture(shown);
+
+	glm::vec3 local[4];
+	if (visible)
+		BoardView::PreviewLocalOffsets(shown, local);
 
 	for (int i = 0; i < 4; ++i)
 	{
-		const bool visible = shown != TetrominoType::Count;
 		const uint64_t key = static_cast<uint64_t>(i);
 
 		if (!visible)
@@ -388,26 +443,24 @@ void TetrisApp::SyncPreview()
 			continue;
 		}
 
-		const glm::vec3 local(
-			(static_cast<float>(blocks[i].x + origin.x) + 0.5f) * BoardView::BlockSize(),
-			(static_cast<float>(blocks[i].y + origin.y) + 0.5f) * BoardView::BlockSize(),
-			0.46f);
+		const glm::vec3 offset =
+			m_PreviewRoot.GetComponent<Forge::TransformComponent>().Translation + local[i];
 
 		const auto cached = m_PreviewBlocks.find(key);
 		if (cached == m_PreviewBlocks.end())
 		{
 			Forge::Entity entity = m_Scene->CreateEntity("PreviewBlock_" + std::to_string(i));
 			auto& transform = entity.GetComponent<Forge::TransformComponent>();
-			transform.Translation = m_PreviewRoot.GetComponent<Forge::TransformComponent>().Translation + local;
+			transform.Translation = offset;
 			transform.Scale = glm::vec3(kPreviewBlockScale);
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
-			material.Albedo = TetrisManager::GetTetrominoDefinition(shown).color;
+			material.Albedo = kBlockAlbedo;
 			material.Metallic = kBlockMetallic;
 			material.Roughness = kBlockRoughness;
 			material.AO = 1.0f;
-			material.AlbedoTexturePath = kBlockAlbedoTexture;
-			material.Emissive = TetrisManager::GetTetrominoDefinition(shown).color;
+			material.AlbedoTexturePath = previewTexture;
+			material.Emissive = previewColour;
 			material.EmissiveIntensity = kBlockEmissiveIntensity;
 
 			entity.AddComponent<Forge::MeshComponent>().ModelPath = kBlockMesh;
@@ -416,16 +469,65 @@ void TetrisApp::SyncPreview()
 		}
 		else
 		{
+			// The shape moves with the piece: blocks are cached by slot index,
+			// so a new queue entry has to reposition them as well as recolour
+			// them. Leaving the translation alone drew the new piece's colour
+			// at the old piece's cells.
+			cached->second.GetComponent<Forge::TransformComponent>().Translation = offset;
+
 			auto& cachedMaterial = cached->second.GetComponent<Forge::PBRMaterialComponent>();
-			const glm::vec3 previewColour = TetrisManager::GetTetrominoDefinition(shown).color;
-			cachedMaterial.Albedo = previewColour;
+			cachedMaterial.Albedo = kBlockAlbedo;
 			cachedMaterial.Metallic = kBlockMetallic;
 			cachedMaterial.Roughness = kBlockRoughness;
 			cachedMaterial.AO = 1.0f;
+			cachedMaterial.AlbedoTexturePath = previewTexture;
 			cachedMaterial.Emissive = previewColour;
 			cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 		}
 	}
+}
+
+void TetrisApp::ApplyImpactShake(float dt)
+{
+	const BoardView::Impact impact = m_BoardView.GetLastImpact();
+	if (impact.Occurred)
+	{
+		const float amplitude = ShakeAmplitudeForSpeed(impact.Speed, kShakeMaxAmplitude);
+		if (amplitude > m_ShakeAmplitude)
+		{
+			// A harder landing takes over a softer one, and the rumble starts
+			// at the impact rather than continuing whatever swing the camera
+			// happened to be mid-way through.
+			m_ShakeAmplitude = amplitude;
+			m_ShakePhase = 0.0f;
+		}
+	}
+
+	if (!m_CameraEntity)
+		return;
+
+	auto& transform = m_CameraEntity.GetComponent<Forge::TransformComponent>();
+
+	if (m_ShakeAmplitude <= kShakeSettle)
+	{
+		if (m_Shaking)
+		{
+			transform.Translation = m_CameraBasePosition;
+			m_Shaking = false;
+		}
+		m_ShakeAmplitude = 0.0f;
+		return;
+	}
+
+	m_ShakePhase += dt;
+	m_ShakeAmplitude *= std::exp(-kShakeDamping * dt);
+
+	const float phase = 2.0f * kPi * m_ShakePhase;
+	transform.Translation = m_CameraBasePosition + m_ShakeAmplitude * glm::vec3(
+		kShakeHorizontalRatio * std::sin(kShakeHorizontalFrequency * phase),
+		std::sin(kShakeVerticalFrequency * phase),
+		kShakeDepthRatio * std::sin(kShakeDepthFrequency * phase + 2.2f));
+	m_Shaking = true;
 }
 
 void TetrisApp::Run()
@@ -452,6 +554,14 @@ void TetrisApp::Run()
 
 		// Advance the game and mirror it into the scene before anything draws.
 		m_BoardView.Update(frameTime);
+		// The landing animation is written onto the scene by the view; the
+		// camera answers to the same impact, so the strike and the shake are
+		// two readings of one event rather than two events.
+		ApplyImpactShake(frameTime);
+		// Music runs outside the render branch on purpose: a minimised window
+		// still has to drain finished sounds, or the theme keeps playing with
+		// nothing on screen to pause it.
+		m_Music.Update(m_BoardView.GetManager().GetState());
 		SyncPreview();
 		if (!IsMinimized())
 		{

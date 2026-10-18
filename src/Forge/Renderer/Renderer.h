@@ -110,7 +110,9 @@ namespace Forge {
 		// binary PPM. Used to verify rendering without a windowing system.
 		static bool CaptureSwapchainImage(uint32_t imageIndex, const std::string& path);
 
-		static void BeginShadowPass(class Scene* scene);
+		// The shadow pass draws with the transform RenderScene computed for this
+		// frame, so the map and the fragment-side lookup are one projection.
+		static void BeginShadowPass(class Scene* scene, const glm::mat4& shadowViewProjection);
 		static void EndShadowPass();
 
 		static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }

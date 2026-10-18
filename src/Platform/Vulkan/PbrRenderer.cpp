@@ -347,15 +347,19 @@ namespace Forge {
 		uniforms.LightColor = glm::vec4(lightColor, lightIntensity);
 		uniforms.CameraPosition = glm::vec4(cameraPosition, 0.0f);
 		uniforms.AmbientLight = glm::vec4(ambientLight, 0.0f);
-		uniforms.SSAOParams = glm::vec4(0.002f, 1.0f, 0.0f, 0.0f);
+		// x is not read: the shadow bias travels in ShadowMapParams, where the
+		// texel size it has to be scaled by lives.
+		uniforms.SSAOParams = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
 
 
 		commandList->writeBuffer(m_CameraBuffer, &uniforms, sizeof(uniforms), 0);
 
-		// Upload ShadowMapParams (shadow map size for PCF).
+		// Upload ShadowMapParams (map size for PCF, and the bias that fits the
+		// surface to the map it is sampling against).
 		{
 			ShadowMapParams shadowParams;
 			shadowParams.ShadowMapSize = m_ShadowMapSize;
+			shadowParams.ShadowBias = m_ShadowBias;
 			commandList->writeBuffer(m_ShadowParamsBuffer, &shadowParams, sizeof(shadowParams), 0);
 		}
 
@@ -755,7 +759,7 @@ namespace Forge {
 			uniforms.LightColor = glm::vec4(lightColor, lightIntensity);
 			uniforms.CameraPosition = glm::vec4(m_ReflectionProbePosition, 0.0f);
 			uniforms.AmbientLight = glm::vec4(ambientLight, 0.0f);
-			uniforms.SSAOParams = glm::vec4(0.002f, 1.0f, 0.0f, 0.0f);
+			uniforms.SSAOParams = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
 			commandList->writeBuffer(m_CameraBuffer, &uniforms, sizeof(uniforms), 0);
 
 			for (const ProbeDraw& draw : draws)

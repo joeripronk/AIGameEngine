@@ -25,6 +25,7 @@ target_sources(ForgeTetris
     PRIVATE
         src/Client.cpp
         src/EntryPoint.h
+        src/TetrisAnimation.h
         src/TetrisApp.h
         src/TetrisApp.cpp
         src/TetrisBoardView.h
@@ -35,6 +36,10 @@ target_sources(ForgeTetris
         src/TetrisInputOverlayLayer.h
         src/TetrisManager.h
         src/TetrisManager.cpp
+        src/TetrisMusic.h
+        src/TetrisMusic.cpp
+        src/TetrisMusicTrack.h
+        src/TetrisMusicTrack.cpp
         src/TetrisOverlay.h
         src/TetrisOverlay.cpp
         src/TetrisTypes.h
@@ -64,6 +69,11 @@ endif()
 # the engine's resources are staged next to the binary. The game has no assets of
 # its own yet - it draws a block out of resources/models/cube.glb and builds its
 # scene in code - so there is no per-game resource tree to stage.
+#
+# Its audio lives in the shared resources/audio tree: the songs in the playlist
+# (TetrisMusicTrack.cpp) are authored mp3s, and the one song the game makes for
+# itself - resources/audio/tetris_theme.wav - is synthesised from the melody
+# table on first run, so it is a generated file and not tracked.
 #
 # If this game ever needs one, add it next to this line rather than reaching into
 # the engine's tree:
@@ -99,7 +109,9 @@ target_include_directories(ForgeTetrisTests
 target_sources(ForgeTetrisTests
     PRIVATE
         tests/TetrisTests.cpp
+        tests/TetrisAnimationTests.cpp
         tests/TetrisBoardViewTests.cpp
+        tests/TetrisMusicTests.cpp
         # The rules, the scene-side presenter and the input mapping. Compiled
         # in rather than linked from the game executable: there is no library to
         # link, and the point of the split is which dependencies each file has.
@@ -111,6 +123,10 @@ target_sources(ForgeTetrisTests
         # The input layer now forwards to the overlay so a paused/reset action
         # refreshes the HUD; tests link ImGui to keep that object resolvable.
         src/TetrisOverlay.cpp
+        # The theme: the melody, the synth and the bake are all device
+        # independent, so the tune and its loop seam are assertable here.
+        src/TetrisMusicTrack.cpp
+        src/TetrisMusic.cpp
 )
 
 target_link_libraries(ForgeTetrisTests

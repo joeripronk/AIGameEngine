@@ -163,13 +163,23 @@ namespace Forge {
 		nvrhi::TextureHandle GetHDRTexture() const { return m_HDRTexture; }
 		nvrhi::TextureHandle GetDepthTexture() const { return m_DepthTexture; }
 
+		// The shadow map's resolution, so the caller can work out how wide one
+		// texel is in the world - which is what a shadow bias has to be scaled by.
+		glm::vec2 GetShadowMapSize() const { return m_ShadowMapSize; }
+
+		// x = normal offset in world units, y = constant depth bias in NDC.
+		// Computed from the shadow camera by the caller: the volume the map
+		// covers is decided there, and the shader cannot infer it.
+		void SetShadowBias(const glm::vec2& bias) { m_ShadowBias = bias; }
+
 		bool IsValid() const { return m_VertexShader && m_FragmentShader && m_FrameLayout; }
 
 	private:
-		// Per-frame uniform block, matching CameraData in pbr.vert / pbr.frag.
+		// Per-frame uniform block, matching ShadowMapParams in pbr.frag.
 		struct ShadowMapParams
 		{
 			glm::vec2 ShadowMapSize;
+			glm::vec2 ShadowBias;   // x normal offset (world), y depth bias (NDC)
 		};
 
 		struct CameraUniforms
@@ -292,6 +302,7 @@ namespace Forge {
 		// ShadowMapParams uniform buffer.
 		nvrhi::BufferHandle m_ShadowParamsBuffer;
 		glm::vec2 m_ShadowMapSize = glm::vec2(2048.0f, 2048.0f);
+		glm::vec2 m_ShadowBias = glm::vec2(0.0f);
 
 		nvrhi::TextureHandle m_DepthTexture;
 		uint32_t m_DepthWidth = 0;

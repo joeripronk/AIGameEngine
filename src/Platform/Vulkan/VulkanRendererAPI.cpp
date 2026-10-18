@@ -47,6 +47,19 @@ namespace Forge {
 		};
 
 		NvrhiMessageCallback s_NvrhiMessageCallback;
+
+		// The fullscreen quad's GPU buffers. These hold nvrhi handles, not raw
+		// pointers: a raw pointer left the only owning RefCountPtr as a local in
+		// UploadFullscreenQuad, so the buffers were released on its return and
+		// every post-processing draw referenced freed memory - which is why the
+		// tonemapped buffer stayed black while the pass reported no error.
+		//
+		// Declared here, with the objects that own them, because
+		// VulkanRendererAPI::Shutdown has to release them while the device is
+		// alive: a GPU handle that survives to static destruction is a
+		// destructor running against a device that is already gone.
+		nvrhi::BufferHandle s_FullscreenVBO;
+		nvrhi::BufferHandle s_FullscreenIBO;
 	} // namespace
 
 
@@ -374,6 +387,55 @@ namespace Forge {
 
 	void VulkanRendererAPI::Shutdown()
 	{
+		// Every nvrhi resource is released while the device object is still
+		// alive, because each one's destructor calls through it. None of these
+		// handles used to be released at all, so they were freed by static
+		// destruction - in an order nobody controls, and with the device gone
+		// that is a use-after-free (ASan: nvrhi::vulkan::Texture::~Texture
+		// reached from a Framebuffer's destructor after nvrhi::Device was
+		// deleted).
+		//
+		// Release order follows what references what: pipelines reference the
+		// binding layouts and the input layout, framebuffers reference the
+		// textures, and all of them reference the device.
+		s_FinalPipeline = nullptr;
+		s_HDRPipeline = nullptr;
+		s_SSAOPipeline = nullptr;
+		s_BlurPipeline = nullptr;
+		s_BloomPipeline = nullptr;
+
+		s_FullscreenInputLayout = nullptr;
+		s_FinalBindingLayout = nullptr;
+		s_HDRBindingLayout = nullptr;
+		s_SSAOBindingLayout = nullptr;
+		s_BloomBindingLayout = nullptr;
+
+		s_TonemappedFramebuffer = nullptr;
+		s_SSAOFramebuffer = nullptr;
+		s_HDRFramebuffer = nullptr;
+		s_BloomHalfFb = nullptr;
+		s_BloomAFb = nullptr;
+		s_BloomBFb = nullptr;
+
+		s_FinalBuffer = nullptr;
+		s_TonemappedBuffer = nullptr;
+		s_SSAOOutput = nullptr;
+		s_SSAOInput = nullptr;
+		s_HDRDepth = nullptr;
+		s_HDRBuffer = nullptr;
+		s_BloomHalf = nullptr;
+		s_BloomA = nullptr;
+		s_BloomB = nullptr;
+
+		s_FinalUniformBuffer = nullptr;
+		s_HDRUniformBuffer = nullptr;
+		s_SSAOUniformBuffer = nullptr;
+		s_BlurUniformBuffer = nullptr;
+		s_BloomUniformBuffer = nullptr;
+
+		s_FullscreenVBO = nullptr;
+		s_FullscreenIBO = nullptr;
+
 		s_Swapchain.Destroy();
 		s_CommandList = nullptr;
 		s_Device = nullptr;
@@ -1148,13 +1210,9 @@ namespace Forge {
 		};
 		const uint32_t kFullscreenIndices[6] = { 0, 1, 2, 2, 3, 0 };
 
-		// The fullscreen quad's GPU buffers. These hold nvrhi handles, not raw
-		// pointers: a raw pointer left the only owning RefCountPtr as a local in
-		// UploadFullscreenQuad, so the buffers were released on its return and
-		// every post-processing draw referenced freed memory - which is why the
-		// tonemapped buffer stayed black while the pass reported no error.
-		nvrhi::BufferHandle s_FullscreenVBO;
-		nvrhi::BufferHandle s_FullscreenIBO;
+		// The fullscreen quad's GPU buffers (s_FullscreenVBO / s_FullscreenIBO)
+		// are declared with the device's other resources, so Shutdown releases
+		// them; the upload and draw code below uses them.
 
 		// Upload the fullscreen quad to GPU buffers.
 		void UploadFullscreenQuad(nvrhi::ICommandList* commandList)

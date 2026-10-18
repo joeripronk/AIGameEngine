@@ -37,10 +37,20 @@ public:
 	// application and never an Action.
 	void SetViewToggledCallback(std::function<void()> callback) { m_OnViewToggle = std::move(callback); }
 
+	// Muting the music is the same case as the view toggle: presentation, not
+	// a rule. The rules do not know audio exists, so this cannot be an Action.
+	void SetMusicToggledCallback(std::function<void()> callback) { m_OnMusicToggle = std::move(callback); }
+
+	// Skip to another song in the playlist: +1 (N) forward, -1 (B) back. Also
+	// presentation, so also a callback rather than an Action.
+	void SetMusicSkippedCallback(std::function<void(int)> callback) { m_OnMusicSkip = std::move(callback); }
+
 private:
 	TetrisManager* m_Manager = nullptr;
 	OverlayLayer* m_Overlay = nullptr;
 	std::function<void()> m_OnViewToggle;
+	std::function<void()> m_OnMusicToggle;
+	std::function<void(int)> m_OnMusicSkip;
 };
 
 }  // namespace Tetris
