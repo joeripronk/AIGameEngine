@@ -27,6 +27,8 @@ target_sources(ForgeCore
         Forge/Core/Assert.h
         Forge/Core/UUID.h
         Forge/Core/UUID.cpp
+        Forge/Core/RTTI.h
+        Forge/Core/RTTI.cpp
         Forge/Core/Timestep.h
         Forge/Core/Time.h
         Forge/Core/Time.cpp
@@ -62,6 +64,7 @@ target_sources(ForgeCore
         Forge/Renderer/Texture.h
         Forge/Renderer/Texture.cpp
         Forge/Scene/Components.h
+        Forge/Scene/Components.cpp
         Forge/Scene/Entity.h
         Forge/Scene/Entity.cpp
         Forge/Scene/Scene.h

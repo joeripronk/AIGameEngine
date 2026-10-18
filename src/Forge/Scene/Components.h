@@ -290,4 +290,9 @@ namespace Forge {
 		AudioSourceComponent(const std::string& path) : SourcePath(path) {}
 	};
 
+	// Registers every engine component with the TypeRegistry (idempotent).
+	// Called by Scene's constructor; see Components.cpp for why this is a
+	// function and not static-init macros.
+	void RegisterEngineComponentTypes();
+
 }

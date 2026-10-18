@@ -22,6 +22,7 @@
 
 #ifdef FG_ENABLE_PROFILING
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -29,12 +30,37 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
+#include <vector>
 
 namespace Forge {
 
 	// A queryable fact, like the build-configuration queries: tells tools and
 	// tests which branch the configuration compiled, without reading macros.
 	inline bool IsProfilingEnabled() { return true; }
+
+	// Per-scope aggregation (the Hazel profiler overlay panel's data): one
+	// row per scope name, accumulated while a session is open and kept after
+	// EndSession so the last session's numbers stay on screen.
+	struct ProfileScopeStats
+	{
+		std::string Name;
+		uint64_t Samples = 0;
+		double TotalMillis = 0.0;
+		double MinMillis = 0.0;
+		double MaxMillis = 0.0;
+
+		double MeanMillis() const { return Samples > 0 ? TotalMillis / static_cast<double>(Samples) : 0.0; }
+	};
+
+	struct ProfileSnapshot
+	{
+		uint64_t Samples = 0;
+
+		// Sorted by TotalMillis, heaviest first - the panel's whole point is
+		// answering "what is this frame spending time on" at a glance.
+		std::vector<ProfileScopeStats> Scopes;
+	};
 
 	class Instrumentor
 	{
@@ -60,6 +86,15 @@ namespace Forge {
 		// Nanoseconds from the monotonic clock, as the timer records them.
 		static int64_t NowNs();
 
+		// Aggregated per-scope timings for the live overlay panel. Aggregation
+		// runs under the same session gate as the trace file: while profiling
+		// is opt-in, nothing is recorded silently.
+		ProfileSnapshot GetSnapshot() const;
+
+		// Clears the aggregation. A predicate-free teardown like EndSession:
+		// safe to call with no session.
+		void ResetStats();
+
 	private:
 		void WriteHeader(const std::string& name, const std::string& filepath);
 
@@ -67,7 +102,9 @@ namespace Forge {
 		bool m_SessionOpen = false;
 		uint32_t m_EventCount = 0;
 		int64_t m_SessionStartNs = 0;
-		std::mutex m_Mutex;
+		uint64_t m_TotalSamples = 0;
+		std::unordered_map<std::string, ProfileScopeStats> m_ScopeStats;
+		mutable std::mutex m_Mutex;
 	};
 
 	// Defined below the inline member bodies.
@@ -122,6 +159,18 @@ namespace Forge {
 		return GetInstrumentor().IsSessionActive();
 	}
 
+	// Overlay-panel access, present in both branches like the session API:
+	// UI code needs no #ifdefs, and the Dist branch answers "no samples".
+	inline ProfileSnapshot GetProfileSnapshot()
+	{
+		return GetInstrumentor().GetSnapshot();
+	}
+
+	inline void ResetProfileStats()
+	{
+		GetInstrumentor().ResetStats();
+	}
+
 	inline void Instrumentor::WriteHeader(const std::string& name, const std::string& filepath)
 	{
 		(void)name;
@@ -148,6 +197,11 @@ namespace Forge {
 		m_SessionOpen = true;
 		m_EventCount = 0;
 		m_SessionStartNs = NowNs();
+
+		// A new session measures from now; leftover numbers from the previous
+		// one would read as this session's.
+		m_ScopeStats.clear();
+		m_TotalSamples = 0;
 		return true;
 	}
 
@@ -181,6 +235,47 @@ namespace Forge {
 			<< "\",\"ph\":\"X\",\"pid\":1,\"tid\":" << tid
 			<< ",\"ts\":" << ts << ",\"dur\":" << dur << "}";
 		m_EventCount++;
+
+		// Aggregate for the overlay panel. The trace file and the panel must
+		// describe the same measurements, so this sits in the same gate.
+		ProfileScopeStats& scope = m_ScopeStats[name];
+		if (scope.Samples == 0)
+		{
+			scope.Name = name;
+			scope.MinMillis = dur;
+			scope.MaxMillis = dur;
+		}
+		else
+		{
+			scope.MinMillis = std::min(scope.MinMillis, dur);
+			scope.MaxMillis = std::max(scope.MaxMillis, dur);
+		}
+		scope.Samples++;
+		scope.TotalMillis += dur;
+		m_TotalSamples++;
+	}
+
+	inline ProfileSnapshot Instrumentor::GetSnapshot() const
+	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
+
+		ProfileSnapshot snapshot;
+		snapshot.Samples = m_TotalSamples;
+		snapshot.Scopes.reserve(m_ScopeStats.size());
+		for (const auto& entry : m_ScopeStats)
+			snapshot.Scopes.push_back(entry.second);
+
+		std::sort(snapshot.Scopes.begin(), snapshot.Scopes.end(),
+			[](const ProfileScopeStats& a, const ProfileScopeStats& b)
+			{ return a.TotalMillis > b.TotalMillis; });
+		return snapshot;
+	}
+
+	inline void Instrumentor::ResetStats()
+	{
+		std::lock_guard<std::mutex> lock(m_Mutex);
+		m_ScopeStats.clear();
+		m_TotalSamples = 0;
 	}
 
 	inline int64_t Instrumentor::NowNs()
@@ -212,13 +307,37 @@ namespace Forge {
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 namespace Forge {
 	inline bool IsProfilingEnabled() { return false; }
+
+	// Same shapes as the profiling branch so UI code compiles and runs
+	// identically in a shipping build: the panel shows "no samples", it does
+	// not need to know it is in Dist.
+	struct ProfileScopeStats
+	{
+		std::string Name;
+		uint64_t Samples = 0;
+		double TotalMillis = 0.0;
+		double MinMillis = 0.0;
+		double MaxMillis = 0.0;
+
+		double MeanMillis() const { return Samples > 0 ? TotalMillis / static_cast<double>(Samples) : 0.0; }
+	};
+
+	struct ProfileSnapshot
+	{
+		uint64_t Samples = 0;
+		std::vector<ProfileScopeStats> Scopes;
+	};
+
 	[[nodiscard]]
 	inline bool ProfileBeginSession(const std::string&, const std::string&) { return false; }
 	inline void ProfileEndSession() {}
 	inline bool IsProfilingActive() { return false; }
+	inline ProfileSnapshot GetProfileSnapshot() { return {}; }
+	inline void ResetProfileStats() {}
 }
 
 #define FG_PROFILE_SCOPE(name)             ((void)0)

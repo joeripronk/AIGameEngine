@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (388 test cases, 11103 assertions - all passing, order-independent
+### Tests (400 test cases, 11210 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions)
 - [x] SceneTests (entities, components, serialization)
@@ -116,7 +116,10 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       branch, one Chrome-trace document per session with exactly one closing
       bracket, nested scopes, pre-session scopes write nothing, a second
       session truncates the first, concurrent threads serialise whole events,
-      unopenable path reports failure)
+      unopenable path reports failure; overlay-panel stats: per-scope sample
+      counts and min/mean/max, total-first sorting, the session gate on
+      aggregation, reset and a new session starting clean, and the Dist
+      branch answering "no samples" with the same API)
 - [x] FrustumTests (frustum corners from the unprojected NDC cube, point tests
       per plane, AABB tests that keep straddling boxes and cull only provable
       misses, camera position/rotation following, renderer statistics
@@ -127,6 +130,14 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       handle reuse rules, corrupt/truncated database reporting false with the
       registry unchanged, AssetImporter proving decode for texture/model/audio/
       scene and refusing a fake png, a missing file and shader/script paths)
+- [x] RTTITests (registry lookup by name/UUID/C++ type agreeing by
+      construction, the full component set registered with correct sizes,
+      re-registration by name and by type reporting false with the original
+      metadata kept, name-derived stable UUIDs, flags and declared base types
+      round-tripping, event-bus delivery with unregister, registration-order
+      enumeration, EditorContext add/remove-component-by-name incl. the
+      structural-component rule and a mid-sim collider added by name becoming
+      physical)
 
 ### Hazel parity (upstream `TheCherno/Hazel`)
 - [x] `Core/Timer.h` + an engine clock (`Time::GetTime`) that tests can replace
@@ -169,6 +180,22 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       `AssetImporter::Import` proving a file decodes with the engine's loaders
 - [x] Editor status bar (the Hazel bottom strip): scene path, play state,
       selection, last-frame draw calls
+- [x] Instrumentor overlay panel (the live profiling view): per-scope
+       aggregation in the Instrumentor (`GetProfileSnapshot`: samples, total,
+       min, mean, max per scope, heaviest first; `ResetProfileStats`), the
+       same API in the Dist branch answering "no samples", and an editor
+       "Profiler" panel with a Reset control, reading the same measurements
+       the trace file records
+- [x] RTTI / type registry (`Forge/Core/RTTI`: RuntimeTypeInfo, TypeRegistry,
+       TypeEventBus) - the design from Cherno's public Toy Engine / Workshop
+       material, not the Hazel repo (see note below; the original claim that
+       Hazel ships it was not verifiable in any public branch). All 14 engine
+       components registered; lookups by name, UUID and C++ type agree by
+       construction; one C++ type can only be registered under one name;
+       registrations publish to the event bus; the consumer is
+       `EditorContext::GetRegisteredComponentTypes` +
+       `AddComponentByName`/`RemoveComponentByName` - the hand-list the
+       registry replaces is exactly the drift this repo has repeatedly fixed
 - [ ] Sprite / 2D renderer (`Renderer2D`, `SpriteRendererComponent`) and text.
       Not ported as-is: a texture-array binding set and an MSDF atlas pipeline
       nothing in the engine, the editor or Tetris currently renders. The useful
@@ -177,17 +204,16 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       blur → composite). Needs new GLSL passes, framebuffers and binding sets
       on the Vulkan side - not expressible as a headless unit test, so it is
       listed rather than claimed.
-- [ ] Instrumentor overlay panel (Hazel's live profiling view in the editor).
-- [ ] RTTI / type registry (`Core/RTTI`: RuntimeTypeInfo, TypeRegistry,
-      TypeEventBus) - Hazel ships it; nothing in Forge consumes it yet.
 
 > Checked against every public Hazel branch (master, projects, scripting,
 > asset-manager): there is no ProfilerOverlayPanel, no FileSystem
-> directory/path utilities, and no Lua ScriptGlue in the public source -
-> every published branch is Mono-based. The Lua glue here follows Hazel's
-> documented pattern, not a verbatim port, and the parity list stays honest
-> about that: items are claimed when the behaviour exists and is tested, not
-> when a file name matches.
+> directory/path utilities, no Lua ScriptGlue, and no RTTI in the public
+> source - every published branch is Mono-based. The Lua glue, the overlay
+> panel and the type registry here follow Cherno's documented patterns
+> (the Workshop / Toy Engine RTTI is public, the Hazel one is not), not
+> verbatim ports, and the parity list stays honest about that: items are
+> claimed when the behaviour exists and is tested, not when a file name
+> matches.
 
 ### Fixed while comparing against Hazel
 - [x] A saved scene never loaded `MeshComponent::ModelPath`, so every modelled
@@ -266,6 +292,11 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       draw-statistics display, and saving to the scene file the work came from
 - [x] Status bar (the Hazel bottom strip): current scene path, play state,
       selection and last-frame draw calls, always visible
+- [x] Live Profiler panel: per-scope samples, total/mean/max milliseconds,
+      heaviest first, reset control - the same measurements as the trace file
+- [x] Component types enumerable and name-addressable for agents:
+      `GetRegisteredComponentTypes`, `AddComponentByName`,
+      `RemoveComponentByName` (structural components refused)
 
 ### Assets & Resources
 - [x] AssetRegistry / asset browser backend + panel
@@ -322,6 +353,9 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Lua input bindings: GetKeyDown/GetKeyReleased/GetMousePosition (Hazel's
       ScriptGlue Input pattern), answering the headless no-window contract
 - [x] Lua mouse buttons: GetMouseButtonDown/GetMouseButtonUp
+- [x] Type registry (RTTI): RuntimeTypeInfo / TypeRegistry / TypeEventBus
+      with all 14 components registered; the registry is the single answer
+      to "what components exist" for agents, tools and scripts
 
 ### Deployment
 - [x] Game export (package runtime + scene + resources) - via GameExporter

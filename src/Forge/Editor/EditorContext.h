@@ -96,6 +96,19 @@ namespace Forge {
 		// --- Asset / prefab ---------------------------------------------------
 		[[nodiscard]] Entity InstantiatePrefab(const std::string& prefabName, bool usePosition = false, const glm::vec3& position = glm::vec3(0.0f));
 
+		// --- Component types (RTTI) -------------------------------------------
+		// The registered component type names, in registration order - the
+		// agent's answer to "what can I add", read from the same registry the
+		// engine uses, not a list duplicated in tooling.
+		std::vector<std::string> GetRegisteredComponentTypes() const;
+
+		// Add / remove a component by its registered name. True means the
+		// component changed; false means nothing changed (unknown name, already
+		// present, already absent, or a structural component - which every
+		// entity must keep, see the Remove Component menu rules).
+		[[nodiscard]] bool AddComponentByName(Entity entity, const std::string& name);
+		[[nodiscard]] bool RemoveComponentByName(Entity entity, const std::string& name);
+
 	private:
 		Ref<Scene> m_Scene;
 		Entity m_SelectedEntity;

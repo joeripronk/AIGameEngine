@@ -48,6 +48,11 @@ namespace Forge {
 		void DrawPropertiesPanel();
 		void DrawGizmoToolbar();
 
+		// Live profiling view (the Hazel profiler overlay panel): per-scope
+		// sample counts and timings from the instrumentor's aggregation,
+		// refreshed every frame.
+		void DrawProfilerPanel();
+
 		// Add/remove component menus for the selected entity.
 		void DrawComponentMenu(Entity& entity);
 

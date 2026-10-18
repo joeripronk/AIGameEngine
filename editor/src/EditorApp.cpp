@@ -244,9 +244,10 @@ namespace Forge {
 				DrawHierarchyPanel();
 				DrawInspectorPanel();
 				DrawViewportPanel();
-				DrawAssetBrowserPanel();
-				DrawPropertiesPanel();
-				DrawStatusBar();
+			DrawAssetBrowserPanel();
+			DrawPropertiesPanel();
+			DrawProfilerPanel();
+			DrawStatusBar();
 
 				// Drawn last so it sits above every other panel.
 				DrawNotification();
@@ -906,6 +907,65 @@ namespace Forge {
 				}
 			}
 		}
+
+		ImGui::End();
+	}
+
+	// The live profiling view (the Hazel overlay panel): the instrumentor's
+	// per-scope aggregation, heaviest first, updated every frame. It reads the
+	// same measurements the trace file records, so the panel and the trace
+	// cannot disagree about what the frame cost.
+	void EditorApp::DrawProfilerPanel()
+	{
+		ImGui::Begin("Profiler");
+
+		if (!Forge::IsProfilingEnabled())
+		{
+			ImGui::TextDisabled("Profiler compiled out (Dist build)");
+			ImGui::End();
+			return;
+		}
+
+		ImGui::Text("%s", IsProfilingActive() ? "Recording" : "Idle - start profiling in the Properties panel");
+
+		const ProfileSnapshot snapshot = Forge::GetProfileSnapshot();
+		ImGui::Text("Samples: %llu", (unsigned long long)snapshot.Samples);
+
+		ImGui::Separator();
+
+		if (snapshot.Scopes.empty())
+		{
+			ImGui::TextDisabled("No samples recorded");
+		}
+		else
+		{
+			if (ImGui::BeginTable("scopes", 5,
+				ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV))
+			{
+				ImGui::TableSetupColumn("Scope");
+				ImGui::TableSetupColumn("Samples");
+				ImGui::TableSetupColumn("Total ms");
+				ImGui::TableSetupColumn("Mean ms");
+				ImGui::TableSetupColumn("Max ms");
+				ImGui::TableHeadersRow();
+
+				for (const ProfileScopeStats& scope : snapshot.Scopes)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableNextColumn(); ImGui::TextUnformatted(scope.Name.c_str());
+					ImGui::TableNextColumn(); ImGui::Text("%llu", (unsigned long long)scope.Samples);
+					ImGui::TableNextColumn(); ImGui::Text("%.2f", scope.TotalMillis);
+					ImGui::TableNextColumn(); ImGui::Text("%.3f", scope.MeanMillis());
+					ImGui::TableNextColumn(); ImGui::Text("%.3f", scope.MaxMillis);
+				}
+
+				ImGui::EndTable();
+			}
+		}
+
+		ImGui::Separator();
+		if (ImGui::Button("Reset Stats"))
+			Forge::ResetProfileStats();
 
 		ImGui::End();
 	}

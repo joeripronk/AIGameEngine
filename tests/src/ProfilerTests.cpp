@@ -240,3 +240,132 @@ TEST_CASE("BeginSession reports failure for an unopenable path", "[core][profile
 	// EndSession with no session is a no-op, not a crash.
 	Forge::ProfileEndSession();
 }
+
+TEST_CASE("Per-scope stats answer the overlay panel's questions", "[core][profiler]")
+{
+	ScratchCleaner cleaner;
+	const std::string path = ScratchPath("stats.json");
+
+	if (!Forge::IsProfilingEnabled())
+	{
+		// The Dist branch exposes the same API and answers "no samples" -
+		// the panel code compiles and runs without knowing the build.
+		REQUIRE(Forge::GetProfileSnapshot().Scopes.empty());
+		REQUIRE(Forge::GetProfileSnapshot().Samples == 0u);
+		Forge::ResetProfileStats();  // inert, not a crash
+		REQUIRE(Forge::GetProfileSnapshot().Scopes.empty());
+		return;
+	}
+
+	REQUIRE(Forge::ProfileBeginSession("Stats", path));
+
+	{
+		FG_PROFILE_SCOPE("Outer");
+		for (int i = 0; i < 3; ++i)
+		{
+			FG_PROFILE_SCOPE("Work");
+			volatile double sink = 0.0;
+			for (int k = 0; k < 20000; ++k)
+				sink += k;
+			(void)sink;
+		}
+	}
+
+	Forge::ProfileEndSession();
+
+	const Forge::ProfileSnapshot snapshot = Forge::GetProfileSnapshot();
+
+	// One row per scope name, samples counted per scope, totals counted for
+	// the session.
+	REQUIRE(snapshot.Samples == 4u);
+	REQUIRE(snapshot.Scopes.size() == 2u);
+
+	const Forge::ProfileScopeStats* outer = nullptr;
+	const Forge::ProfileScopeStats* work = nullptr;
+	for (const Forge::ProfileScopeStats& scope : snapshot.Scopes)
+	{
+		if (scope.Name == "Outer")
+			outer = &scope;
+		else if (scope.Name == "Work")
+			work = &scope;
+	}
+	REQUIRE(outer != nullptr);
+	REQUIRE(work != nullptr);
+
+	CHECK(outer->Samples == 1u);
+	CHECK(work->Samples == 3u);
+
+	// Timings: real, positive, and ordered. A min of zero, a mean outside
+	// [min, max], or a max below the mean all mean the aggregation is wrong.
+	CHECK(outer->TotalMillis > 0.0);
+	CHECK(work->TotalMillis > 0.0);
+	CHECK(work->MinMillis > 0.0);
+	CHECK(work->MinMillis <= work->MeanMillis());
+	CHECK(work->MeanMillis() <= work->MaxMillis);
+	CHECK(outer->TotalMillis >= work->TotalMillis);  // outer contains the work
+	CHECK(Catch::Approx(work->MeanMillis()) == work->TotalMillis / 3.0);
+
+	// Sorted heaviest-first: the panel answers "what is expensive" by
+	// reading the top row.
+	REQUIRE(snapshot.Scopes.size() >= 2u);
+	CHECK(snapshot.Scopes[0].TotalMillis >= snapshot.Scopes[1].TotalMillis);
+}
+
+TEST_CASE("Scopes outside a session are not aggregated", "[core][profiler]")
+{
+	if (!Forge::IsProfilingEnabled())
+		return;
+
+	ScratchCleaner cleaner;
+	const std::string path = ScratchPath("stats_gate.json");
+
+	{
+		FG_PROFILE_SCOPE("Pre-session work");
+	}
+
+	REQUIRE(Forge::ProfileBeginSession("StatsGate", path));
+	{
+		FG_PROFILE_SCOPE("Session work");
+	}
+	Forge::ProfileEndSession();
+
+	const Forge::ProfileSnapshot snapshot = Forge::GetProfileSnapshot();
+	REQUIRE(snapshot.Samples == 1u);
+	REQUIRE(snapshot.Scopes.size() == 1u);
+	CHECK(snapshot.Scopes[0].Name == "Session work");
+}
+
+TEST_CASE("Stats reset clears the aggregation, and a new session starts clean", "[core][profiler]")
+{
+	if (!Forge::IsProfilingEnabled())
+		return;
+
+	ScratchCleaner cleaner;
+	const std::string path = ScratchPath("stats_reset.json");
+
+	REQUIRE(Forge::ProfileBeginSession("First", path));
+	{
+		FG_PROFILE_SCOPE("Round One");
+	}
+	Forge::ProfileEndSession();
+	REQUIRE(Forge::GetProfileSnapshot().Samples == 1u);
+
+	// EndSession keeps the numbers for the panel; Reset clears them.
+	Forge::ResetProfileStats();
+	CHECK(Forge::GetProfileSnapshot().Samples == 0u);
+	CHECK(Forge::GetProfileSnapshot().Scopes.empty());
+
+	// A new session measures from now: leftovers from the previous one
+	// would read as this session's numbers.
+	REQUIRE(Forge::ProfileBeginSession("Second", path));
+	REQUIRE(Forge::GetProfileSnapshot().Samples == 0u);
+	{
+		FG_PROFILE_SCOPE("Round Two");
+	}
+	Forge::ProfileEndSession();
+
+	const Forge::ProfileSnapshot snapshot = Forge::GetProfileSnapshot();
+	REQUIRE(snapshot.Samples == 1u);
+	REQUIRE(snapshot.Scopes.size() == 1u);
+	CHECK(snapshot.Scopes[0].Name == "Round Two");
+}

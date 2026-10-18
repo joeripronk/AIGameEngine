@@ -34,6 +34,10 @@ namespace Forge {
 
 	Scene::Scene()
 	{
+		// Every consumer of components builds a scene, so this is the place
+		// the component registry is guaranteed to be populated - by use, not
+		// by hoping a static initialiser survives the static-library link.
+		RegisterEngineComponentTypes();
 	}
 
 	Scene::~Scene()

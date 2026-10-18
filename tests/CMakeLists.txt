@@ -26,6 +26,7 @@ target_sources(ForgeTests
         src/PhysicsTests.cpp
         src/ScriptingTests.cpp
         src/FrustumTests.cpp
+        src/RTTITests.cpp
         src/AssetDatabaseTests.cpp
         src/SerializationTests.cpp
         src/ExportTests.cpp

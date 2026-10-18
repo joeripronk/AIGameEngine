@@ -459,6 +459,41 @@ editor.Update(Forge::Timestep(1.0f / 60.0f));
 editor.Stop();
 ```
 
+## Type Registry (RTTI)
+
+`Forge/Core/RTTI` gives the engine a runtime answer to "what component types
+exist" - name, UUID and C++ type, agreeing by construction (following the
+design Cherno publishes in the Toy Engine / Workshop material; the *public*
+Hazel repository does not ship RTTI, and the registry says so honestly):
+
+```cpp
+const Forge::RuntimeTypeInfo* info = Forge::TypeRegistry::FindType("RigidbodyComponent");
+const Forge::RuntimeTypeInfo* same = Forge::FindType<Forge::RigidbodyComponent>();
+// info == same - a tool resolving a name and code resolving the type land
+// on the same entry.
+
+uint64_t listener = Forge::TypeEventBus::RegisterListener([](const Forge::TypeRegisteredEvent& e) { ... });
+Forge::TypeEventBus::UnregisterListener(listener);   // safe, idempotent
+```
+
+- All 14 engine components are registered by `RegisterEngineComponentTypes()`,
+  called from **Scene's constructor**. Not `FG_REGISTER_TYPE` static
+  instances: ForgeCore is a static library, an object file with no referenced
+  symbol is never pulled out of it, and static-init registration in such a
+  file simply does not run - the registry would be silently empty.
+- A C++ type can be registered under exactly one name, and a name can be
+  registered exactly once: `RegisterType` reports false and keeps the
+  original metadata. Two entries for one type would make `FindType<T>()` and
+  `FindType(name)` disagree about which entry the type has.
+- `FindType` on an unregistered type returns `nullptr` - "not known", not
+  "known and zero". UUIDs derive from the name, so they are the same value
+  every run.
+
+Consumers: `EditorContext::GetRegisteredComponentTypes()`,
+`AddComponentByName` / `RemoveComponentByName` (false on an unknown name,
+on no change, and on removing ID/Tag/Transform - the engine reads them
+unconditionally).
+
 ## Asset Handles, Database and Import
 
 `AssetRegistry` gives every scanned asset an `AssetHandle` (the Hazel asset
@@ -657,6 +692,23 @@ failed trace file as an error notification.
 Frame loop, `Scene::OnUpdateRuntime` / `OnUpdateSimulation`,
 `Physics::Update`, `AudioEngine::Update` and each render pass are
 instrumented.
+
+The live overlay view (the Hazel pattern) reads the **same measurements**
+the trace file records - the panel and the trace cannot disagree about what
+a frame cost:
+
+```cpp
+Forge::ProfileSnapshot snap = Forge::GetProfileSnapshot();  // heaviest scope first
+for (const auto& scope : snap.Scopes)
+    // scope.Name, scope.Samples, scope.TotalMillis,
+    // scope.MeanMillis(), scope.MinMillis, scope.MaxMillis
+Forge::ResetProfileStats();
+```
+
+Aggregation sits behind the same session gate as the file - nothing is
+recorded silently - and the API exists in **both** compile branches: the
+Dist branch answers "no samples", so the editor's Profiler panel needs no
+`#ifdefs`.
 
 ## Games
 

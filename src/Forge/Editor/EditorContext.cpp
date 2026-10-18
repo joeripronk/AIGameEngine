@@ -7,6 +7,7 @@
 #include "Forge/Scene/SceneSerializer.h"
 #include "Forge/Scene/Prefab.h"
 #include "Forge/Physics/Physics.h"
+#include "Forge/Core/RTTI.h"
 
 namespace Forge {
 
@@ -249,6 +250,114 @@ namespace Forge {
 			return {};
 
 		return prefab->Instantiate(m_Scene.get(), usePosition, position);
+	}
+
+	std::vector<std::string> EditorContext::GetRegisteredComponentTypes() const
+	{
+		std::vector<std::string> names;
+		for (const RuntimeTypeInfo& info : TypeRegistry::GetRegisteredTypes())
+			names.push_back(info.Name);
+		return names;
+	}
+
+	bool EditorContext::AddComponentByName(Entity entity, const std::string& name)
+	{
+		if (!entity)
+		{
+			FG_CORE_ERROR("EditorContext::AddComponentByName: entity is not valid");
+			return false;
+		}
+
+		// The registry is the gate: a name it does not know is not a component,
+		// and the switch below only exists for names it does know.
+		if (!TypeRegistry::FindType(name))
+		{
+			FG_CORE_ERROR("EditorContext::AddComponentByName: '{0}' is not a registered component type", name);
+			return false;
+		}
+
+#define FG_ADD_COMPONENT_BY_NAME(Comp) \
+		if (name == #Comp) \
+		{ \
+			if (entity.HasComponent<Comp>()) \
+				return false; \
+			entity.AddComponent<Comp>(); \
+			return true; \
+		}
+
+		FG_ADD_COMPONENT_BY_NAME(IDComponent)
+		FG_ADD_COMPONENT_BY_NAME(TagComponent)
+		FG_ADD_COMPONENT_BY_NAME(TransformComponent)
+		FG_ADD_COMPONENT_BY_NAME(CameraComponent)
+		FG_ADD_COMPONENT_BY_NAME(ScriptComponent)
+		FG_ADD_COMPONENT_BY_NAME(NativeScriptComponent)
+		FG_ADD_COMPONENT_BY_NAME(RigidbodyComponent)
+		FG_ADD_COMPONENT_BY_NAME(BoxColliderComponent)
+		FG_ADD_COMPONENT_BY_NAME(SphereColliderComponent)
+		FG_ADD_COMPONENT_BY_NAME(MeshComponent)
+		FG_ADD_COMPONENT_BY_NAME(PBRMaterialComponent)
+		FG_ADD_COMPONENT_BY_NAME(LightComponent)
+		FG_ADD_COMPONENT_BY_NAME(EnvironmentMapComponent)
+		FG_ADD_COMPONENT_BY_NAME(AudioSourceComponent)
+
+#undef FG_ADD_COMPONENT_BY_NAME
+
+		// Registered under this build by something that is not an engine
+		// component (a test type, a game type): name-addressable, not
+		// addable. Saying so beats the alternative of adding nothing and
+		// reporting success.
+		FG_CORE_WARN("EditorContext::AddComponentByName: '{0}' is registered but not an engine component", name);
+		return false;
+	}
+
+	bool EditorContext::RemoveComponentByName(Entity entity, const std::string& name)
+	{
+		if (!entity)
+		{
+			FG_CORE_ERROR("EditorContext::RemoveComponentByName: entity is not valid");
+			return false;
+		}
+
+		if (!TypeRegistry::FindType(name))
+		{
+			FG_CORE_ERROR("EditorContext::RemoveComponentByName: '{0}' is not a registered component type", name);
+			return false;
+		}
+
+		// Structural components: the engine reads Tag/ID/Transform
+		// unconditionally (GetName, GetUUID, the gizmo), so an entity without
+		// one is in a state nothing else handles. Never removable.
+		if (name == "IDComponent" || name == "TagComponent" || name == "TransformComponent")
+		{
+			FG_CORE_WARN("EditorContext::RemoveComponentByName: '{0}' is structural and cannot be removed", name);
+			return false;
+		}
+
+#define FG_REMOVE_COMPONENT_BY_NAME(Comp) \
+		if (name == #Comp) \
+		{ \
+			if (!entity.HasComponent<Comp>()) \
+				return false; \
+			entity.RemoveComponent<Comp>(); \
+			return true; \
+		}
+
+		FG_REMOVE_COMPONENT_BY_NAME(CameraComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(ScriptComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(NativeScriptComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(RigidbodyComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(BoxColliderComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(SphereColliderComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(MeshComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(PBRMaterialComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(LightComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(EnvironmentMapComponent)
+		FG_REMOVE_COMPONENT_BY_NAME(AudioSourceComponent)
+
+#undef FG_REMOVE_COMPONENT_BY_NAME
+
+		FG_CORE_WARN("EditorContext::RemoveComponentByName: '{0}' is registered but not a removable engine component", name);
+		return false;
 	}
 
 }
