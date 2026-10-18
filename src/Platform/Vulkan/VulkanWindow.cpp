@@ -31,8 +31,14 @@ namespace Forge {
 
 		if (s_GLFWWindowCount == 0)
 		{
-			glfwInit();
-			FG_CORE_ASSERT_MSG(1, "Could not initialize GLFW!");
+			// The result was asserted as `1` - literally always true - so a
+			// headless session failed GLFW init, proceeded, and the failure
+			// only surfaced at the create-window assert two lines later.
+			if (!glfwInit())
+			{
+				FG_CORE_ERROR("glfwInit failed - no display session to open a window in");
+				return;
+			}
 
 			glfwSetErrorCallback([](int error, const char* description)
 			{
@@ -40,14 +46,21 @@ namespace Forge {
 			});
 		}
 
-		s_GLFWWindowCount++;
-
 		// Vulkan renders into the window's surface, so GLFW must not create a
 		// client-API rendering context of its own.
 		glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 
 		m_Window = glfwCreateWindow((int)m_Data.Width, (int)m_Data.Height, m_Data.Title.c_str(), nullptr, nullptr);
-		FG_CORE_ASSERT_MSG(m_Window, "Could not create GLFW window!");
+		if (!m_Window)
+		{
+			// Not an assert: "no display" is a legitimate machine state, and
+			// Release builds compile asserts away and kept going with a null
+			// handle. The app checks IsValid() and reports startup failure.
+			FG_CORE_ERROR("Could not create GLFW window - startup cannot continue");
+			return;
+		}
+
+		s_GLFWWindowCount++;
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 
@@ -159,7 +172,11 @@ namespace Forge {
 
 	void VulkanWindow::Shutdown()
 	{
+		if (!m_Window)
+			return;
+
 		glfwDestroyWindow(m_Window);
+		m_Window = nullptr;
 		s_GLFWWindowCount--;
 
 		if (s_GLFWWindowCount == 0)
@@ -168,6 +185,9 @@ namespace Forge {
 
 	void VulkanWindow::OnUpdate()
 	{
+		if (!m_Window)
+			return;
+
 		glfwPollEvents();
 	}
 

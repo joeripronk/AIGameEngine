@@ -38,6 +38,10 @@ namespace Forge {
 
 		virtual void Run();
 
+		// False when startup never got a window - the entry point turns that
+		// into a non-zero exit code so scripts can classify the failure.
+		bool StartupSucceeded() const { return m_Window != nullptr && m_Window->IsValid(); }
+
 		void OnEvent(Event& e);
 
 		void PushLayer(Layer* layer);

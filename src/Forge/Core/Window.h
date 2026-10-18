@@ -41,6 +41,10 @@ namespace Forge {
 
 		virtual void* GetNativeWindow() const = 0;
 
+		// False when the platform window was never created - the app must
+		// report startup failure and exit, not run on a handle that is null.
+		virtual bool IsValid() const = 0;
+
 		static Scope<Window> Create(const WindowProps& props = WindowProps());
 	};
 

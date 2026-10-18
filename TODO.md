@@ -72,7 +72,7 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (410 test cases, 11657 assertions - all passing, order-independent
+### Tests (414 test cases, 11705 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] CoreTests (logging, assertions, event contracts: window-drop path/type/
       category, dispatcher routing to its handler and silence for unrelated
@@ -333,6 +333,31 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Chrome stays chrome: the gizmo toolbar, status bar and notifications
       are NoDocking windows - they float above the layout and cannot be
       dragged into it
+- [x] Startup integration checks: `tests/integration/startup_check.sh`
+      (a `StartupCheck` ctest) launches the real editor and classifies
+      startup failures with troubleshooting hints - display, Vulkan
+      loader/ICD, stale `.spv` - skipping gracefully where no window is
+      possible (CI-safe; forces lavapipe under xvfb so vendor drivers in a
+      synthetic session cannot flake it). `StartupIntegrityTests` checks
+      headless what `Renderer::Init` loads: every shader in the loader's
+      list is a valid SPIR-V module, every `.vert`/`.frag` has its `.spv`
+      beside it. `run-editor-debug.sh` gained preflight checks and exit
+      classification with hints
+- [x] Startup failure is a reported exit, not a crash: `glfwInit` was
+      asserted as `1` (literally always true) and its result discarded;
+      window creation asserted, then the app ran on a null handle.
+      `Window::IsValid()`, `Application::StartupSucceeded()`, apps skip
+      renderer init and teardown when startup failed, and the entry point
+      exits **1** with the reason in the log - verified headless on editor,
+      runtime and tetris
+- [x] Real crash found by the startup check: hand-built
+      `nvrhi::BindingSetItem`s in the SSAO/HDR/Final/bloom passes left
+      `arrayElement` as stack garbage (a leftover 1.0f became
+      `dstArrayElement = 0x3F800000` in the descriptor write) - accepted
+      by the desktop driver, SIGSEGV in lavapipe and nvidia under a
+      synthetic session. All six sites now go through nvrhi's factories,
+      which set every field - the rule the MakeSamplerItem comment already
+      stated, applied where it had been broken
 - [x] Play / Simulate / Stop state machine (the public editor layer's
       `SceneState::Play`/`Simulate`): **Play** runs the scripts under the
       author-steered editor camera; **Simulate** runs them on the scene's

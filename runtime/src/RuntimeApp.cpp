@@ -23,6 +23,10 @@ namespace Forge {
 	RuntimeApp::RuntimeApp(const ApplicationCommandLineArgs& args)
 		: Application(ApplicationSpecification{ "Forge Runtime", "", args })
 	{
+		// No window, no surface, no renderer - the base has logged why.
+		if (!StartupSucceeded())
+			return;
+
 		Renderer::Init();
 
 		// A project file names the scene the game starts in. It is loaded first

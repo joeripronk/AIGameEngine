@@ -49,6 +49,10 @@ namespace Forge {
 	EditorApp::EditorApp(const ApplicationCommandLineArgs& args)
 		: Application(ApplicationSpecification{ "Forge Editor", "", args })
 	{
+		// No window, no surface, no renderer - the base has logged why.
+		if (!StartupSucceeded())
+			return;
+
 		Renderer::Init();
 
 		CreateDefaultScene();
@@ -139,6 +143,11 @@ namespace Forge {
 
 	EditorApp::~EditorApp()
 	{
+		// Startup never got a window, so none of this was ever initialized;
+		// shutting down an uninitialized backend is what asserts.
+		if (!StartupSucceeded())
+			return;
+
 		ImGui_ImplVulkan_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		m_Viewport.Shutdown();

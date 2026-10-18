@@ -47,6 +47,10 @@ glm::vec3 CameraOrientation(const glm::vec3& eye, const glm::vec3& target)
 TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 	: Forge::Application(Forge::ApplicationSpecification{ "Forge Tetris", "", args })
 {
+	// No window, no surface, no renderer - the base has logged why.
+	if (!StartupSucceeded())
+		return;
+
 	// Supersample the offscreen pass so Tetris blocks read with crisper edges
 	// without asking the engine to know this is Tetris.
 	Forge::Renderer::SetRenderScale(2.0f);
@@ -95,6 +99,10 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 
 TetrisApp::~TetrisApp()
 {
+	// No window at startup means no ImGui backend to shut down.
+	if (!StartupSucceeded())
+		return;
+
 	ShutdownImGui();
 
 	// Unhook the layer before it can be reached through: it points into the

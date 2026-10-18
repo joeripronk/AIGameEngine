@@ -36,6 +36,7 @@ target_sources(ForgeTests
         src/ReverbTests.cpp
         src/BuildConfigTests.cpp
         src/NativeScriptTests.cpp
+        src/StartupIntegrityTests.cpp
 )
 
 target_link_libraries(ForgeTests
@@ -71,4 +72,13 @@ endif()
 add_test(NAME ForgeTests COMMAND ForgeTests)
 set_tests_properties(ForgeTests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+)
+
+# Startup integration check: launches the real editor binary and classifies
+# startup failures with hints. Skips gracefully where no window is possible,
+# so it is CI-safe. Needs the editor target, which CI builds.
+add_test(NAME StartupCheck COMMAND bash "${CMAKE_SOURCE_DIR}/tests/integration/startup_check.sh")
+set_tests_properties(StartupCheck PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 120
 )

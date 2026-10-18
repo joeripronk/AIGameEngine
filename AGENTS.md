@@ -330,7 +330,52 @@ the end of a camera drag, not a request to forget the selection.
 - Run with: `ctest --output-on-failure`
 - Every new feature must have at least one test
 - Tests should be fast and deterministic (no real Vulkan calls in unit tests)
-- Test categories: `[core]`, `[scene]`, `[renderer]`, `[physics]`, `[scripting]`, `[audio]`
+- Test categories: `[core]`, `[scene]`, `[renderer]`, `[physics]`, `[scripting]`,
+  `[audio]`, `[startup]`
+
+### Startup: report it, do not crash on it
+
+A window that never appears is a startup failure with a *reason*, and the
+engine must answer with that reason, not a signal:
+
+- `glfwInit`'s result is checked (it used to be asserted as `1` - literally
+  always true - and discarded), window creation failure logs and leaves the
+  window invalid: `Window::IsValid()`, `Application::StartupSucceeded()`,
+  apps skip renderer init and teardown when startup failed, and the entry
+  point exits **1**.
+- `tests/integration/startup_check.sh` (a `StartupCheck` ctest) launches the
+  real editor, classifies the exit (SIGTRAP=assert, SIGSEGV=crash, early
+  exit, loader/display/ICD/stale-shader) and prints troubleshooting hints -
+  xvfb-run + forced lavapipe covers CI, and it skips gracefully where no
+  window is possible. `run-editor-debug.sh` runs the same preflight and
+  classifies the gdb result.
+- `StartupIntegrityTests` checks headless exactly what `Renderer::Init`
+  loads: every shader in the loader list is a valid SPIR-V module (magic,
+  version, header), and every `.vert`/`.frag` source has its `.spv` beside
+  it - an uncompiled shader is a silent startup gap.
+- Binding-set items go through **nvrhi's factories**
+  (`BindingSetItem::Texture_SRV(...)` etc.), never hand-assigned structs:
+  `BindingSetItem` has no default member initialisers, so a hand-built item
+  sends stack garbage to the driver in `arrayElement`/`unused`/
+  `overrideComponentMapping`. The desktop driver tolerated the garbage;
+  lavapipe and nvidia-under-Xvfb segfaulted at the first bloom draw.
+
+## Troubleshooting a startup failure
+
+`./tests/integration/startup_check.sh` (and `./run-editor-debug.sh`, whose
+preflight and exit classification print the same map):
+
+- No display: export `DISPLAY` (X11), or `xvfb-run -a ...`
+- No Vulkan loader: install `libvulkan1` / Vulkan SDK; check `vulkaninfo --summary`
+- No device/ICD: install a driver (`mesa-vulkan-drivers`, nvidia); software
+  fallback: `export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json`
+- Missing/stale shaders: `tools/compile_shaders.sh` - the engine loads
+  `resources/shaders/*.spv`, not `.frag`
+- SIGTRAP/SIGABRT in Debug: a `FG_ASSERT` trapped - the assert text is in
+  `Forge.log`; crash: `./run-editor-debug.sh` (backtrace + `gdb.txt`), then
+  reproduce under the ASan build
+- "No such file" resource errors: run from the repo root - the engine's
+  `resources/` paths are relative to the working directory
 
 ## Git Workflow
 

@@ -1293,22 +1293,12 @@ namespace Forge {
 		// the raw pointer from becoming stale during createBindingSet.
 		nvrhi::SamplerHandle captureSSAOSampler = ssaoSampler;
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = captureDepth.Get();
-			item.slot = 0;
-			item.arrayElement = 0;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = captureDepth->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			ssaoSetDesc.bindings.push_back(item);
-
-			nvrhi::BindingSetItem samplerItem{};
-			samplerItem.resourceHandle = captureSSAOSampler.Get();
-			samplerItem.slot = 1;
-			samplerItem.arrayElement = 0;
-			samplerItem.type = nvrhi::ResourceType::Sampler;
-			ssaoSetDesc.bindings.push_back(samplerItem);
+			// nvrhi's factories, not hand-built items: a hand-built item
+			// leaves every unset field as stack garbage (see the rule above
+			// MakeSamplerItem), and garbage in a descriptor write crashes the
+			// drivers that validate it.
+			ssaoSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(0, captureDepth.Get(), captureDepth->getDesc().format));
+			ssaoSetDesc.bindings.push_back(MakeSamplerItem(captureSSAOSampler.Get(), 1));
 		}
 
 		if (s_SSAOUniformBuffer.Get())
@@ -1409,16 +1399,16 @@ namespace Forge {
 			return;
 		}
 
-		auto makeTextureItem = [](nvrhi::IResource* texture, nvrhi::Format format, uint32_t slot)
+		// nvrhi's factory, not a hand-built item - the rule stated above the
+		// MakeSamplerItem helpers. The hand-built version left arrayElement,
+		// unused and overrideComponentMapping as stack garbage, and a garbage
+		// dstArrayElement in the descriptor write is accepted by some drivers
+		// and crashes the ones that validate it: it segfaulted lavapipe and
+		// the NVIDIA driver under Xvfb, at the first bloom draw, with the
+		// garbage value in the write (0x3F800000 - a leftover 1.0f).
+		auto makeTextureItem = [](nvrhi::ITexture* texture, nvrhi::Format format, uint32_t slot)
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = texture;
-			item.slot = slot;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			return item;
+			return nvrhi::BindingSetItem::Texture_SRV(slot, texture, format);
 		};
 
 		nvrhi::Viewport halfViewport(halfWidth, halfHeight);
@@ -1458,7 +1448,7 @@ namespace Forge {
 			float Radius;
 		};
 
-		nvrhi::IResource* sources[3] = { s_BloomHalf.Get(), s_BloomA.Get(), s_BloomB.Get() };
+		nvrhi::ITexture* sources[3] = { s_BloomHalf.Get(), s_BloomA.Get(), s_BloomB.Get() };
 		nvrhi::IFramebuffer* targets[3] = { s_BloomAFb.Get(), s_BloomBFb.Get(), s_BloomAFb.Get() };
 
 		for (int iteration = 0; iteration < 3; ++iteration)
@@ -1541,18 +1531,12 @@ namespace Forge {
 			return;
 		}
 
-		// HDR texture at binding 0, its sampler at binding 1.
+		// HDR texture at binding 0, its sampler at binding 1 - the factory
+		// builds every field, so nothing survives as stack garbage.
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = s_HDRBuffer.Get();
-			item.slot = 0;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = s_HDRBuffer->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
+			hdrSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(0, s_HDRBuffer.Get(), s_HDRBuffer->getDesc().format));
 			// Inline the sampler binding item to avoid stack variable
 			// reordering corrupting hdrSampler's ptr_ member.
-			hdrSetDesc.bindings.push_back(item);
 			hdrSetDesc.bindings.push_back(MakeSamplerItem(hdrSampler.Get(), 1));
 		}
 
@@ -1563,14 +1547,7 @@ namespace Forge {
 		// the HDR buffer (binding 1) - one sampler descriptor, two textures,
 		// which is the Final pass's convention.
 		{
-			nvrhi::BindingSetItem bloomItem{};
-			bloomItem.resourceHandle = s_BloomA.Get();
-			bloomItem.slot = 3;
-			bloomItem.type = nvrhi::ResourceType::Texture_SRV;
-			bloomItem.dimension = nvrhi::TextureDimension::Texture2D;
-			bloomItem.format = s_BloomA->getDesc().format;
-			bloomItem.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			hdrSetDesc.bindings.push_back(bloomItem);
+			hdrSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(3, s_BloomA.Get(), s_BloomA->getDesc().format));
 		}
 
 		// Same helper for HDR pass.
@@ -1643,14 +1620,7 @@ namespace Forge {
 
 		// Tonemapped texture at binding 0.
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = s_TonemappedBuffer.Get();
-			item.slot = 0;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = s_TonemappedBuffer->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			finalSetDesc.bindings.push_back(item);
+			finalSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(0, s_TonemappedBuffer.Get(), s_TonemappedBuffer->getDesc().format));
 		}
 
 		if (!s_SSAOOutput)
@@ -1678,14 +1648,7 @@ namespace Forge {
 		// SSAO texture at binding 1. The shader reads both textures through
 		// the single `u_FinalSampler` at binding 2, so one sampler serves both.
 		{
-			nvrhi::BindingSetItem item{};
-			item.resourceHandle = s_SSAOOutput.Get();
-			item.slot = 1;
-			item.type = nvrhi::ResourceType::Texture_SRV;
-			item.dimension = nvrhi::TextureDimension::Texture2D;
-			item.format = s_SSAOOutput->getDesc().format;
-			item.subresources = nvrhi::TextureSubresourceSet(0, 1, 0, 1);
-			finalSetDesc.bindings.push_back(item);
+			finalSetDesc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(1, s_SSAOOutput.Get(), s_SSAOOutput->getDesc().format));
 		}
 
 		// Inline the sampler binding item to avoid stack variable reordering

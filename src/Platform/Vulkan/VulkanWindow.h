@@ -24,6 +24,8 @@ namespace Forge {
 
 		void* GetNativeWindow() const override { return m_Window; }
 
+		bool IsValid() const override { return m_Window != nullptr; }
+
 		glm::vec2 GetScrollOffset()
 		{
 			glm::vec2 offset = { (float)m_Data.ScrollOffsetX, (float)m_Data.ScrollOffsetY };

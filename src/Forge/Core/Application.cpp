@@ -18,6 +18,16 @@ namespace Forge {
 		s_Instance = this;
 
 		m_Window = Window::Create(WindowProps{ specification.Name, 1600, 900 });
+		if (!m_Window || !m_Window->IsValid())
+		{
+			// Startup failed for a reason the platform logged (no display,
+			// no way to open a window). Continuing here would run the renderer
+			// on a null surface handle. Run() returns, the entry point exits 1.
+			FG_CORE_ERROR("Application startup aborted: no window was created");
+			m_Running = false;
+			return;
+		}
+
 		m_Window->SetEventCallback(FG_BIND_EVENT_FN(Application::OnEvent));
 
 		// Hand the native window to the renderer so it can create the Vulkan
