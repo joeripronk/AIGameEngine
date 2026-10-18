@@ -2,6 +2,7 @@
 #include "Forge/Debug/Instrumentor.h"
 #include "editor/src/EditorApp.h"
 #include "editor/src/EditorInputLayer.h"
+#include "editor/src/FileDialog.h"
 
 #include "Forge/Core/Log.h"
 #include "Forge/Core/Time.h"
@@ -383,8 +384,38 @@ namespace Forge {
 			if (ImGui::MenuItem("New Scene"))
 				CreateDefaultScene();
 
+			// Dialogs: "..." asks the OS, a plain item keeps its keyboard
+			// shortcut on the last-used path. The two spellings of "save"
+			// are the two questions the author has: "save my work" (Ctrl+S,
+			// silent, into the file it came from) and "put it somewhere
+			// else" (a path picked in the dialog).
+			if (ImGui::MenuItem("Open Scene..."))
+			{
+				const std::string path = FileDialog::OpenFile("Forge Scene", "forge");
+				if (!path.empty())
+				{
+					const bool opened = m_Editor.OpenScene(path);
+					Notify(opened ? "Opened " + path : "Failed to open " + path, !opened);
+					if (opened)
+						m_CurrentScenePath = path;
+				}
+			}
+
 			if (ImGui::MenuItem("Save Scene", "Ctrl+S"))
 				SaveCurrentScene();
+
+			if (ImGui::MenuItem("Save Scene As..."))
+			{
+				const std::string path = FileDialog::SaveFile("Forge Scene", "forge",
+					std::filesystem::path(m_CurrentScenePath).filename().string());
+				if (!path.empty())
+				{
+					const bool saved = m_Editor.SaveScene(path);
+					Notify(saved ? "Saved " + path : "Failed to save " + path, !saved);
+					if (saved)
+						m_CurrentScenePath = path;
+				}
+			}
 
 			ImGui::Separator();
 			// A project records the start scene, so a distributed runtime knows
@@ -392,14 +423,22 @@ namespace Forge {
 			// hand, which keeps the two from drifting apart.
 			if (ImGui::MenuItem("Save Project..."))
 			{
-				const bool saved = m_Editor.SaveProject("project.forgeproject");
-				Notify(saved ? "Project saved" : "Failed to save project", !saved);
+				const std::string path = FileDialog::SaveFile("Forge Project", "forgeproject", "project.forgeproject");
+				if (!path.empty())
+				{
+					const bool saved = m_Editor.SaveProject(path);
+					Notify(saved ? "Project saved to " + path : "Failed to save project", !saved);
+				}
 			}
 
 			if (ImGui::MenuItem("Open Project..."))
 			{
-				const bool opened = m_Editor.OpenProject("project.forgeproject");
-				Notify(opened ? "Opened project" : "Failed to open project", !opened);
+				const std::string path = FileDialog::OpenFile("Forge Project", "forgeproject");
+				if (!path.empty())
+				{
+					const bool opened = m_Editor.OpenProject(path);
+					Notify(opened ? "Opened project " + path : "Failed to open project", !opened);
+				}
 			}
 
 			ImGui::Separator();

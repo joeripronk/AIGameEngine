@@ -339,6 +339,13 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       GLFW drop callback, one event per dropped file, a `.forge` opens as
       the scene, a `.forgeproject` as the project, anything else is
       reported as a notification rather than ignored
+- [x] Native file dialogs for the editor menu: **Open Scene...**, **Save
+      Scene As...**, **Open Project...**, **Save Project As...** pick real
+      paths (cancel is not an error; failures surface as notifications).
+      Vendored nativefiledialog-extended, portal backend on Linux - D-Bus
+      to the desktop's own dialog service, Win32 on Windows, Cocoa on
+      macOS - chosen because the engine must not drag a GUI toolkit in
+      beside Vulkan/GLFW. Ctrl+S keeps saving silently to the current path
 - [x] Component types enumerable and name-addressable for agents:
       `GetRegisteredComponentTypes`, `AddComponentByName`,
       `RemoveComponentByName` (structural components refused)

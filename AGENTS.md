@@ -54,6 +54,7 @@ ForgeEngine/
 | yaml-cpp | Scene serialization |
 | Catch2 | Testing |
 | ImGui | Editor UI (**v1.91.9-docking** branch - docking is branch-only in this version; vanilla main lacks `ImGuiConfigFlags_DockingEnable`) |
+| nativefiledialog-extended | Native Open/Save dialogs (portal backend on Linux - D-Bus to the desktop's dialog service; Win32 / Cocoa elsewhere. The engine must not link a GUI toolkit) |
 
 Physics is **not** an external dependency. `Forge/Physics` implements its own
 solver (AABB/sphere broadphase, impulse response, friction, optional adaptive
@@ -417,6 +418,10 @@ The editor must be fully controllable by AI agents:
 - **Drag and drop**: dropping a `.forge` opens it as the scene, a
   `.forgeproject` opens it as the project; any other file is reported, not
   ignored. `WindowDropEvent` carries one path per event
+- **File dialogs**: `Open Scene...`, `Save Scene As...`, `Open Project...`,
+  `Save Project As...` go through `Forge::FileDialog::OpenFile/SaveFile`
+  (nativefiledialog-extended). Cancel is not an error; failures surface as
+  notifications. Ctrl+S keeps its silent save-to-current-path contract
 
 ### Editor API for AI Agents
 

@@ -43,6 +43,14 @@ jobs:
     #   libxext-dev     X11/extensions/shape.h     -> FATAL_ERROR otherwise
     #   libvulkan-dev   satisfies find_package(Vulkan REQUIRED) in
     #                   src/CMakeLists.txt, so the Vulkan backend can build.
+    #   libdbus-1-dev   pkg_check_modules(DBUS REQUIRED) for the file dialogs'
+    #                   xdg-desktop-portal backend (nativefiledialog-extended;
+    #                   the GTK backend would drag a whole toolkit into a
+    #                   Vulkan/GLFW engine, the portal backend talks to the
+    #                   desktop's own dialog service over D-Bus).
+    #   libwayland-dev  wayland-client for the same library's window-handle
+    #                   hand-off;  libwayland-bin provides wayland-scanner,
+    #                   which compiles the vendored xdg-foreign protocol XML.
     #
     # No Xvfb: ForgeTests and ForgeTetrisTests link ForgeCore, which is built
     # with FG_NO_VULKAN_RUNTIME, so no test creates a Window and nothing needs a
@@ -61,7 +69,10 @@ jobs:
           libxcursor-dev \
           libxi-dev \
           libxext-dev \
-          libvulkan-dev
+          libvulkan-dev \
+          libdbus-1-dev \
+          libwayland-dev \
+          libwayland-bin
 
     - name: Configure
       run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
@@ -262,7 +273,10 @@ jobs:
           libxcursor-dev \
           libxi-dev \
           libxext-dev \
-          libvulkan-dev
+          libvulkan-dev \
+          libdbus-1-dev \
+          libwayland-dev \
+          libwayland-bin
 
     - name: Configure
       run: >
@@ -318,7 +332,10 @@ jobs:
           libxcursor-dev \
           libxi-dev \
           libxext-dev \
-          libvulkan-dev
+          libvulkan-dev \
+          libdbus-1-dev \
+          libwayland-dev \
+          libwayland-bin
 
     - name: Configure (Dist)
       run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Dist

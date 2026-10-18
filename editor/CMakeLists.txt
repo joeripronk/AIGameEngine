@@ -53,6 +53,8 @@ target_sources(ForgeEditor
         src/EditorApp.cpp
         src/EditorInputLayer.h
         src/EditorInputLayer.cpp
+        src/FileDialog.h
+        src/FileDialog.cpp
 )
 
 target_link_libraries(ForgeEditor
@@ -60,6 +62,7 @@ target_link_libraries(ForgeEditor
         ForgeApp
         nvrhi
         imgui
+        nfd
         forge_vk_dispatch
         ${CMAKE_DL_LIBS}
 )

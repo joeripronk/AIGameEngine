@@ -131,6 +131,22 @@ elseif(FG_PLATFORM_LINUX)
     add_compile_definitions(FG_PLATFORM_LINUX)
 endif()
 
+# nativefiledialog-extended: the Open/Save dialogs the editor menu uses.
+# Linux uses its xdg-desktop-portal backend (needs libdbus-1-dev and
+# libwayland-bin at configure time, not GTK), Windows uses Win32, macOS
+# uses Cocoa - no system toolkit dependency on any platform, which is what
+# keeps the engine's own Vulkan/GLFW stack from dragging in a GUI toolkit.
+if(UNIX AND NOT APPLE)
+    set(NFD_PORTAL ON CACHE BOOL "Use xdg-desktop-portal instead of GTK" FORCE)
+    set(NFD_WAYLAND ON CACHE BOOL "Support Wayland on Linux" FORCE)
+endif()
+set(NFD_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(NFD_BUILD_SDL2_TESTS OFF CACHE BOOL "" FORCE)
+set(NFD_BUILD_SDL3_TESTS OFF CACHE BOOL "" FORCE)
+set(NFD_BUILD_GLFW3_TESTS OFF CACHE BOOL "" FORCE)
+set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory(vendor/nativefiledialog-extended EXCLUDE_FROM_ALL)
+
 # Subdirectories
 add_subdirectory(src)
 add_subdirectory(editor)
