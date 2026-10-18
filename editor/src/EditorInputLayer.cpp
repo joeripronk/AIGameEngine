@@ -15,6 +15,37 @@ namespace Forge {
 	{
 		EventDispatcher dispatcher(event);
 		dispatcher.Dispatch<KeyPressedEvent>(FG_BIND_EVENT_FN(EditorInputLayer::OnKeyPressed));
+		dispatcher.Dispatch<WindowDropEvent>(FG_BIND_EVENT_FN(EditorInputLayer::OnWindowDrop));
+	}
+
+	// Dropping a file on the window opens it (the public editor layer's
+	// OnWindowDrop): a scene by its extension, a project likewise. Any
+	// other file is reported, not ignored - a dropped model is a request
+	// nobody can see answered.
+	bool EditorInputLayer::OnWindowDrop(WindowDropEvent& e)
+	{
+		const std::filesystem::path path{e.GetFilePath()};
+		const std::string name = path.filename().string();
+		const std::string extension = path.extension().string();
+
+		EditorContext& editor = m_App.GetEditor();
+
+		if (extension == ".forge")
+		{
+			const bool opened = editor.OpenScene(e.GetFilePath());
+			m_App.Notify(opened ? "Opened " + name : "Failed to open " + name, !opened);
+			return true;
+		}
+
+		if (extension == ".forgeproject")
+		{
+			const bool opened = editor.OpenProject(e.GetFilePath());
+			m_App.Notify(opened ? "Opened project " + name : "Failed to open project " + name, !opened);
+			return true;
+		}
+
+		m_App.Notify("Dropped file is not a scene or project: " + name, true);
+		return true;
 	}
 
 	bool EditorInputLayer::OnKeyPressed(KeyPressedEvent& e)

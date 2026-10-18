@@ -11,6 +11,7 @@ using Catch::Approx;
 #include "Forge/Core/Input.h"
 #include "Forge/Core/Log.h"
 #include "Forge/Core/LayerStack.h"
+#include "Forge/Events/ApplicationEvent.h"
 
 #include <iterator>
 #include <vector>
@@ -405,4 +406,58 @@ TEST_CASE("Logging before Init reports nothing instead of crashing", "[core][log
     REQUIRE(Forge::Log::GetCoreLogger() != nullptr);
     REQUIRE(Forge::Log::GetClientLogger() != nullptr);
     REQUIRE_NOTHROW(FG_ERROR("logging is back"));
+}
+
+TEST_CASE("A dropped file arrives as a window event carrying its path", "[core][events]")
+{
+	Forge::WindowDropEvent event("resources/scenes/EngineTest.forge");
+
+	REQUIRE(event.GetEventType() == Forge::EventType::WindowDrop);
+	REQUIRE(std::string(event.GetName()) == "WindowDrop");
+	REQUIRE(event.GetCategoryFlags() & Forge::EventCategoryApplication);
+	REQUIRE(event.GetFilePath() == "resources/scenes/EngineTest.forge");
+	CHECK(event.ToString().find("resources/scenes/EngineTest.forge") != std::string::npos);
+
+	// Moving the event by value (how handlers receive it) keeps the path:
+	// a moved-from payload is a handler reading a string nobody dropped.
+	const Forge::WindowDropEvent moved{std::move(event)};
+	CHECK(moved.GetFilePath() == "resources/scenes/EngineTest.forge");
+}
+
+TEST_CASE("The dispatcher routes a drop to its handler", "[core][events]")
+{
+	struct Receiver
+	{
+		int drops = 0;
+		std::string lastPath;
+
+		bool OnDrop(Forge::WindowDropEvent& e)
+		{
+			++drops;
+			lastPath = e.GetFilePath();
+			return true;
+		}
+	};
+
+	Receiver receiver;
+
+	// FG_BIND_EVENT_FN expands to a lambda capturing `this`, so it belongs
+	// to member functions (layers). From a test function the receiver is
+	// captured by reference with the same call shape.
+	const auto onDrop = [&receiver](Forge::WindowDropEvent& e) { return receiver.OnDrop(e); };
+
+	Forge::WindowDropEvent event("game/project.forgeproject");
+	Forge::EventDispatcher dispatcher(event);
+	dispatcher.Dispatch<Forge::WindowDropEvent>(onDrop);
+
+	CHECK(receiver.drops == 1);
+	CHECK(receiver.lastPath == "game/project.forgeproject");
+
+	// An unrelated event must not reach the drop handler: this is the
+	// mechanism by which the editor opens a dropped scene and ignores a
+	// dropped model.
+	Forge::WindowResizeEvent resize(1280, 720);
+	Forge::EventDispatcher otherDispatcher(resize);
+	otherDispatcher.Dispatch<Forge::WindowDropEvent>(onDrop);
+	CHECK(receiver.drops == 1);
 }

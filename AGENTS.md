@@ -414,6 +414,9 @@ The editor must be fully controllable by AI agents:
 - **Properties Panel**: Global editor settings
 - **Chrome** (gizmo toolbar, status bar, notifications): `NoDocking` windows -
   they float above the layout and cannot be dragged into it
+- **Drag and drop**: dropping a `.forge` opens it as the scene, a
+  `.forgeproject` opens it as the project; any other file is reported, not
+  ignored. `WindowDropEvent` carries one path per event
 
 ### Editor API for AI Agents
 

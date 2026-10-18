@@ -72,9 +72,11 @@
 - [x] Vulkan dispatch-loader glue for nvrhi + newer Vulkan-Hpp
 - [x] VulkanTexture decodes via shared CpuTexture + real GPU upload
 
-### Tests (406 test cases, 11630 assertions - all passing, order-independent
+### Tests (408 test cases, 11643 assertions - all passing, order-independent
 across Debug/Release/Dist and clean under ASan+UBSan)
-- [x] CoreTests (logging, assertions)
+- [x] CoreTests (logging, assertions, event contracts: window-drop path/type/
+      category, dispatcher routing to its handler and silence for unrelated
+      events)
 - [x] SceneTests (entities, components, serialization)
 - [x] AudioTests (WAV decode, sound handle lifetime, optional-device contract,
       AudioSourceComponent round-trip, Scene lifecycle, Lua audio API,
@@ -331,6 +333,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 - [x] Chrome stays chrome: the gizmo toolbar, status bar and notifications
       are NoDocking windows - they float above the layout and cannot be
       dragged into it
+- [x] Window drag-and-drop opens files (the public editor layer's
+      `OnWindowDrop` - its event class is not in the public core, so
+      `WindowDropEvent` was built to the same shape as the events here):
+      GLFW drop callback, one event per dropped file, a `.forge` opens as
+      the scene, a `.forgeproject` as the project, anything else is
+      reported as a notification rather than ignored
 - [x] Component types enumerable and name-addressable for agents:
       `GetRegisteredComponentTypes`, `AddComponentByName`,
       `RemoveComponentByName` (structural components refused)

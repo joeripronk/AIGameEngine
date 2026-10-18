@@ -22,6 +22,7 @@ namespace Forge {
 
 	private:
 		bool OnKeyPressed(class KeyPressedEvent& e);
+		bool OnWindowDrop(class WindowDropEvent& e);
 
 		EditorApp& m_App;
 	};

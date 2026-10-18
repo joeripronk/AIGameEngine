@@ -68,6 +68,20 @@ namespace Forge {
 			data.EventCallback(event);
 		});
 
+		glfwSetDropCallback(m_Window, [](GLFWwindow* window, int count, const char** paths)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+
+			// One event per file. Dropping three scenes onto the window is
+			// three opens, and the third one's path is not the drop's
+			// meaning.
+			for (int i = 0; i < count; ++i)
+			{
+				WindowDropEvent event(paths[i]);
+				data.EventCallback(event);
+			}
+		});
+
 		glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
 		{
 			(void)scancode;
