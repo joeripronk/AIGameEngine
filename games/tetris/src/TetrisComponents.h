@@ -55,6 +55,7 @@ struct TetrisPieceComponent
 	glm::ivec2 GridPosition = glm::ivec2(0, 0);
 	uint8_t Rotation = 0;
 	glm::vec3 Color = glm::vec3(1.0f);
+	bool IsFire = false;
 
 	TetrisPieceComponent() = default;
 	TetrisPieceComponent(const TetrisPieceComponent&) = default;

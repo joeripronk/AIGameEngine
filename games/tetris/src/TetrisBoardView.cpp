@@ -56,6 +56,17 @@ constexpr float kRespawnSnapCells = 2.5f;
 // waits this long before it starts falling, so the row goes out first.
 constexpr float kLineClearSeconds = 0.25f;
 
+// Seconds a melted block takes to burn out. A touch longer than a line clear:
+// a single block burning has no stack waiting on it, so it can take its time.
+constexpr float kMeltSeconds = 0.35f;
+
+// Extra emissive intensity a melting block reaches at the peak of its burn.
+constexpr float kFireMeltGlow = 1.4f;
+
+// Extra emissive intensity the falling fire block flashes up to at the peak of
+// its pulse.
+constexpr float kFireFlashGlow = 0.9f;
+
 // A lock that has nowhere to travel still settles, so a landing is never a
 // pure pop.
 constexpr float kSettleSeconds = 0.055f;
@@ -337,6 +348,9 @@ void BoardView::Update(float dt)
 	AdvanceMotions(dt);
 	AdvanceClearAnimations(dt);
 	TakeSnapshot();
+
+	// The fire block's flash runs on a continuous clock.
+	m_FireFlash += dt;
 }
 
 void BoardView::HandleAction(Action action, bool pressed)
@@ -463,7 +477,10 @@ void BoardView::SyncStateComponents()
 		piece.State = state.CurrentPiece.State;
 		piece.GridPosition = state.CurrentPiece.Position;
 		piece.Rotation = state.CurrentPiece.Rotation;
-		piece.Color = TetrisManager::GetTetrominoDefinition(state.CurrentPiece.Type).color;
+		piece.IsFire = state.CurrentPiece.IsFire;
+		piece.Color = state.CurrentPiece.IsFire
+			? TetrisManager::kFireColor
+			: TetrisManager::GetTetrominoDefinition(state.CurrentPiece.Type).color;
 	}
 
 	if (m_DisplayEntity)
@@ -769,6 +786,10 @@ void BoardView::SyncBoardEntities()
 		}
 	}
 
+	// Blocks a fire block just melted animate out (burning toward fire) before
+	// they are destroyed, so they leave the cache before the sweep below.
+	SeedMeltAnimations();
+
 	// Anything the board no longer holds has to go. Skipping this leaves a
 	// block standing at every cell the piece has ever visited, so the board
 	// fills with ghosts of its own history and never appears to clear. The
@@ -804,8 +825,15 @@ void BoardView::SyncPieceEntities()
 	}
 
 	const auto pieceType = state.CurrentPiece.Type;
-	const glm::vec3 color = TetrisManager::GetTetrominoDefinition(pieceType).color;
+	const glm::vec3 color = state.CurrentPiece.IsFire
+		? TetrisManager::kFireColor
+		: TetrisManager::GetTetrominoDefinition(pieceType).color;
 
+	// A fire block flashes: its glow throbs on a fixed pulse. A normal piece
+	// keeps the steady rim emissive.
+	const float emissiveIntensity = state.CurrentPiece.IsFire
+		? kBlockEmissiveIntensity + kFireFlashGlow * FireFlashPulse(m_FireFlash)
+		: kBlockEmissiveIntensity;
 
 	// A downward step is the piece falling, not the player moving it: a fall is
 	// drawn at the rate the rules are falling, so the block glides cell after
@@ -817,7 +845,15 @@ void BoardView::SyncPieceEntities()
 
 	for (uint32_t slot = 0; slot < 4; ++slot)
 	{
-		const glm::ivec2 cell = state.CurrentPiece.Position + state.CurrentPiece.Blocks[slot];
+		// A fire block that has burned away is no longer part of the piece.
+		if (!state.CurrentPiece.BlockAlive[slot])
+		{
+			DestroyEntity(m_PieceBlocks[slot]);
+			m_Motions.erase(SlotKey(slot));
+			continue;
+		}
+
+		const glm::ivec2 cell = state.CurrentPiece.BlockPos[slot];
 		if (!state.IsValidPosition(cell))
 		{
 			DestroyEntity(m_PieceBlocks[slot]);
@@ -840,7 +876,7 @@ void BoardView::SyncPieceEntities()
 			material.Roughness = kBlockRoughness;
 			material.AO = kBlockAO;
 			material.Emissive = color;
-			material.EmissiveIntensity = kBlockEmissiveIntensity;
+			material.EmissiveIntensity = emissiveIntensity;
 
 			entity.AddComponent<Forge::MeshComponent>().ModelPath = m_BlockMeshPath;
 
@@ -858,7 +894,7 @@ void BoardView::SyncPieceEntities()
 		cachedMaterial.Roughness = kBlockRoughness;
 		cachedMaterial.AO = kBlockAO;
 		cachedMaterial.Emissive = color;
-		cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
+		cachedMaterial.EmissiveIntensity = emissiveIntensity;
 
 		const float distance = glm::length(target - m_SlotPosition[slot]);
 		const auto motion = m_Motions.find(SlotKey(slot));
@@ -940,6 +976,9 @@ void BoardView::DetectImpact(float dt)
 		return;
 	if (m_Snapshot.Piece.State != TetrisPieceState::Active)
 		return;
+	// A fire block never lands - it burns - so it has no landing to measure.
+	if (m_Snapshot.Piece.IsFire)
+		return;
 
 	const TetrisGameState& state = m_Manager.GetState();
 	if (state.CurrentState != TetrisGameState::State::Playing)
@@ -1004,6 +1043,60 @@ void BoardView::DetectImpact(float dt)
 		static_cast<int>(m_LastClearedRows.size()), landing };
 }
 
+void BoardView::SeedMeltAnimations()
+{
+	TetrisGameState& state = m_Manager.GetState();
+
+	// Hand each block a fire block just burned to the shrink-away animation,
+	// burning toward the fire's colour. They leave the block cache (so the
+	// sweep that destroys vanished blocks skips them) and the clear-animaton
+	// machinery retires them when the burn finishes.
+	for (const uint32_t index : state.MeltedCells)
+	{
+		if (index >= state.Board.size())
+			continue;
+
+		const glm::ivec2 cell = state.GetGridPosition(index);
+		const uint64_t key = CellKey(static_cast<uint32_t>(cell.x), static_cast<uint32_t>(cell.y));
+
+		const auto block = m_Blocks.find(key);
+		if (block == m_Blocks.end())
+			continue;  // nothing was drawn there: nothing to burn
+
+		// If a block is already animating out of this cell (a clear, or an
+		// earlier melt that has not finished), retire it first. Overwriting the
+		// slot would drop its entity from the tracking map and leave a
+		// half-shrunk block stranded on screen, no longer on the board.
+		const auto inFlight = m_ClearingBlocks.find(key);
+		if (inFlight != m_ClearingBlocks.end())
+		{
+			Forge::Entity stale = inFlight->second.Entity;
+			DestroyEntity(stale);
+			m_ClearingBlocks.erase(inFlight);
+		}
+
+		ClearingBlock cb;
+		cb.Entity = block->second;
+		cb.Color = block->second.GetComponent<Forge::PBRMaterialComponent>().Albedo;
+		cb.From = CellToWorld(static_cast<uint32_t>(cell.x), static_cast<uint32_t>(cell.y));
+		cb.To = cb.From;
+		cb.TravelDuration = 0.0f;
+		cb.Elapsed = 0.0f;
+		cb.Duration = kMeltSeconds;
+		cb.IsMelt = true;
+
+		RenameEntity(block->second, ClearingBlockName(static_cast<uint32_t>(cell.x), static_cast<uint32_t>(cell.y)));
+		m_ClearingBlocks[key] = cb;
+		m_Motions.erase(key);
+		m_Blocks.erase(block);
+	}
+
+	// Each melt is animated once. The melted list lives until the next fire
+	// drop, so without clearing it a block that lands in a just-melted cell
+	// next frame would be burned a second time.
+	state.MeltedCells.clear();
+}
+
 void BoardView::AdvanceClearAnimations(float dt)
 {
 	for (auto it = m_ClearingBlocks.begin(); it != m_ClearingBlocks.end(); )
@@ -1032,9 +1125,18 @@ void BoardView::AdvanceClearAnimations(float dt)
 			// The row lights up as it goes out. The flash lives on the
 			// emissive term, because pbr.frag multiplies albedo into the
 			// texture and adds emissive - a white albedo would wash the tile
-			// out, and the tile is the block's surface.
+			// out, and the tile is the block's surface. A melt burns toward
+			// the fire's orange and glows harder than a line-clear flash.
 			auto& material = cb.Entity.GetComponent<Forge::PBRMaterialComponent>();
-			material.Emissive = FlashTowardWhite(cb.Color, clear);
+			if (cb.IsMelt)
+			{
+				material.Emissive = FlashTowardColor(cb.Color, TetrisManager::kFireColor, clear);
+				material.EmissiveIntensity = kBlockEmissiveIntensity + kFireMeltGlow * clear;
+			}
+			else
+			{
+				material.Emissive = FlashTowardWhite(cb.Color, clear);
+			}
 		}
 
 		if (cb.Elapsed >= cb.TravelDuration + cb.Duration)

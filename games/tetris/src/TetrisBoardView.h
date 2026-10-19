@@ -184,6 +184,12 @@ private:
 	// Animate blocks in cleared rows shrinking away, then destroy them.
 	void AdvanceClearAnimations(float dt);
 
+	// Hand the blocks a fire block just melted to the shrink-away animation,
+	// burning toward the fire's colour. Runs before the sweep that destroys
+	// blocks the board no longer holds, so a melted block animates out instead
+	// of vanishing in one frame.
+	void SeedMeltAnimations();
+
 	// Measure the landing that just happened, if any.
 	void DetectImpact(float dt);
 
@@ -241,6 +247,10 @@ private:
 		float TravelDuration = 0.0f;
 		float Elapsed = 0.0f;
 		float Duration = 0.0f;
+
+		// A melting block burns toward the fire's colour; a cleared row flashes
+		// white. Same animation, different glow.
+		bool IsMelt = false;
 	};
 
 	std::map<uint64_t, Motion> m_Motions;
@@ -259,6 +269,10 @@ private:
 	// to the gravity rate would lag the key.
 	float m_FallCadence = 0.0f;
 	float m_TimeSinceFall = 0.0f;
+
+	// Clock driving the fire block's flashing glow, so the pulse is continuous
+	// across frames and resets when a new piece spawns.
+	float m_FireFlash = 0.0f;
 
 	// Cells that should exist this frame, with the colour to draw them in.
 	// Reused between frames so a full board does not allocate 200 map nodes

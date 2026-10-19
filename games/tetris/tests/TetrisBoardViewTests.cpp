@@ -397,6 +397,42 @@ TEST_CASE("A falling piece glides at the drop rate instead of hopping", "[tetris
 	REQUIRE(largest < smallest * 2.0f);
 }
 
+TEST_CASE("A melted block burns out and leaves nothing behind", "[tetris][view][fire]")
+{
+	RunningView fixture;
+	TetrisGameState& state = fixture.view.GetManager().GetState();
+
+	// One block on the floor at column 4.
+	const uint32_t bottom = state.Height - 1;
+	state.Board[bottom * state.Width + 4] = 1;
+	fixture.view.Update(1.0f / 60.0f);
+	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_4_" + std::to_string(bottom)));
+
+	// A fire I piece one row above the floor, spanning the floor block.
+	state.CurrentPiece = fixture.view.GetManager().CreatePiece(TetrominoType::I);
+	state.CurrentPiece.IsFire = true;
+	state.CurrentPiece.Position = glm::ivec2(3, static_cast<int32_t>(bottom) - 1);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+	for (int i = 0; i < 4; ++i)
+	{
+		state.CurrentPiece.BlockPos[i] = state.CurrentPiece.Position + state.CurrentPiece.Blocks[i];
+		state.CurrentPiece.BlockAlive[i] = true;
+	}
+
+	// One gravity step: the fire block drops onto the stack and melts the block
+	// it touched.
+	fixture.view.Update(1.0f);
+
+	// Let the burn finish - kMeltSeconds is well under a second.
+	for (int i = 0; i < 90; ++i)
+		fixture.view.Update(1.0f / 60.0f);
+
+	// The melted block is gone: neither its board entity nor its burn animation
+	// is left standing on a cell that is no longer on the board.
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_4_" + std::to_string(bottom)));
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlockClear_4_" + std::to_string(bottom)));
+}
+
 // ---------------------------------------------------------------------------
 // The block theme (one OpenGameArt surface per tetromino)
 // ---------------------------------------------------------------------------

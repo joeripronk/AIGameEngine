@@ -48,6 +48,13 @@ constexpr float kShakeSettle = 0.003f;             // below this the camera is h
 constexpr float kShakeHorizontalRatio = 0.45f;
 constexpr float kShakeDepthRatio = 0.25f;
 
+// How much of the fire meter a strike feeds it: the fire chance rises by the
+// shake amplitude it produces, so a hard drop (which shakes the most) charges
+// a fire block fastest. Amplitude tops out at kShakeMaxAmplitude; the scale
+// keeps even the hardest strike to a few percent, so the meter is charged by
+// play over time rather than by one drop.
+constexpr float kFireChancePerShake = 0.1f;
+
 // Euler radians for a camera transform whose -Z axis points from `eye` at
 // `target`. Scene::RenderScene builds the view matrix as
 // inverse(translate * toMat4(quat(rotation))) with rotation (pitch, yaw, 0),
@@ -451,7 +458,10 @@ void TetrisApp::SyncPreview()
 	// theme table - a preview in a different surface from the piece it
 	// previews tells the player nothing.
 	const glm::vec3 previewColour =
-		visible ? TetrisManager::GetTetrominoDefinition(shown).color : glm::vec3(0.0f);
+		visible ? (state.NextPiece.IsFire
+			? TetrisManager::kFireColor
+			: TetrisManager::GetTetrominoDefinition(shown).color)
+		: glm::vec3(0.0f);
 
 
 	glm::vec3 local[4];
@@ -537,6 +547,9 @@ void TetrisApp::ApplyImpactShake(float dt)
 			// with more lines and with how fast the blocks were moving.
 			m_ShakeAmplitude = amplitude;
 			m_ShakePhase = 0.0f;
+
+			// The strike charges the fire meter by the same amount it shakes.
+			m_BoardView.GetManager().AddFireChance(amplitude * kFireChancePerShake);
 		}
 	}
 
@@ -610,6 +623,10 @@ void TetrisApp::Run()
 		// board fills, lines clear and blocks are created and destroyed.
 		if (std::getenv("FG_AUTOSTART") && m_FrameCount == 0)
 			m_BoardView.GetManager().StartGame();
+
+		// DIAGNOSTIC ONLY: force the falling piece to be a fire block.
+		if (std::getenv("FG_FORCE_FIRE"))
+			m_BoardView.GetManager().GetState().CurrentPiece.IsFire = true;
 
 		// DIAGNOSTIC ONLY: fill the board so a capture shows every tile at once.
 		// Seeded after an Update so StartGame() has already cleared the board.

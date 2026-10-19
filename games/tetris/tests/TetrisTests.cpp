@@ -14,6 +14,9 @@ using Catch::Approx;
 
 #include <algorithm>
 #include <vector>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
 
 using namespace Tetris;
 
@@ -136,6 +139,138 @@ TEST_CASE("The same piece is half as likely to spawn back to back", "[tetris][co
 	// is half, and a fixed seed makes this exact.
 	REQUIRE(observed > 0.0);
 	REQUIRE(observed < kRawRepeatChance);
+}
+
+TEST_CASE("A fire block melts only what it touches and sheds those blocks", "[tetris][fire]")
+{
+	TetrisManager manager;
+	manager.Initialize();
+	manager.StartGame();
+	TetrisGameState& state = manager.GetState();
+
+	// One block on the floor, under the middle of where the fire piece falls.
+	const uint32_t bottom = state.Height - 1;
+	state.Board[bottom * state.Width + 4] = 1;
+
+	// A horizontal fire I piece spanning columns 3..6, one row above the floor.
+	state.CurrentPiece = manager.CreatePiece(TetrominoType::I);
+	state.CurrentPiece.IsFire = true;
+	state.CurrentPiece.Position = glm::ivec2(3, static_cast<int32_t>(bottom) - 1);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+	for (int i = 0; i < 4; ++i)
+	{
+		state.CurrentPiece.BlockPos[i] = state.CurrentPiece.Position + state.CurrentPiece.Blocks[i];
+		state.CurrentPiece.BlockAlive[i] = true;
+	}
+
+	// One gravity step.
+	manager.Update(1.0f);
+
+	// The block that met the stack melted it and burned away; the block it
+	// melted is gone.
+	REQUIRE(state.Board[bottom * state.Width + 4] == 0);
+
+	// Only the touching block was removed - the other three survive and the
+	// piece keeps falling.
+	int alive = 0;
+	for (int i = 0; i < 4; ++i)
+		if (state.CurrentPiece.BlockAlive[i])
+			++alive;
+	REQUIRE(alive == 3);
+	REQUIRE(state.CurrentPiece.IsFire);
+
+	// The survivors dropped onto the floor (the row the fire opened).
+	for (int i = 0; i < 4; ++i)
+		if (state.CurrentPiece.BlockAlive[i])
+			REQUIRE(state.CurrentPiece.BlockPos[i].y == static_cast<int32_t>(bottom));
+}
+
+TEST_CASE("A hard-dropped fire burns out with an animation, not instantly", "[tetris][fire]")
+{
+	TetrisManager manager;
+	manager.Initialize();
+	manager.StartGame();
+	TetrisGameState& state = manager.GetState();
+
+	// A vertical fire I onto an empty board: it falls to the floor and burns
+	// out there, with no stack to melt.
+	state.CurrentPiece = manager.CreatePiece(TetrominoType::I);
+	state.CurrentPiece.IsFire = true;
+	state.CurrentPiece.Position = glm::ivec2(3, 15);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+	for (int i = 0; i < 4; ++i)
+	{
+		state.CurrentPiece.BlockPos[i] = state.CurrentPiece.Position + state.CurrentPiece.Blocks[i];
+		state.CurrentPiece.BlockAlive[i] = true;
+	}
+
+	manager.HardDrop();
+
+	// The fire is spent, and the cells where its blocks burned out are recorded
+	// for animation. A hard drop that reached the floor must not erase the fire
+	// with no burn.
+	CHECK(state.MeltedCells.size() >= 1u);
+}
+
+TEST_CASE("Fire blocks are offered every spawn, and the chance climbs when missed", "[tetris][fire]")
+{
+	// The generator is seeded, so this run reproduces exactly. The roll runs on
+	// every spawn from a base of 0%: the first spawn is never fire, each miss
+	// adds 2%, and this seed's first fire lands on spawn 8, by which point the
+	// meter has climbed to 14%.
+	TetrisManager manager;
+	manager.Initialize();
+	manager.StartGame();
+
+	std::vector<bool> fire;
+	for (int spawn = 0; spawn < 400; ++spawn)
+	{
+		TetrisGameState& state = manager.GetState();
+		fire.push_back(state.CurrentPiece.IsFire);
+
+		// Empty the board and keep playing, so the run is the ladder and not a
+		// game that ends when the stack reaches the top.
+		std::fill(state.Board.begin(), state.Board.end(), 0);
+		state.CurrentState = TetrisGameState::State::Playing;
+		state.HasGameOver = false;
+		manager.HardDrop();
+	}
+
+	// A base of 0% means the very first spawn cannot be fire, and the meter
+	// only reaches this seed's first hit at spawn 8, by which point the ladder
+	// has climbed to 14%.
+	for (int i = 0; i < 8; ++i)
+		REQUIRE_FALSE(fire[static_cast<size_t>(i)]);
+
+	// The first fire this seed produces, and a long run produces many (the
+	// ladder resets to 0% after each, then climbs again).
+	REQUIRE(fire[8]);
+	REQUIRE(std::count(fire.begin(), fire.end(), true) >= 2);
+}
+
+TEST_CASE("Screen shake charges the fire meter, capped at certain", "[tetris][fire]")
+{
+	TetrisManager manager;
+	manager.Initialize();
+
+	// A fresh game starts the meter at 0%: fire is only offered once it has
+	// been charged by shake, or by a run of missed spawns.
+	REQUIRE(manager.GetFireChance() == Approx(0.0f));
+
+	manager.StartGame();
+
+	// A strike raises the chance by the amount of shake it produced.
+	const float charged = manager.GetFireChance();
+	manager.AddFireChance(0.2f);
+	REQUIRE(manager.GetFireChance() == Approx(charged + 0.2f));
+
+	// The meter never climbs past certain.
+	manager.AddFireChance(10.0f);
+	REQUIRE(manager.GetFireChance() == Approx(1.0f));
+
+	// A non-positive strike charges nothing.
+	manager.AddFireChance(-0.5f);
+	REQUIRE(manager.GetFireChance() == Approx(1.0f));
 }
 
 TEST_CASE("Starting again replaces the pieces instead of stacking them", "[tetris][core]")

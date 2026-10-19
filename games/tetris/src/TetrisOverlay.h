@@ -39,6 +39,7 @@ private:
 	int32_t m_LastScore = -1;
 	int32_t m_LastLines = -1;
 	int32_t m_LastLevel = -1;
+	float m_LastFireChance = 0.0f;
 };
 
 }  // namespace Tetris

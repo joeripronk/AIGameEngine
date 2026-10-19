@@ -38,6 +38,20 @@ public:
 	// Tetromino definition by type.
 	static const TetrominoDefinition& GetTetrominoDefinition(TetrominoType type);
 
+	// The colour a fire block is drawn in. A fire block is a normal tetromino
+	// flagged to melt what it touches, so it has no shape of its own - the
+	// colour is what tells the player a falling piece is fire.
+	static const glm::vec3 kFireColor;
+
+	// The current chance (0..1) that the next fire roll produces a fire block.
+	// This is what the fire meter shows.
+	float GetFireChance() const { return m_FireChance; }
+
+	// Raise the fire chance (capped at certain). Screen shake feeds the fire
+	// meter: a harder landing, or a bigger line clear, makes a fire block more
+	// likely on the next roll.
+	void AddFireChance(float amount);
+
 	// A new piece of the given type, at the spawn position, rotation 0.
 	TetrisPiece CreatePiece(TetrominoType type) const;
 
@@ -91,6 +105,20 @@ private:
 	// appearing back-to-back is half as likely as the raw weights allow.
 	TetrominoType NextRandomType(TetrominoType lastType);
 
+	// Decide whether the piece being spawned is a fire block. The roll runs on
+	// every spawn: at the current chance it is a fire block, and the chance
+	// resets to kFireBaseChance; every spawn that is not a fire block raises
+	// the next spawn's chance by kFireChanceStep, so the longer the drought the
+	// more certain the next fire block.
+	bool RollFireSpawn();
+
+	// One falling step of a fire block. Every block that would move into an
+	// occupied cell melts that block and burns itself away; the blocks that
+	// keep clear space keep falling. Returns false when the piece is fully
+	// consumed (all blocks burned, or all settled at the floor with nothing
+	// left to burn), in which case the next piece has been spawned.
+	bool FireDrop();
+
 	TetrisGameState m_State;
 
 	// Held actions, for the delayed-autorepeat repeats.
@@ -106,6 +134,18 @@ private:
 
 	// Piece selection state.
 	uint32_t m_RandomState = 0x9E3779B9u;
+
+	// Fire-block spawning state: the chance that the next spawn is a fire
+	// block. It starts at the base, climbs 2% every spawn it misses, and
+	// resets to the base after a fire block.
+	float m_FireChance = 0.0f;
+
+	// The roll runs on every spawn, from a base of 0%: a fire block is only
+	// offered once screen shake (or a run of misses) has charged the meter,
+	// and each miss makes the next one likelier.
+	static constexpr float kFireBaseChance = 0.0f;
+	static constexpr float kFireChanceStep = 0.02f;
+	static constexpr float kFireMaxChance = 1.0f;
 
 	// Offsets tried in order when a rotation does not fit in place.
 	static constexpr int32_t kWallKickOffsets[][2] = {

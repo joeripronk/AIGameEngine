@@ -93,6 +93,25 @@ inline glm::vec3 FlashTowardWhite(const glm::vec3& color, float t)
 	return color + (glm::vec3(1.0f) - color) * w;
 }
 
+// The same flash toward an arbitrary colour. A melting block burns toward the
+// fire's orange, not white, so the glow is the colour of what burned it.
+inline glm::vec3 FlashTowardColor(const glm::vec3& color, const glm::vec3& target, float t)
+{
+	const float w = LineClearFlash(t);
+	return color + (target - color) * w;
+}
+
+// A fire block flashes: a pulse in [0,1] at a fixed rate, peaking and falling
+// on a smooth curve so it reads as a throbbing glow, not a strobe. Drives the
+// emissive intensity of the falling fire piece.
+inline float FireFlashPulse(float seconds)
+{
+	constexpr float kPi = 3.14159265358979323846f;
+	constexpr float kFireFlashHz = 3.0f;
+	const float s = std::sin(2.0f * kPi * kFireFlashHz * seconds);
+	return 0.5f + 0.5f * s;
+}
+
 // Shake amplitude that grows with the number of lines cleared and with how
 // fast the blocks were moving. More lines removed -> larger; faster impact ->
 // even bigger. Clamped to maxAmplitude.

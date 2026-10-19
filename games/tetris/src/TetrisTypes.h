@@ -76,11 +76,22 @@ struct TetrisPiece
 	// Rotation state (0-3, each is 90 degrees clockwise).
 	uint8_t Rotation = 0;
 
+	// A fire block melts the blocks it touches when it locks, and never
+	// becomes part of the stack.
+	bool IsFire = false;
+
 	// Color, with alpha for visual effects.
 	glm::vec4 Color = glm::vec4(1.0f);
 
 	// Blocks for the current rotation, in world-independent grid offsets.
 	glm::ivec2 Blocks[4] = {};
+
+	// Absolute grid position of each block, and whether it is still part of
+	// the piece. A normal piece keeps all four alive and its blocks at
+	// Position + Blocks; a fire piece burns blocks away as they melt a stack,
+	// so the surviving blocks keep their own positions and the shape deforms.
+	glm::ivec2 BlockPos[4] = {};
+	bool BlockAlive[4] = { true, true, true, true };
 };
 
 // Game state.
@@ -110,6 +121,11 @@ struct TetrisGameState
 
 	// Game board data, row-major. 0 = empty, 1-7 = tetromino type + 1.
 	std::vector<uint8_t> Board;
+
+	// Board indices melted by the most recent lock (a fire block burns out the
+	// blocks it touched). The rules clear them in the same step; the view
+	// animates them out, so it needs to be told which cells were burned.
+	std::vector<uint32_t> MeltedCells;
 
 	// Timing.
 	float PieceDropTimer = 0.0f;

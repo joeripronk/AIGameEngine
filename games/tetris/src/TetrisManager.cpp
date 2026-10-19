@@ -50,6 +50,38 @@ uint32_t NextRandom(uint32_t& state)
 	return state;
 }
 
+// A piece is authored as an origin plus four offsets; its blocks also have
+// absolute grid positions. This seeds the absolute positions from the shape
+// (used at spawn, and after every move/rotation of a whole piece).
+void SeedBlockPosFromShape(TetrisPiece& piece)
+{
+	for (int i = 0; i < 4; ++i)
+	{
+		piece.BlockPos[i] = piece.Position + piece.Blocks[i];
+		piece.BlockAlive[i] = true;
+	}
+}
+
+// After a fire piece burns blocks away, its origin and offsets are rebuilt
+// from the blocks that are still alive. Dead slots collapse to the origin so
+// nothing renders them; the surviving blocks keep their own grid cells.
+void RebuildShapeFromBlockPos(TetrisPiece& piece)
+{
+	bool any = false;
+	int32_t minX = 0, minY = 0;
+	for (int i = 0; i < 4; ++i)
+	{
+		if (!piece.BlockAlive[i])
+			continue;
+		if (!any) { minX = piece.BlockPos[i].x; minY = piece.BlockPos[i].y; any = true; }
+		minX = std::min(minX, piece.BlockPos[i].x);
+		minY = std::min(minY, piece.BlockPos[i].y);
+	}
+	piece.Position = any ? glm::ivec2(minX, minY) : glm::ivec2(0, 0);
+	for (int i = 0; i < 4; ++i)
+		piece.Blocks[i] = piece.BlockAlive[i] ? piece.BlockPos[i] - piece.Position : glm::ivec2(0, 0);
+}
+
 }  // namespace
 
 const TetrominoDefinition& TetrisGameState::GetDefinition(TetrominoType type)
@@ -57,6 +89,10 @@ const TetrominoDefinition& TetrisGameState::GetDefinition(TetrominoType type)
 	assert(static_cast<uint8_t>(type) < static_cast<uint8_t>(TetrominoType::Count));
 	return kTetrominoDefinitions[static_cast<uint8_t>(type)];
 }
+
+// The fire block has no tile of its own (it never lands), so it is drawn in a
+// molten orange - the colour that reads as "this one burns".
+const glm::vec3 TetrisManager::kFireColor = glm::vec3(1.00f, 0.42f, 0.08f);
 
 void TetrisGameState::InitializeBoard()
 {
@@ -174,6 +210,9 @@ void TetrisManager::Reset()
 	m_SoftDropHeld = false;
 	m_MoveRepeatTimer = kMoveDelay;
 	m_SoftDropRepeatTimer = kSoftDropRepeat;
+
+	// A new game starts the fire ladder over at its base chance.
+	m_FireChance = kFireBaseChance;
 }
 
 void TetrisManager::StartGame()
@@ -182,7 +221,9 @@ void TetrisManager::StartGame()
 
 	m_State.CurrentState = TetrisGameState::State::Playing;
 	m_State.NextPiece = CreatePiece(NextRandomType(TetrominoType::Count));
+	m_State.NextPiece.IsFire = RollFireSpawn();
 	m_State.CurrentPiece = CreatePiece(NextRandomType(m_State.NextPiece.Type));
+	m_State.CurrentPiece.IsFire = RollFireSpawn();
 }
 
 void TetrisManager::TogglePause()
@@ -206,7 +247,9 @@ void TetrisManager::Update(float deltaTime)
 			// Only drop once per tick even after a long frame: catching up would
 			// move the piece further than the elapsed time justifies.
 			m_State.PieceDropTimer = 0.0f;
-			if (!SoftDrop())
+			if (m_State.CurrentPiece.IsFire)
+				FireDrop();
+			else if (!SoftDrop())
 				LockPiece();
 		}
 	}
@@ -243,7 +286,10 @@ void TetrisManager::UpdateHeldActions(float deltaTime)
 		while (m_SoftDropRepeatTimer <= 0.0f && repeats < kMaxRepeatsPerFrame)
 		{
 			m_SoftDropRepeatTimer += kSoftDropRepeat;
-			SoftDrop();
+			if (m_State.CurrentPiece.IsFire)
+				FireDrop();
+			else
+				SoftDrop();
 			++repeats;
 		}
 	}
@@ -348,6 +394,7 @@ TetrisPiece TetrisManager::CreatePiece(TetrominoType type) const
 	piece.Rotation = 0;
 	piece.Color = glm::vec4(def.color, 1.0f);
 	m_State.UpdatePieceBlocks(piece);
+	SeedBlockPosFromShape(piece);
 	return piece;
 }
 
@@ -356,6 +403,12 @@ bool TetrisManager::RotatePiece(bool clockwise)
 	if (m_State.CurrentState != TetrisGameState::State::Playing)
 		return false;
 	if (m_State.CurrentPiece.State != TetrisPieceState::Active)
+		return false;
+
+	// A fire piece that has already burned blocks away has no defined rotation
+	// origin, so it does not rotate - only whole pieces do.
+	if (!m_State.CurrentPiece.BlockAlive[0] || !m_State.CurrentPiece.BlockAlive[1] ||
+		!m_State.CurrentPiece.BlockAlive[2] || !m_State.CurrentPiece.BlockAlive[3])
 		return false;
 
 	const uint8_t nextRotation = static_cast<uint8_t>((m_State.CurrentPiece.Rotation + (clockwise ? 1u : 3u)) & 3u);
@@ -371,6 +424,7 @@ bool TetrisManager::RotatePiece(bool clockwise)
 		m_State.CurrentPiece.Position = candidate;
 		m_State.CurrentPiece.Rotation = nextRotation;
 		m_State.UpdatePieceBlocks(m_State.CurrentPiece);
+		SeedBlockPosFromShape(m_State.CurrentPiece);
 		return true;
 	}
 
@@ -395,6 +449,9 @@ bool TetrisManager::MovePiece(TetrisDirection direction)
 		return false;
 
 	m_State.CurrentPiece.Position = target;
+	for (int i = 0; i < 4; ++i)
+		if (m_State.CurrentPiece.BlockAlive[i])
+			m_State.CurrentPiece.BlockPos[i] += moveDir;
 	return true;
 }
 
@@ -408,6 +465,9 @@ bool TetrisManager::SoftDrop()
 		return false;
 
 	m_State.CurrentPiece.Position = target;
+	for (int i = 0; i < 4; ++i)
+		if (m_State.CurrentPiece.BlockAlive[i])
+			m_State.CurrentPiece.BlockPos[i] += glm::ivec2(0, 1);
 	// A manual drop counts as a gravity tick, so holding down does not also
 	// stack a full drop interval on top of the repeats.
 	m_State.PieceDropTimer = 0.0f;
@@ -418,6 +478,16 @@ void TetrisManager::HardDrop()
 {
 	if (m_State.CurrentPiece.State != TetrisPieceState::Active)
 		return;
+
+	if (m_State.CurrentPiece.IsFire)
+	{
+		// A fire block burns down in one go: every step melts what it touches
+		// and sheds the blocks that hit, until the piece is spent.
+		while (FireDrop())
+		{
+		}
+		return;
+	}
 
 	while (SoftDrop())
 	{
@@ -487,13 +557,13 @@ void TetrisManager::LockPiece()
 	SpawnNextPiece();
 	CheckGameOver();
 }
-
 void TetrisManager::SpawnNextPiece()
 {
 	m_State.CurrentPiece = m_State.NextPiece;
 	m_State.CurrentPiece.State = TetrisPieceState::Active;
 	m_State.PieceDropTimer = 0.0f;
 	m_State.NextPiece = CreatePiece(NextRandomType(m_State.CurrentPiece.Type));
+	m_State.NextPiece.IsFire = RollFireSpawn();
 }
 
 void TetrisManager::CheckGameOver()
@@ -627,6 +697,89 @@ TetrominoType TetrisManager::NextRandomType(TetrominoType lastType)
 	}
 
 	return type;
+}
+
+void TetrisManager::AddFireChance(float amount)
+{
+	if (amount <= 0.0f)
+		return;
+	m_FireChance = std::min(kFireMaxChance, m_FireChance + amount);
+}
+
+bool TetrisManager::RollFireSpawn()
+{
+	// The roll runs on every spawn. At a base of 0% the first spawn is never
+	// fire - the meter has to be charged by shake, or by a run of misses.
+	const uint32_t threshold =
+		static_cast<uint32_t>(m_FireChance * 100.0f + 0.5f);
+	const bool fire = (NextRandom(m_RandomState) % 100u) < threshold;
+
+	// A fire block resets the ladder to its base; a missed spawn raises the
+	// next one, so the longer the drought the more certain the next fire.
+	m_FireChance = fire ? kFireBaseChance
+		: std::min(kFireMaxChance, m_FireChance + kFireChanceStep);
+
+	return fire;
+}
+
+bool TetrisManager::FireDrop()
+{
+	TetrisPiece& piece = m_State.CurrentPiece;
+	m_State.MeltedCells.clear();
+
+	bool moved = false;
+	for (int i = 0; i < 4; ++i)
+	{
+		if (!piece.BlockAlive[i])
+			continue;
+
+		const glm::ivec2 target = piece.BlockPos[i] + glm::ivec2(0, 1);
+
+		// Below the floor the block is at rest; it stays put.
+		if (!m_State.IsValidPosition(target))
+			continue;
+
+		const uint32_t index = m_State.GetBoardIndex(target);
+		if (index < m_State.Board.size() && m_State.Board[index] != 0)
+		{
+			// It meets a block: that block melts and this block burns away
+			// with it. The rest of the piece is untouched and keeps falling.
+			m_State.Board[index] = 0;
+			m_State.MeltedCells.push_back(index);
+			piece.BlockAlive[i] = false;
+			moved = true;
+		}
+		else
+		{
+			piece.BlockPos[i] = target;
+			moved = true;
+		}
+	}
+
+	bool anyAlive = false;
+	for (int i = 0; i < 4; ++i)
+		if (piece.BlockAlive[i]) { anyAlive = true; break; }
+
+	if (!anyAlive || !moved)
+	{
+		// Fully consumed - every block burned, or every survivor resting on the
+		// floor with nothing left to burn. A fire block never lands, so it is
+		// spent and the next piece takes over. Its surviving blocks burn out
+		// where they rest: record those cells so the burn animates, rather than
+		// the fire vanishing instantly at the floor.
+		for (int i = 0; i < 4; ++i)
+		{
+			if (piece.BlockAlive[i])
+				m_State.MeltedCells.push_back(m_State.GetBoardIndex(piece.BlockPos[i]));
+			piece.BlockAlive[i] = false;
+		}
+		SpawnNextPiece();
+		return false;
+	}
+
+	RebuildShapeFromBlockPos(piece);
+	m_State.PieceDropTimer = 0.0f;
+	return true;
 }
 
 }  // namespace Tetris

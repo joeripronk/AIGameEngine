@@ -7,6 +7,7 @@
 #include <vendor/imgui/imgui.h>
 
 #include <sstream>
+#include <cstdio>
 
 namespace Tetris {
 
@@ -113,6 +114,20 @@ void OverlayLayer::OnImGuiRender()
 		ImGui::TextColored({0.70f, 0.85f, 0.90f, 1.00f}, "MUSIC: %d/%d %s",
 			m_Music->CurrentTrackIndex() + 1, m_Music->TrackCount(),
 			m_Music->IsMuted() ? "muted" : m_Music->CurrentTitle());
+	}
+
+	// Fire meter: how close a fire block is. The bar fills as the chance
+	// climbs; screen shake from hard drops and line clears charges it.
+	{
+		const float chance = m_Manager ? m_Manager->GetFireChance() : 0.0f;
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 6.0f);
+		ImGui::TextColored({1.00f, 0.55f, 0.20f, 1.00f}, "FIRE");
+
+		char overlay[16];
+		std::snprintf(overlay, sizeof(overlay), "%3.0f%%", chance * 100.0f);
+		ImGui::PushStyleColor(ImGuiCol_PlotHistogram, { 1.00f, 0.42f, 0.08f, 1.00f });
+		ImGui::ProgressBar(chance, ImVec2(windowWidth - 16.0f, 0.0f), overlay);
+		ImGui::PopStyleColor();
 	}
 
 	ImGui::End();
