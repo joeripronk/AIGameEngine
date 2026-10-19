@@ -23,11 +23,21 @@ struct MemoryTypeDesc
 
 static_assert(sizeof(MemoryTypeDesc) == sizeof(VkMemoryType), "MemoryTypeDesc must mirror VkMemoryType layout");
 
+// Mirrors VkQueueFamilyProperties *in full*, not just its first two fields.
+// The selection rules read this array straight out of the driver's
+// vkGetPhysicalDeviceQueueFamilyProperties buffer, so the mirror has to
+// match the driver's element size exactly - a smaller mirror would make
+// the array stride wrong and every family after the first would be read
+// from the wrong offset. The stride is what matters, not the field count.
 struct QueueFamilyDesc
 {
 	VkQueueFlags QueueFlags = 0;
 	uint32_t QueueCount = 0;
+	uint32_t TimestampValidBits = 0;
+	VkExtent3D MinImageTransferGranularity{};
 };
+
+static_assert(sizeof(QueueFamilyDesc) == sizeof(VkQueueFamilyProperties), "QueueFamilyDesc must mirror VkQueueFamilyProperties layout");
 
 struct FormatFeatures
 {

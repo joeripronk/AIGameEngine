@@ -7,6 +7,7 @@
 #include <cstring>
 #include <functional>
 #include <string>
+#include <vector>
 
 using namespace Forge::Vulkan;
 
@@ -20,6 +21,18 @@ namespace {
 	std::span<const QueueFamilyDesc> Families(const QueueFamilyDesc* descs, size_t count)
 	{
 		return std::span<const QueueFamilyDesc>(descs, count);
+	}
+
+	// The production marshalling, copied from PhysicalDevice::FindQueueFamily:
+	// the driver's contiguous family array is reinterpreted as the mirror
+	// type. The mirror has to match the driver's *element size*, not just
+	// its first fields - a shorter mirror gives the span the wrong stride
+	// and every family after the first is read from the wrong offset.
+	std::span<const QueueFamilyDesc> DriverFamilies(const std::vector<VkQueueFamilyProperties>& properties)
+	{
+		return std::span<const QueueFamilyDesc>(
+			reinterpret_cast<const QueueFamilyDesc*>(properties.data()),
+			properties.size());
 	}
 
 }
@@ -111,6 +124,40 @@ TEST_CASE("Queue family: the family with the fewest extra capabilities wins", "[
 
 	// Excluding everything leaves nothing.
 	REQUIRE(Forge::Vulkan::FindQueueFamily(VK_QUEUE_GRAPHICS_BIT, Families(families, 3), VK_QUEUE_GRAPHICS_BIT) == -1);
+}
+
+TEST_CASE("Queue family: the driver's family array is read at the driver's stride", "[device]")
+{
+	// An Intel-like layout: two do-everything families and a copy-only
+	// transfer family at index 2.
+	std::vector<VkQueueFamilyProperties> properties(3);
+	properties[0].queueFlags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT;
+	properties[0].queueCount = 1;
+	properties[0].timestampValidBits = 36;
+	properties[0].minImageTransferGranularity = { 1, 1, 1 };
+	properties[1].queueFlags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT;
+	properties[1].queueCount = 1;
+	properties[1].timestampValidBits = 36;
+	properties[1].minImageTransferGranularity = { 1, 1, 1 };
+	properties[2].queueFlags = VK_QUEUE_TRANSFER_BIT | VK_QUEUE_SPARSE_BINDING_BIT;
+	properties[2].queueCount = 1;
+
+	const std::span<const QueueFamilyDesc> families = DriverFamilies(properties);
+
+	// Every family's flags are read as the driver reported them.
+	for (size_t i = 0; i < properties.size(); ++i)
+		REQUIRE(families[i].QueueFlags == properties[i].queueFlags);
+
+	// The graphics family is one that can actually draw. The copy-only
+	// family at index 2 must not be picked up: a mirror with the wrong
+	// element size read family 0's granularity fields as family 2's
+	// flags, and 1 is VK_QUEUE_GRAPHICS_BIT - so the frame's graphics
+	// work ended up submitted to a queue that cannot draw.
+	REQUIRE(Forge::Vulkan::FindQueueFamily(VK_QUEUE_GRAPHICS_BIT, families) == 0);
+
+	// The dedicated transfer family is still found, now for the right
+	// reason.
+	REQUIRE(Forge::Vulkan::FindQueueFamily(VK_QUEUE_TRANSFER_BIT, families, VK_QUEUE_GRAPHICS_BIT) == 2);
 }
 
 TEST_CASE("Format selection: first candidate covering the features for the tiling", "[device]")

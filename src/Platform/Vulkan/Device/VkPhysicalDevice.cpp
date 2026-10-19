@@ -57,10 +57,16 @@ int PhysicalDevice::FindMemoryType(uint32_t memoryTypeBits, VkMemoryPropertyFlag
 int PhysicalDevice::FindQueueFamily(VkQueueFlags required, VkQueueFlags excluded) const
 {
 	// VkQueueFamilyProperties{ queueFlags, queueCount, timestampValidBits,
-	// minImageTransferGranularity } - the first two members match
-	// QueueFamilyDesc by layout, so the cached vector is the census the
-	// pure rule ranks.
-	static_assert(sizeof(QueueFamilyDesc) == 8, "QueueFamilyDesc must stay the first two fields of VkQueueFamilyProperties");
+	// minImageTransferGranularity } - the mirror matches it field for
+	// field, so the cached vector is the census the pure rule ranks.
+	//
+	// The mirror has to match the *element size*, not just the first two
+	// fields: the driver's array is contiguous, so a shorter mirror makes
+	// the span stride 8 bytes instead of 24 and every family after the
+	// first is read from the wrong offset. That is how a transfer-only
+	// family got mistaken for the graphics family, and the frame's
+	// graphics work ended up submitted to a queue that cannot draw.
+	static_assert(sizeof(QueueFamilyDesc) == sizeof(VkQueueFamilyProperties), "QueueFamilyDesc must mirror VkQueueFamilyProperties layout");
 	const std::span<const QueueFamilyDesc> families(
 		reinterpret_cast<const QueueFamilyDesc*>(m_QueueFamilies.data()),
 		m_QueueFamilies.size());
@@ -90,6 +96,23 @@ bool PhysicalDevice::SupportsPresentation(uint32_t queueFamilyIndex, ::VkSurface
 		return false;
 	}
 	return supported == VK_TRUE;
+}
+
+bool PhysicalDevice::SupportsDynamicRendering() const
+{
+	// Vulkan 1.3 has dynamic rendering in core, so a 1.3 device always has
+	// it. An older device can still expose it through
+	// VK_KHR_dynamic_rendering, which the feature struct covers.
+	if (m_Properties.apiVersion >= VK_API_VERSION_1_3)
+		return true;
+
+	VkPhysicalDeviceDynamicRenderingFeatures features{};
+	features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+	VkPhysicalDeviceFeatures2 features2{};
+	features2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+	features2.pNext = &features;
+	vkGetPhysicalDeviceFeatures2(m_Handle, &features2);
+	return features.dynamicRendering == VK_TRUE;
 }
 
 }}

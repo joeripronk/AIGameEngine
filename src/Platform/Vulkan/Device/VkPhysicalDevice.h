@@ -43,6 +43,11 @@ public:
 
 	[[nodiscard]] bool SupportsPresentation(uint32_t queueFamilyIndex, ::VkSurfaceKHR surface) const;
 
+	// Whether the device can open a dynamic rendering scope. Vulkan 1.3
+	// has it in core; an older device may still expose it through
+	// VK_KHR_dynamic_rendering, which the feature struct covers.
+	[[nodiscard]] bool SupportsDynamicRendering() const;
+
 private:
 	const Instance& m_Instance;
 	::VkPhysicalDevice m_Handle;
