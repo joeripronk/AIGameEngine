@@ -160,9 +160,14 @@ AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex)
 	}
 	functions.ResetFences(m_Device->Handle(), 1, &sync.Fence);
 
-	// One-shot command buffers: reset the pool, then begin fresh.
-	functions.ResetCommandPool(m_Device->Handle(), m_CommandPool, 0);
-
+	// No whole-pool reset here. The command buffers of the frames still in
+	// flight live in this pool, and resetting the pool while a submitted
+	// buffer is executing is undefined - it corrupts the command stream and
+	// the driver answers with a GPU hang (VK_ERROR_DEVICE_LOST, measured on
+	// Intel after roughly 12 seconds of sustained rendering). One command
+	// buffer per image, and BeginCommandBuffer with ONE_TIME_SUBMIT resets
+	// exactly the buffer whose fence was waited above - the only one that
+	// is finished.
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
