@@ -77,9 +77,11 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 	if (!StartupSucceeded())
 		return;
 
-	// Supersample the offscreen pass so Tetris blocks read with crisper edges
-	// without asking the engine to know this is Tetris.
-	float renderScale = 2.0f;
+	// Supersample the offscreen pass so Tetris blocks read with crisper
+	// edges - off by default: a 2x target quadruples the pixel work of every
+	// pass, and on an integrated GPU that halves the frame rate. The engine
+	// stays at 1.0; FG_RENDER_SCALE=2 opts back in per run.
+	float renderScale = 1.0f;
 	if (const char* rs = std::getenv("FG_RENDER_SCALE"))
 		renderScale = std::atof(rs);
 	Forge::Renderer::SetRenderScale(renderScale);
