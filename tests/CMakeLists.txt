@@ -42,6 +42,7 @@ target_sources(ForgeTests
         src/DeviceLayerTests.cpp
         src/MemoryLayerTests.cpp
         src/FrameLayerTests.cpp
+        src/PipelineLayerTests.cpp
 )
 
 target_link_libraries(ForgeTests

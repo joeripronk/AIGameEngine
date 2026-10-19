@@ -337,6 +337,16 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/Frame/Swapchain.cpp
     Platform/Vulkan/Frame/FrameLoop.h
     Platform/Vulkan/Frame/FrameLoop.cpp
+    # BRUTAL rewrite - pipelines, shaders, descriptors
+    Platform/Vulkan/Pipeline/PipelinePresets.h
+    Platform/Vulkan/Pipeline/VertexLayout.h
+    Platform/Vulkan/Pipeline/VertexLayout.cpp
+    Platform/Vulkan/Pipeline/ShaderModule.h
+    Platform/Vulkan/Pipeline/ShaderModule.cpp
+    Platform/Vulkan/Pipeline/DescriptorAccounting.h
+    Platform/Vulkan/Pipeline/DescriptorAccounting.cpp
+    Platform/Vulkan/Pipeline/DescriptorPool.h
+    Platform/Vulkan/Pipeline/DescriptorPool.cpp
     Forge/UI/UI.h
 )
 target_include_directories(vulkan

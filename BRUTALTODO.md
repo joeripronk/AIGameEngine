@@ -123,28 +123,30 @@ Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` 
 
 ## Phase 4 - Pipelines, shaders, descriptors (`src/Platform/Vulkan/Pipeline/`)
 
-- [ ] `ShaderModule::FromSpirv` (replace `VulkanShader`), shader library keeps its
+- [x] `ShaderModule::FromSpirv` (replace `VulkanShader`), shader library keeps its
       `resources/shaders/*.spv` contract and the StartupIntegrityTests checks.
-- [ ] `PipelinePresets`: `constexpr`/static state blocks - blend (None/Alpha/Additive/
-      SoftAdditive/Multiplicative), depth-stencil variants, rasterizer (fill/line × cull),
-      topologies, samplers (linear clamped/repeat, aniso 16×, point). Composed by pointer
-      at PSO creation, exactly the BRUTAL `Presets.cs` pattern.
-- [ ] Vertex layout from the CPU struct: `VertexLayout::For<TRoot, TVertex, TInstance>()`
-      template with a `FG_VERTEX_FIELDS(...)` metadata macro mapping member types to
-      `VkFormat` (float2→R32G32_SFLOAT, normalized byte4, etc.), cached per type,
-      `Validate()` returning an error enum. Replaces hand-written `VkVertexInputAttributeDescription`
-      arrays in `VulkanVertexArray`/`PbrRenderer`.
-- [ ] `DescriptorSetLayout` + **accounting `DescriptorPool`**: per-type census from layouts,
-      allocation validated against a scratch copy of pool sizes, out-of-sets / out-of-descriptors
-      reported with human-readable counts, credit-exact free (set→layout map).
-- [ ] Pipeline cache (explicit `VkPipelineCache`, dumped/loaded across sessions - out of scope
-      for parity, tracked as TODO here).
-- [ ] `RenderPass` equivalents: keep classic render passes first; **dynamic rendering
-      (`vkCmdBeginRendering`) is the target** for the pass rewrite (Phase 5) since it removes
-      most render-pass objects; decide at Phase 5 start, record the decision below.
+- [x] `PipelinePresets`: `constexpr` state blocks - blend (None/Alpha/Additive/
+      SoftAdditive/Multiplicative), depth-stencil variants (Opaque/Disabled/TestNoWrite),
+      rasterizer (fill/line × cull), topologies, samplers (linear clamped/repeat, aniso 16×,
+      point). Composed by pointer at PSO creation, exactly the BRUTAL `Presets.cs` pattern.
+- [x] Vertex layout from the CPU struct: `MakeFieldList(...)` + `FG_VERTEX_FIELDS` mapping
+      member types to `VkFormat` (float2→R32G32_SFLOAT, normalized byte4, etc.),
+      `Validate()` returning an error enum, `VertexLayout::FromFields` producing the binding +
+      attribute arrays. Replaces hand-written `VkVertexInputAttributeDescription`
+      arrays in `VulkanVertexArray`/`PbrRenderer` at the Phase 5 switch-over.
+- [x] `DescriptorSetLayout` + **accounting `DescriptorPool`**: per-type census from layouts,
+      allocation validated against the accounting before the driver is asked, out-of-sets /
+      out-of-descriptors reported with human-readable counts, credit-exact free
+      (set→layout map).
+- [ ] Pipeline cache (explicit `VkPipelineCache`, dumped/loaded across sessions) -
+      **TODO**, tracked here, out of scope for parity.
+- [ ] RenderPass equivalents: classic render passes first; dynamic rendering decided at
+      Phase 5 start (see Decisions).
 - Tests: vertex layout generation for the engine's real vertex structs (PBR vertex, shadow
   vertex, fullscreen vertex) against expected binding/offset/format tables; descriptor pool
-  accounting (over-allocation reports, credit-exact free, layout census).
+  accounting (over-allocation reports, credit-exact free, layout census); preset block
+  contents; subresource ranges and format aspects.
+  (`tests/src/PipelineLayerTests.cpp` - 9 cases, 128 assertions)
 
 ## Phase 5 - Renderer rewrite (`src/Forge/Renderer/` + `src/Platform/Vulkan/`)
 
