@@ -28,9 +28,17 @@ namespace Tetris {
 // art disappearing into the field rather than covering it. A modest metallic
 // keeps the metal character in the specular; a roughness that spreads the
 // highlight lets the whole face read as the surface the artist drew.
-constexpr float kBlockMetallic = 0.15f;
-constexpr float kBlockRoughness = 0.4f;
-constexpr float kBlockEmissiveIntensity = 0.2f;
+//
+// 3D form: pbr.frag adds emissive as a flat term (`+ emissive`, independent of
+// NdotL), so a strong self-glow lifts the shadowed faces toward the lit ones and
+// the directional shading that reads as depth collapses into a uniform slab.
+// Keeping emissive a faint rim keeps the lit/unlit face contrast that makes each
+// block read as a solid, and feeds far less energy into the bloom pass. A
+// tighter roughness with a touch more metallic gives the top faces and the gaps
+// between blocks a crisp edge glint, which is where the 3D shape is legible.
+constexpr float kBlockMetallic = 0.35f;
+constexpr float kBlockRoughness = 0.32f;
+constexpr float kBlockEmissiveIntensity = 0.08f;
 
 // Albedo is white because the theme's art supplies the colour.
 //

@@ -172,19 +172,34 @@ TEST_CASE("Shutdown destroys everything the view created", "[tetris][view]")
 
 TEST_CASE("Blocks are placed at the centre of their cell", "[tetris][view]")
 {
-	// The playfield spans 10 by 20 units around the z-offset well, so cell
-	// (0,0) is the top row, one block in from the left.
-	REQUIRE(BoardView::CellToWorld(0, 0) == glm::vec3(-4.5f, 9.5f, -0.44f));
-	REQUIRE(BoardView::CellToWorld(9, 19) == glm::vec3(4.5f, -9.5f, -0.44f));
-	REQUIRE(BoardView::BoardCentre() == glm::vec3(0.0f, 0.0f, -0.44f));
-	REQUIRE(BoardView::BoardSize() == glm::vec3(10.0f, 20.0f, 1.0f));
+	// The playfield is 10x20 cells of 1.2 world units, spanning 12 by 24 units
+	// around the z-offset well, so cell (0,0) is the top row, one block in from
+	// the left. Components are compared with Approx: 1.2 is not exact in float,
+	// so an exact == on the mapped coordinates is a rounding accident.
+	const glm::vec3 corner = BoardView::CellToWorld(0, 0);
+	REQUIRE(corner.x == Catch::Approx(-4.4f));
+	REQUIRE(corner.y == Catch::Approx(13.4f));
+	REQUIRE(corner.z == Catch::Approx(-0.44f));
+	const glm::vec3 far = BoardView::CellToWorld(9, 19);
+	REQUIRE(far.x == Catch::Approx(6.4f));
+	REQUIRE(far.y == Catch::Approx(-9.4f));
+	REQUIRE(far.z == Catch::Approx(-0.44f));
+	const glm::vec3 centre = BoardView::BoardCentre();
+	REQUIRE(centre.x == Catch::Approx(1.0f));
+	REQUIRE(centre.y == Catch::Approx(2.0f));
+	REQUIRE(centre.z == Catch::Approx(-0.44f));
+	const glm::vec3 size = BoardView::BoardSize();
+	REQUIRE(size.x == Catch::Approx(12.0f));
+	REQUIRE(size.y == Catch::Approx(24.0f));
+	REQUIRE(size.z == Catch::Approx(1.0f));
 }
 
 TEST_CASE("The preview lays the queued piece out the way it spawns", "[tetris][view]")
 {
-	// The tray is 4x4 blocks, so a cell centre may sit no further out than
-	// 1.5 - a block half a unit wide then stays inside the tray.
-	constexpr float kMaxExtent = 1.5f;
+	// The tray is 4x4 cells and the preview blocks scale with the block size, so
+	// a cell centre may sit no further out than 1.5 cells. Measured with the same
+	// arithmetic the preview uses, the bound is exactly reachable.
+	const float kMaxExtent = 1.5f * BoardView::BlockSize();
 
 	for (uint8_t t = 0; t < static_cast<uint8_t>(TetrominoType::Count); ++t)
 	{
@@ -227,9 +242,10 @@ TEST_CASE("The preview lays the queued piece out the way it spawns", "[tetris][v
 			expected.insert({ block.x, block.y });
 
 		std::set<std::pair<int, int>> shown;
+		const float cell = BoardView::BlockSize();
 		for (const glm::vec3& offset : offsets)
-			shown.insert({ static_cast<int>(std::lround(offset.x - minX)),
-				static_cast<int>(std::lround(maxY - offset.y)) });
+			shown.insert({ static_cast<int>(std::lround((offset.x - minX) / cell)),
+				static_cast<int>(std::lround((maxY - offset.y) / cell)) });
 
 		REQUIRE(shown == expected);
 		REQUIRE(shown.size() == 4);
@@ -249,7 +265,7 @@ TEST_CASE("The falling piece eases into its next cell", "[tetris][view]")
 	// that reaches its next cell in one frame is a teleport.
 	const glm::vec3 mid = EntityPosition(*fixture.scene, "TetBlock_Piece0");
 	REQUIRE(mid.x < before.x);
-	REQUIRE(mid.x > before.x - 1.0f);
+	REQUIRE(mid.x > before.x - BoardView::BlockSize());
 	REQUIRE(mid.y == Catch::Approx(before.y));
 
 	for (int i = 0; i < 30; ++i)
@@ -257,7 +273,7 @@ TEST_CASE("The falling piece eases into its next cell", "[tetris][view]")
 
 	// The ease ends where the board says it does, exactly.
 	const glm::vec3 settled = EntityPosition(*fixture.scene, "TetBlock_Piece0");
-	REQUIRE(settled.x == Catch::Approx(before.x - 1.0f));
+	REQUIRE(settled.x == Catch::Approx(before.x - BoardView::BlockSize()));
 	REQUIRE(settled.y == Catch::Approx(before.y));
 }
 
@@ -363,7 +379,7 @@ TEST_CASE("A falling piece glides at the drop rate instead of hopping", "[tetris
 
 	// One row, covered completely - not a hop that arrives and then sits there
 	// for the rest of the drop interval.
-	REQUIRE(ys[start] - ys[end] == Catch::Approx(1.0f).margin(0.001f));
+	REQUIRE(ys[start] - ys[end] == Catch::Approx(BoardView::BlockSize()).margin(0.001f));
 	REQUIRE(static_cast<int>(end - start) >= 20);
 
 	// Constant rate. Easing each row makes the block accelerate and brake once

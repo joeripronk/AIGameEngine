@@ -13,12 +13,15 @@ namespace Tetris {
 
 namespace {
 
-// The playfield: 10 columns by 20 rows of 1x1 blocks. It hangs below the world
-// origin so the camera looks at the middle rows rather than at empty space, and
-// is centred horizontally so the preview beside it has room.
+// The playfield: 10 columns by 20 rows. Each cell is kBlock world units on a
+// side, so the board's footprint (and the camera framing, decor and preview
+// that derive from BoardSize) scales with it: a bigger block fills more of the
+// viewport. The board hangs below the world origin so the camera looks at the
+// middle rows rather than at empty space, and is centred horizontally so the
+// preview beside it has room.
 constexpr float kColumns = 10.0f;
 constexpr float kRows = 20.0f;
-constexpr float kBlock = 1.0f;
+constexpr float kBlock = 1.2f;
 constexpr float kOriginX = -5.0f;
 constexpr float kOriginY = -10.0f;
 

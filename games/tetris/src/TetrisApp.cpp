@@ -285,6 +285,9 @@ void TetrisApp::CreateDecor()
 	const glm::vec3 boardSize = BoardView::BoardSize();
 	const float halfW = boardSize.x * 0.5f;
 	const float halfH = boardSize.y * 0.5f;
+	// The preview tray and its blocks are laid out in cells, so they scale with
+	// the block size and stay proportional to the blocks on the board.
+	const float block = BoardView::BlockSize();
 
 	const auto addSlab = [this, centre](const char* name, const glm::vec3& offset, const glm::vec3& scale, const glm::vec3& albedo, float roughness)
 	{
@@ -312,9 +315,9 @@ void TetrisApp::CreateDecor()
 		auto tray = m_Scene->CreateEntity("PreviewTray");
 		auto& trayTransform = tray.GetComponent<Forge::TransformComponent>();
 		trayTransform.Translation =
-			centre + glm::vec3(BoardView::BoardSize().x * 0.5f + kPreviewGap + kPreviewColumns * 0.5f,
-				BoardView::BoardSize().y * 0.5f - 2.0f, -0.52f);
-		trayTransform.Scale = glm::vec3(kPreviewColumns + 0.5f, kPreviewRows + 0.5f, 0.3f);
+			centre + glm::vec3(BoardView::BoardSize().x * 0.5f + block * (kPreviewGap + kPreviewColumns * 0.5f),
+				BoardView::BoardSize().y * 0.5f - 2.0f * block, -0.52f);
+		trayTransform.Scale = glm::vec3((kPreviewColumns + 0.5f) * block, (kPreviewRows + 0.5f) * block, 0.3f);
 		tray.AddComponent<Forge::MeshComponent>().ModelPath = kBlockMesh;
 		auto& trayMaterial = tray.AddComponent<Forge::PBRMaterialComponent>();
 		trayMaterial.Albedo = { 0.11f, 0.13f, 0.17f };
@@ -336,8 +339,8 @@ void TetrisApp::CreateDecor()
 	m_PreviewRoot = m_Scene->CreateEntity("NextPiecePreview");
 	auto& previewTransform = m_PreviewRoot.GetComponent<Forge::TransformComponent>();
 	previewTransform.Translation =
-		centre + glm::vec3(BoardView::BoardSize().x * 0.5f + kPreviewGap + kPreviewColumns * 0.5f,
-			BoardView::BoardSize().y * 0.5f - 2.0f, -0.3f);
+		centre + glm::vec3(BoardView::BoardSize().x * 0.5f + block * (kPreviewGap + kPreviewColumns * 0.5f),
+			BoardView::BoardSize().y * 0.5f - 2.0f * block, -0.3f);
 	m_DecorEntities.push_back(m_PreviewRoot);
 }
 
@@ -461,7 +464,7 @@ void TetrisApp::SyncPreview()
 			Forge::Entity entity = m_Scene->CreateEntity("PreviewBlock_" + std::to_string(i));
 			auto& transform = entity.GetComponent<Forge::TransformComponent>();
 			transform.Translation = offset;
-			transform.Scale = glm::vec3(kPreviewBlockScale);
+			transform.Scale = glm::vec3(kPreviewBlockScale * BoardView::BlockSize());
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
 			material.Albedo = previewColour;
