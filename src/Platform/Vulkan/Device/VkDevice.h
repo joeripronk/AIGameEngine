@@ -69,6 +69,9 @@ struct DeviceFunctions final
 	PFN_vkDestroyBufferView DestroyBufferView = nullptr;
 	PFN_vkGetBufferDeviceAddress GetBufferDeviceAddress = nullptr;
 
+	PFN_vkFlushMappedMemoryRanges FlushMappedMemoryRanges = nullptr;
+	PFN_vkInvalidateMappedMemoryRanges InvalidateMappedMemoryRanges = nullptr;
+
 	PFN_vkCreateImage CreateImage = nullptr;
 	PFN_vkDestroyImage DestroyImage = nullptr;
 	PFN_vkGetImageMemoryRequirements GetImageMemoryRequirements = nullptr;

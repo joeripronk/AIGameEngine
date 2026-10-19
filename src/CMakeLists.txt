@@ -306,6 +306,24 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/Device/VkDevice.cpp
     Platform/Vulkan/Device/VkQueue.h
     Platform/Vulkan/Device/VkQueue.cpp
+    # BRUTAL rewrite - memory + resources
+    Platform/Vulkan/Memory/AllocationInfo.h
+    Platform/Vulkan/Memory/AllocationInfo.cpp
+    Platform/Vulkan/Memory/Allocator.h
+    Platform/Vulkan/Memory/Allocator.cpp
+    Platform/Vulkan/Memory/VmaDeviceAllocator.h
+    Platform/Vulkan/Memory/VmaDeviceAllocator.cpp
+    Platform/Vulkan/Memory/UploadRegions.h
+    Platform/Vulkan/Memory/UploadRegions.cpp
+    Platform/Vulkan/Memory/StagingPool.h
+    Platform/Vulkan/Memory/StagingPool.cpp
+    Platform/Vulkan/Resources/Subresources.h
+    Platform/Vulkan/Resources/Buffer.h
+    Platform/Vulkan/Resources/Buffer.cpp
+    Platform/Vulkan/Resources/Image.h
+    Platform/Vulkan/Resources/Image.cpp
+    Platform/Vulkan/Resources/ImageView.h
+    Platform/Vulkan/Resources/ImageView.cpp
     Forge/UI/UI.h
 )
 target_include_directories(vulkan

@@ -79,25 +79,26 @@ Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` 
 
 ## Phase 2 - Memory + resources (`src/Platform/Vulkan/Memory/`, `Resources/`)
 
-- [ ] `AllocationInfo` (VMA-shaped: allocator, memory, offset, size, memoryType, handle),
+- [x] `AllocationInfo` (VMA-shaped: allocator, memory, offset, size, memoryType, handle),
       `MemoryPreference {None, PreferGpu, PreferCpu}`, device-address flag chaining.
-- [ ] `IAllocator` / `IBufferAllocator` / `IImageAllocator` interfaces; `VmaAllocator`
+- [x] `IAllocator` / `IBufferAllocator` / `IImageAllocator` interfaces; `VmaDeviceAllocator`
       implementation (Preference → `VmaMemoryUsage` mapping). Only implementation for now -
       the interface exists so a ring/buddy allocator can be added later.
-- [ ] `Buffer` / `Image` / `ImageView` RAII wrappers carrying their allocator; `Dispose`
-      returns the resource to whichever allocator made it. `Image::CreateView`, cached full
-      subresource range, `MaxMipLevels`.
-- [ ] `MappedMemory` RAII: map → `AsSpan<T>()` → `Flush`/`Invalidate` exact range → unmap;
-      subset views share the parent map; free refuses while mapped.
-- [ ] `StagingPool`: host-coherent `TRANSFER_SRC` buffers pooled by size, growable command
-      buffer list with cursor, batch submit under one recycled fence, `WaitFor` reclaims
-      signalled submissions, full `ResetCommandPool` only when nothing is left recorded.
-- [ ] `UploadRegions`: pure CPU copy-plan builder for textures (per-mip layout, row pitch,
-      `lcm(4, texelBlock)` alignment, region batching) → list of `bufferToImageCopy` regions.
-      This is pure arithmetic → Catch2 tests against hand-computed layouts.
-- [ ] `Subresources::Full/Single/Mips/Layers`, format aspect-mask helpers.
+- [x] `Buffer` / `Image` / `ImageView` RAII wrappers carrying their allocator; `Dispose`
+       returns the resource to whichever allocator made it. `Image::CreateView`, cached full
+       subresource range, `MaxMipLevels`.
+- [x] `MappedMemory` RAII: map → `AsSpan<T>()` → `Flush`/`Invalidate` exact range → unmap;
+       subset views share the parent map (refcounted); free refuses while mapped.
+- [x] `StagingPool`: host-coherent `TRANSFER_SRC` buffers pooled by size, growable command
+       buffer list with cursor, batch submit under one recycled fence, `WaitFor` reclaims
+       signalled submissions, full `ResetCommandPool` only when nothing is left recorded.
+       (`StagingPoolState` is the pure record/submit/reclaim/rewind machine the tests drive.)
+- [x] `UploadRegions`: pure CPU copy-plan builder for textures (per-mip layout, row pitch,
+       `lcm(4, texelBlock)` alignment, region batching) → list of `bufferToImageCopy` regions.
+- [x] `Subresources::Full/Single/Mips/Layers`, format aspect-mask helpers.
 - Tests: upload region plans (mip pyramid math, KTX-style row padding), staging pool state
   machine (record/submit/reclaim/rewind), mapped-memory subset validation.
+  (`tests/src/MemoryLayerTests.cpp` - 9 cases, 104 assertions)
 
 ## Phase 3 - Frame, swapchain, synchronization (`src/Platform/Vulkan/Frame/`)
 

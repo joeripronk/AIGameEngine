@@ -40,6 +40,7 @@ target_sources(ForgeTests
         src/NativeScriptTests.cpp
         src/StartupIntegrityTests.cpp
         src/DeviceLayerTests.cpp
+        src/MemoryLayerTests.cpp
 )
 
 target_link_libraries(ForgeTests
