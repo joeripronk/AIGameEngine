@@ -24,9 +24,20 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
 
+#include <cstdio>
+
 namespace Forge {
 
 	namespace {
+
+		// Copies a std::string into a fixed char buffer, always null-terminating
+		// and truncating on overflow. std::snprintf is the portable form; strncpy
+		// is deprecated by the MSVC CRT and does not guarantee termination.
+		void CopyToBuffer(char* buffer, size_t size, const std::string& value)
+		{
+			std::snprintf(buffer, size, "%s", value.c_str());
+		}
+
 		// Ray origin and direction in world space for gizmo interaction.
 		glm::vec3 g_GizmoRayOrigin;
 		glm::vec3 g_GizmoRayDirection;
@@ -724,8 +735,7 @@ namespace Forge {
 		Entity entity = m_Editor.GetSelectedEntity();
 
 		char nameBuffer[256];
-		strncpy(nameBuffer, entity.GetName().c_str(), sizeof(nameBuffer) - 1);
-		nameBuffer[sizeof(nameBuffer) - 1] = '\0';
+		CopyToBuffer(nameBuffer, sizeof(nameBuffer), entity.GetName());
 		if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
 			entity.GetComponent<TagComponent>().Tag = nameBuffer;
 
@@ -847,8 +857,7 @@ namespace Forge {
 			// Kept in a member buffer rather than a local: InputText needs stable
 			// storage across frames, and a local would be reinitialised from the
 			// component each frame, discarding anything mid-edit.
-			strncpy(m_AudioPathBuffer, audio.SourcePath.c_str(), sizeof(m_AudioPathBuffer) - 1);
-			m_AudioPathBuffer[sizeof(m_AudioPathBuffer) - 1] = '\0';
+			CopyToBuffer(m_AudioPathBuffer, sizeof(m_AudioPathBuffer), audio.SourcePath);
 			if (ImGui::InputText("Clip##audio", m_AudioPathBuffer, sizeof(m_AudioPathBuffer)))
 				audio.SourcePath = m_AudioPathBuffer;
 
@@ -890,8 +899,7 @@ namespace Forge {
 		{
 			ImGui::Text("Script");
 			char scriptBuffer[128];
-			strncpy(scriptBuffer, entity.GetComponent<ScriptComponent>().ClassName.c_str(), sizeof(scriptBuffer) - 1);
-			scriptBuffer[sizeof(scriptBuffer) - 1] = '\0';
+			CopyToBuffer(scriptBuffer, sizeof(scriptBuffer), entity.GetComponent<ScriptComponent>().ClassName);
 			if (ImGui::InputText("Class Name##script", scriptBuffer, sizeof(scriptBuffer)))
 				entity.GetComponent<ScriptComponent>().ClassName = scriptBuffer;
 		}
@@ -1353,8 +1361,8 @@ namespace Forge {
 
 		if (ImGui::IsItemHovered())
 		{
-			const int mx = (int)ImGui::GetMousePos().x - cursorPos.x;
-			const int my = (int)ImGui::GetMousePos().y - cursorPos.y;
+			const int mx = static_cast<int>(ImGui::GetMousePos().x - cursorPos.x);
+			const int my = static_cast<int>(ImGui::GetMousePos().y - cursorPos.y);
 
 			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 			{

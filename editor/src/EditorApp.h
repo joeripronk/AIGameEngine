@@ -16,7 +16,7 @@ namespace Forge {
 	class EditorApp : public Application
 	{
 	public:
-		EditorApp(const class ApplicationCommandLineArgs& args);
+		EditorApp(const ApplicationCommandLineArgs& args);
 		~EditorApp() override;
 
 		void Run() override;

@@ -167,7 +167,18 @@ namespace Forge {
 
 				// Optionally read the rendered frame back to disk for
 				// verification (FG_CAPTURE_PATH=/tmp/frame.ppm).
-				if (const char* capturePath = std::getenv("FG_CAPTURE_PATH"))
+				//
+				// _dupenv_s on Windows rather than std::getenv, which the MSVC
+				// CRT deprecates; the buffer is freed on both paths.
+#ifdef _WIN32
+				char* capturePath = nullptr;
+				size_t capturePathLength = 0;
+				const bool captureRequested = _dupenv_s(&capturePath, &capturePathLength, "FG_CAPTURE_PATH") == 0 && capturePath != nullptr;
+#else
+				const char* capturePath = std::getenv("FG_CAPTURE_PATH");
+				const bool captureRequested = capturePath != nullptr;
+#endif
+				if (captureRequested)
 				{
 					// A capture that silently failed would leave a verification
 					// script staring at a stale or missing image, so report it.
@@ -175,6 +186,9 @@ namespace Forge {
 					{
 						FG_CORE_ERROR("Runtime: failed to capture frame to '{0}'", capturePath);
 					}
+#ifdef _WIN32
+					free(capturePath);
+#endif
 				}
 
 				Renderer::PresentSwapchainImage(swapchainImage);
