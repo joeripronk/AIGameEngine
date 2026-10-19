@@ -215,12 +215,16 @@ TEST_CASE("A hard-dropped fire burns out with an animation, not instantly", "[te
 TEST_CASE("Fire blocks are offered every spawn, and the chance climbs when missed", "[tetris][fire]")
 {
 	// The generator is seeded, so this run reproduces exactly. The roll runs on
-	// every spawn from a base of 0%: the first spawn is never fire, each miss
-	// adds 2%, and this seed's first fire lands on spawn 8, by which point the
-	// meter has climbed to 14%.
+	// every spawn from a base of 0%, and each miss adds 0.2% - ten times slower
+	// than the ladder this started at - so this seed's first fire lands on
+	// spawn 30, by which point the meter has reached a 1-in-100 roll.
 	TetrisManager manager;
 	manager.Initialize();
 	manager.StartGame();
+
+	// StartGame rolls twice, and a base of 0% cannot produce fire: the ladder
+	// is at two steps.
+	REQUIRE(manager.GetFireChance() == Approx(0.004f));
 
 	std::vector<bool> fire;
 	for (int spawn = 0; spawn < 400; ++spawn)
@@ -237,15 +241,42 @@ TEST_CASE("Fire blocks are offered every spawn, and the chance climbs when misse
 	}
 
 	// A base of 0% means the very first spawn cannot be fire, and the meter
-	// only reaches this seed's first hit at spawn 8, by which point the ladder
-	// has climbed to 14%.
-	for (int i = 0; i < 8; ++i)
+	// only reaches this seed's first hit at spawn 30.
+	for (int i = 0; i < 30; ++i)
 		REQUIRE_FALSE(fire[static_cast<size_t>(i)]);
 
-	// The first fire this seed produces, and a long run produces many (the
-	// ladder resets to 0% after each, then climbs again).
-	REQUIRE(fire[8]);
-	REQUIRE(std::count(fire.begin(), fire.end(), true) >= 2);
+	// The first fire this seed produces, and a long run produces some (the
+	// ladder resets to 0% after each, then climbs again) - but the slow ladder
+	// keeps fire the rare event it is.
+	REQUIRE(fire[30]);
+	const int fires = static_cast<int>(std::count(fire.begin(), fire.end(), true));
+	REQUIRE(fires >= 2);
+	REQUIRE(fires <= 20);
+}
+
+TEST_CASE("A missed fire roll adds a fifth of one percent", "[tetris][fire]")
+{
+	TetrisManager manager;
+	manager.Initialize();
+	manager.StartGame();
+
+	for (int spawn = 0; spawn < 20; ++spawn)
+	{
+		TetrisGameState& state = manager.GetState();
+		std::fill(state.Board.begin(), state.Board.end(), 0);
+		state.CurrentState = TetrisGameState::State::Playing;
+		state.HasGameOver = false;
+
+		const float before = manager.GetFireChance();
+		manager.HardDrop();
+
+		// One roll per lock: a miss adds the step, a fire block resets the
+		// ladder to its base.
+		if (state.CurrentPiece.IsFire)
+			REQUIRE(manager.GetFireChance() == Approx(0.0f));
+		else
+			REQUIRE(manager.GetFireChance() == Approx(before + 0.002f));
+	}
 }
 
 TEST_CASE("Screen shake charges the fire meter, capped at certain", "[tetris][fire]")

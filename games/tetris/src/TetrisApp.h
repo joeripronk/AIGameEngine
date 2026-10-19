@@ -35,7 +35,7 @@ private:
 	bool CreateScene();
 
 	// Mirror the queued piece into the preview blocks beside the board.
-	void SyncPreview();
+	void SyncPreview(float dt);
 
 	// Mode-specific decoration: the well walls and preview tray (3D) or the
 	// flat border (2D), plus the next-piece preview root. Tracked so
@@ -88,9 +88,11 @@ private:
 	// pushed onto it.
 	std::unique_ptr<InputOverlayLayer> m_InputOverlayLayer;
 
-	// Preview blocks, one per cell of the queued piece.
+	// Preview blocks, one per cell of the queued piece. A queued fire block
+	// flashes on this clock, the same pulse the falling fire block glows at.
 	std::map<uint64_t, Forge::Entity> m_PreviewBlocks;
 	Forge::Entity m_PreviewRoot;
+	float m_PreviewFlash = 0.0f;
 
 	uint64_t m_FrameCount = 0;
 

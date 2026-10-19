@@ -163,7 +163,7 @@ private:
 	uint32_t m_RandomState = 0x9E3779B9u;
 
 	// Fire-block spawning state: the chance that the next spawn is a fire
-	// block. It starts at the base, climbs 2% every spawn it misses, and
+	// block. It starts at the base, climbs 0.2% every spawn it misses, and
 	// resets to the base after a fire block.
 	float m_FireChance = 0.0f;
 
@@ -171,7 +171,11 @@ private:
 	// offered once screen shake (or a run of misses) has charged the meter,
 	// and each miss makes the next one likelier.
 	static constexpr float kFireBaseChance = 0.0f;
-	static constexpr float kFireChanceStep = 0.02f;
+
+	// Ten times slower than the ladder this started at: the meter climbs
+	// 0.2% per missed spawn, so a fire block stays the rare event it is and
+	// the meter has to be charged by a hard landing to reach anything.
+	static constexpr float kFireChanceStep = 0.002f;
 	static constexpr float kFireMaxChance = 1.0f;
 
 	// A hard drop's compaction reaches this many rows below the row it landed

@@ -55,6 +55,11 @@ constexpr float kShakeDepthRatio = 0.25f;
 // play over time rather than by one drop.
 constexpr float kFireChancePerShake = 0.1f;
 
+// The queued fire block flashes in the preview with the same pulse the falling
+// fire block glows at: the queue has to say what is coming, not only what has
+// already arrived.
+constexpr float kPreviewFireGlow = 0.9f;
+
 // Euler radians for a camera transform whose -Z axis points from `eye` at
 // `target`. Scene::RenderScene builds the view matrix as
 // inverse(translate * toMat4(quat(rotation))) with rotation (pitch, yaw, 0),
@@ -452,7 +457,7 @@ void TetrisApp::ShutdownImGui()
 	m_ImGuiLayer.reset();
 }
 
-void TetrisApp::SyncPreview()
+void TetrisApp::SyncPreview(float dt)
 {
 	const TetrisGameState& state = m_BoardView.GetManager().GetState();
 
@@ -471,6 +476,13 @@ void TetrisApp::SyncPreview()
 			? TetrisManager::kFireColor
 			: TetrisManager::GetTetrominoDefinition(shown).color)
 		: glm::vec3(0.0f);
+
+	// A queued fire block throbs on the falling fire block's clock, so the
+	// preview reads as the same object the player is about to receive.
+	m_PreviewFlash += dt;
+	const float emissiveIntensity = visible && state.NextPiece.IsFire
+		? kBlockEmissiveIntensity + kPreviewFireGlow * FireFlashPulse(m_PreviewFlash)
+		: kBlockEmissiveIntensity;
 
 
 	glm::vec3 local[4];
@@ -510,7 +522,7 @@ void TetrisApp::SyncPreview()
 			material.AO = 1.0f;
 
 			material.Emissive = previewColour;
-			material.EmissiveIntensity = kBlockEmissiveIntensity;
+			material.EmissiveIntensity = emissiveIntensity;
 
 			entity.AddComponent<Forge::MeshComponent>().ModelPath = kBlockMesh;
 
@@ -531,7 +543,7 @@ void TetrisApp::SyncPreview()
 			cachedMaterial.AO = 1.0f;
 
 			cachedMaterial.Emissive = previewColour;
-			cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
+			cachedMaterial.EmissiveIntensity = emissiveIntensity;
 		}
 	}
 }
@@ -753,7 +765,7 @@ void TetrisApp::Run()
 		// still has to drain finished sounds, or the theme keeps playing with
 		// nothing on screen to pause it.
 		m_Music.Update(m_BoardView.GetManager().GetState());
-		SyncPreview();
+		SyncPreview(frameTime);
 		if (!IsMinimized())
 		{
 			for (Forge::Layer* layer : GetLayerStack())

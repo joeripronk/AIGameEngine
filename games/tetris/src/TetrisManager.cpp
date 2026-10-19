@@ -998,6 +998,8 @@ bool TetrisManager::RollFireSpawn()
 {
 	// The roll runs on every spawn. At a base of 0% the first spawn is never
 	// fire - the meter has to be charged by shake, or by a run of misses.
+	// The threshold is in percent, so a ladder that climbs 0.2% per miss needs
+	// five misses before it can produce anything at all.
 	const uint32_t threshold =
 		static_cast<uint32_t>(m_FireChance * 100.0f + 0.5f);
 	const bool fire = (NextRandom(m_RandomState) % 100u) < threshold;

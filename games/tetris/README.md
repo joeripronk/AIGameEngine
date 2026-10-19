@@ -141,6 +141,18 @@ The tiles only show at all because the engine box-projects a mesh that declares
 no `TEXCOORD_0`: `cube.glb` stores POSITION and NORMAL alone, so its UVs used
 to be zero everywhere and every block sampled one texel.
 
+### Fire blocks
+
+A fire block is an ordinary tetromino flagged to melt the blocks it touches; it
+never becomes part of the stack. The spawn roll runs every spawn from a base of
+0%, so the meter has to be charged - by a hard landing (the shake feeds it, by
+the amplitude it produces) or by a run of misses, each adding 0.2%. The ladder
+resets to the base after a fire block, which keeps fire the rare event it is.
+
+The queued fire block **flashes in the preview** on the falling fire block's
+pulse (`FireFlashPulse`), so the tray says what is coming and not only what has
+arrived.
+
 ## Music
 
 Background music is a playlist, in play order:
