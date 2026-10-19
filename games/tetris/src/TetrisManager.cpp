@@ -82,6 +82,54 @@ void RebuildShapeFromBlockPos(TetrisPiece& piece)
 		piece.Blocks[i] = piece.BlockAlive[i] ? piece.BlockPos[i] - piece.Position : glm::ivec2(0, 0);
 }
 
+// Pack every column from its own floor upwards: a write row walks down from
+// the bottom of the column, and every block lands on it, so the gaps close
+// from the bottom and the blocks keep the order they fell in. Walking source
+// rows from the floor up is what makes this safe in place - the destination is
+// always at or below the source, so no block is overwritten before it has been
+// read.
+//
+// `locked` marks cells that are neither moved nor a destination - the piece a
+// hard drop is about to travel with. Without that, a column pack slides each
+// of that piece's blocks by its own distance, and the piece arrives as a
+// scatter of blocks instead of the shape the player dropped.
+uint32_t PackColumns(TetrisGameState& state, const std::vector<uint8_t>& locked,
+                     std::vector<CompactionMove>& moves)
+{
+	uint32_t moved = 0;
+
+	for (uint32_t col = 0; col < state.Width; ++col)
+	{
+		uint32_t dst = state.Height;
+		for (uint32_t src = state.Height; src-- > 0;)
+		{
+			const uint32_t from = src * state.Width + col;
+			if (from >= state.Board.size() || state.Board[from] == 0)
+				continue;
+			if (!locked.empty() && locked[from] != 0)
+				continue;
+
+			--dst;
+			while (dst > 0 && dst < state.Height &&
+				   !locked.empty() && locked[dst * state.Width + col] != 0)
+				--dst;  // a locked cell is nowhere a block can land
+
+			const uint32_t to = dst * state.Width + col;
+			if (to >= state.Board.size() || to == from)
+				continue;
+			if (!locked.empty() && locked[to] != 0)
+				continue;
+
+			state.Board[to] = state.Board[from];
+			state.Board[from] = 0;
+			moves.push_back(CompactionMove{ col, src, dst });
+			++moved;
+		}
+	}
+
+	return moved;
+}
+
 }  // namespace
 
 const TetrominoDefinition& TetrisGameState::GetDefinition(TetrominoType type)
@@ -558,9 +606,10 @@ void TetrisManager::LockPiece(bool compact)
 	// A hard drop packs the stack before anything is scored: every block with
 	// empty space under it falls into it. That is what lets a hard drop close a
 	// row a hole was keeping open, and it has to happen before ClearLines for
-	// the line it completes to be cleared by this lock.
+	// the line it completes to be cleared by this lock. The piece that dropped
+	// is packed as one body, so it arrives in the shape it was dropped in.
 	if (compact)
-		CompactStack();
+		CompactStack(piece);
 
 	ClearLines();
 
@@ -580,35 +629,173 @@ void TetrisManager::LockPiece(bool compact)
 
 uint32_t TetrisManager::CompactStack()
 {
-	uint32_t moved = 0;
+	m_State.CompactedCells.clear();
+	return PackColumns(m_State, std::vector<uint8_t>(), m_State.CompactedCells);
+}
+
+uint32_t TetrisManager::CompactStack(const TetrisPiece& settled)
+{
 	m_State.CompactedCells.clear();
 
-	// Each column is packed from its own floor upwards: a write row walks down
-	// from the bottom of the column, and every block lands on it, so the gaps
-	// close from the bottom and the blocks keep the order they were dropped in.
-	// Walking source rows from the floor up is what makes this safe in place -
-	// the destination is always at or below the source, so no block is
-	// overwritten before it has been read.
+	// Only the columns the piece lands on are impacted, and the piece is not
+	// part of the stack it lands on: the gaps under it close, the blocks
+	// standing over them fall, and the piece then travels down into the space
+	// they made. A column the piece never touched keeps its holes - a drop that
+	// lands nowhere near them has no business closing them.
+	std::vector<uint8_t> locked(m_State.Board.size(), 0);
+	std::vector<uint8_t> impacted(m_State.Width, 0);
+	int32_t impactRow = 0;
+	for (const glm::ivec2& block : settled.Blocks)
+	{
+		if (!m_State.IsValidPosition(settled.Position + block))
+			continue;
+		const uint32_t index = m_State.GetBoardIndex(settled.Position + block);
+		if (index >= locked.size())
+			continue;
+		locked[index] = 1;
+		impacted[index % m_State.Width] = 1;
+		const int32_t row = static_cast<int32_t>(index / m_State.Width);
+		if (row > impactRow)
+			impactRow = row;
+	}
+
+	uint32_t moved = 0;
+
 	for (uint32_t col = 0; col < m_State.Width; ++col)
 	{
-		uint32_t dst = m_State.Height;
-		for (uint32_t src = m_State.Height; src-- > 0;)
+		if (impacted[col] == 0)
+			continue;
+
+		// The gap directly under the landing, and the reach: the blocks that
+		// fall are the ones standing on that gap, and only while the gap opens
+		// within three rows of the row the piece landed on.
+		uint32_t gapTop = 0;
+		bool found = false;
+		for (uint32_t row = static_cast<uint32_t>(impactRow) + 1; row < m_State.Height; ++row)
+		{
+			const uint32_t index = row * m_State.Width + col;
+			if (index < m_State.Board.size() && m_State.Board[index] == 0)
+			{
+				gapTop = row;
+				found = true;
+				break;
+			}
+		}
+		if (!found)
+			continue;
+		if (gapTop - static_cast<uint32_t>(impactRow) > kCompactionReachRows)
+			continue;
+
+		uint32_t depth = 0;
+		while (gapTop + depth < m_State.Height &&
+			   (gapTop + depth) * m_State.Width + col < m_State.Board.size() &&
+			   m_State.Board[(gapTop + depth) * m_State.Width + col] == 0)
+			++depth;
+		if (depth == 0)
+			continue;
+
+		// The column above the gap packs into it: a block is moved by this
+		// landing because the block it stands on is moved by this landing,
+		// starting from the block standing on the gap. The piece's own blocks
+		// are not among them - they travel as one body, and they travel last.
+		uint32_t dst = gapTop + depth - 1;
+		for (uint32_t src = gapTop; src-- > 0;)
 		{
 			const uint32_t from = src * m_State.Width + col;
 			if (from >= m_State.Board.size() || m_State.Board[from] == 0)
 				continue;
+			if (locked[from] != 0)
+				continue;
 
-			--dst;
 			const uint32_t to = dst * m_State.Width + col;
-			if (to >= m_State.Board.size() || to == from)
+			if (to >= m_State.Board.size())
 				continue;
 
 			m_State.Board[to] = m_State.Board[from];
 			m_State.Board[from] = 0;
-			m_State.CompactedCells.push_back(
-				CompactionMove{ col, src, dst });
+			m_State.CompactedCells.push_back(CompactionMove{ col, src, dst });
 			++moved;
+			if (dst > 0)
+				--dst;
 		}
+	}
+
+	// The piece travels as one body. The distance is measured for all four
+	// blocks together, so an L arrives as an L: the piece stops at the first
+	// row where any one of them would not fit, and every block moves with it.
+	// Its own cells count as free, because they are the body moving.
+	uint32_t slide = 0;
+	while (true)
+	{
+		const uint32_t next = slide + 1;
+		bool fits = true;
+		for (const glm::ivec2& block : settled.Blocks)
+		{
+			const glm::ivec2 cell =
+				settled.Position + block + glm::ivec2(0, static_cast<int32_t>(next));
+			if (!m_State.IsValidPosition(cell))
+			{
+				fits = false;
+				break;
+			}
+			const uint32_t index = m_State.GetBoardIndex(cell);
+			if (index >= m_State.Board.size())
+			{
+				fits = false;
+				break;
+			}
+			if (m_State.Board[index] != 0 && locked[index] == 0)
+			{
+				fits = false;
+				break;
+			}
+		}
+		if (!fits)
+			break;
+		slide = next;
+	}
+
+	if (slide == 0)
+		return moved;
+
+	// The body moves bottom-first. A piece two blocks tall in one column
+	// sliding two rows has its lower block's destination beyond the upper
+	// block's source, so moving the upper one first would copy the lower
+	// block's cell out from under it and the piece would arrive a block short -
+	// a shape with a piece missing, which is the very thing this is for.
+	std::vector<uint32_t> body;
+	body.reserve(4);
+	for (const glm::ivec2& block : settled.Blocks)
+	{
+		if (!m_State.IsValidPosition(settled.Position + block))
+			continue;
+		const uint32_t index = m_State.GetBoardIndex(settled.Position + block);
+		if (index < m_State.Board.size())
+			body.push_back(index);
+	}
+	std::sort(body.begin(), body.end(),
+		[width = m_State.Width](uint32_t a, uint32_t b) { return a > b; });
+
+	for (const uint32_t fromIndex : body)
+	{
+		const glm::ivec2 from = m_State.GetGridPosition(fromIndex);
+		const glm::ivec2 to = from + glm::ivec2(0, static_cast<int32_t>(slide));
+		if (!m_State.IsValidPosition(to))
+			continue;
+
+		const uint32_t toIndex = m_State.GetBoardIndex(to);
+		if (toIndex >= m_State.Board.size())
+			continue;
+
+		m_State.Board[toIndex] = m_State.Board[fromIndex];
+		m_State.Board[fromIndex] = 0;
+		locked[toIndex] = 1;
+		locked[fromIndex] = 0;
+		m_State.CompactedCells.push_back(CompactionMove{
+			static_cast<uint32_t>(from.x),
+			static_cast<uint32_t>(from.y),
+			static_cast<uint32_t>(to.y) });
+		++moved;
 	}
 
 	return moved;

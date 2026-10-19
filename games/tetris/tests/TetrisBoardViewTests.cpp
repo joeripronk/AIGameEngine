@@ -788,24 +788,24 @@ TEST_CASE("A hard drop slides the block it packs down, and keeps its entity",
 	state.CurrentPiece.Position = glm::ivec2(4, 0);
 	state.UpdatePieceBlocks(state.CurrentPiece);
 
-	// A block with ten rows of nothing under it, in a column the piece never
-	// touches, so the only thing the drop does to it is pack it.
-	state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] =
+	// A block with nine rows of nothing under it, in the column the piece lands
+	// on: the impact travels down through it, finds the gap, and the gap closes.
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 10))] =
 		static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::J) + 1);
 	fixture.view.Update(0.0f);
 
 	REQUIRE(CountBlockEntities(*fixture.scene) == 5);
-	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_10") == BoardView::CellToWorld(0, 10));
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_4_10") == BoardView::CellToWorld(4, 10));
 
 	fixture.view.HandleAction(Action::HardDrop, true);
 	fixture.view.Update(1.0f / 60.0f);
 
 	// The block the player dropped nine rows ago is on the floor now, under a
 	// new name, and it is the same entity: keyed by cell, the old key is gone
-	// and the new one was never in the cache, which is the case the relabel
+	// and the new one was never in the cache, which is what the relabel
 	// exists for. Destroying and rebuilding it here would be a teleport.
-	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_0_19"));
-	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_0_10"));
+	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_4_19"));
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_4_10"));
 	// The packed block, the four the drop placed, and the four of the piece
 	// that spawned after it: nothing destroyed and rebuilt on the way down.
 	REQUIRE(CountBlockEntities(*fixture.scene) == 9);
@@ -813,13 +813,13 @@ TEST_CASE("A hard drop slides the block it packs down, and keeps its entity",
 	// On the frame of the drop it is still standing on the row it was drawn on:
 	// the block the player just dropped has to come to rest before the stack
 	// beneath it closes.
-	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19").y ==
-			Catch::Approx(BoardView::CellToWorld(0, 10).y).margin(1e-3f));
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_4_19").y ==
+			Catch::Approx(BoardView::CellToWorld(4, 10).y).margin(1e-3f));
 
 	for (int i = 0; i < 60; ++i)
 		fixture.view.Update(1.0f / 60.0f);
 
-	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_0_19") == BoardView::CellToWorld(0, 19));
+	REQUIRE(EntityPosition(*fixture.scene, "TetBlock_4_19") == BoardView::CellToWorld(4, 19));
 }
 
 TEST_CASE("A hard drop clears the row its compaction completes", "[tetris][view][compaction][clear]")
@@ -827,10 +827,12 @@ TEST_CASE("A hard drop clears the row its compaction completes", "[tetris][view]
 	RunningView fixture;
 	auto& state = fixture.view.GetManager().GetState();
 
-	// The bottom row is short the two columns the O lands in, and the row is
-	// only completed once those two blocks pack down into it. Measuring
-	// fullness on the unpacked board reports no clear at all: no flash, no
-	// reward, and a stack that leaves the row it filled standing in mid air.
+	// The bottom row has a hole in column 4, and the stack resting on a gap
+	// above it is out of any piece's reach. The impact travels down that stack,
+	// closes the gap and the stack lands in the hole - completing the row.
+	// Measuring fullness on the unpacked board reports no clear at all: no
+	// flash, no reward, and a stack that leaves the row the compaction
+	// completed standing in mid air.
 	//
 	// The whole board is written before the view's next Update: a board the
 	// view has never seen is a board it cannot mistake for a lock, and a lock
@@ -840,12 +842,14 @@ TEST_CASE("A hard drop clears the row its compaction completes", "[tetris][view]
 	state.UpdatePieceBlocks(state.CurrentPiece);
 	for (uint32_t col = 0; col < state.Width; ++col)
 	{
-		if (col == 4 || col == 5)
+		if (col == 4)
 			continue;
 		state.Board[state.GetBoardIndex(glm::ivec2(static_cast<int32_t>(col), 19))] =
 			static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::I) + 1);
 	}
-	state.Board[state.GetBoardIndex(glm::ivec2(4, 10))] =
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 16))] =
+		static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::J) + 1);
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] =
 		static_cast<uint8_t>(static_cast<uint8_t>(TetrominoType::J) + 1);
 	fixture.view.Update(0.0f);
 
@@ -854,8 +858,7 @@ TEST_CASE("A hard drop clears the row its compaction completes", "[tetris][view]
 
 	REQUIRE(fixture.view.GetLastClearedRows().size() == 1);
 
-	// Every cell of the row the pack filled is animating out, the two blocks
-	// the player just dropped included.
+	// Every cell of the row the pack completed is animating out.
 	for (uint32_t col = 0; col < state.Width; ++col)
 	{
 		const std::string name = "TetBlockClear_" + std::to_string(col) + "_19";
@@ -864,22 +867,21 @@ TEST_CASE("A hard drop clears the row its compaction completes", "[tetris][view]
 	}
 
 	// The row waits for the pack: a row flashing out while the block that
-	// filled it is still travelling is the reward gone before the player sees
-	// it land.
+	// completed it is still travelling is the reward gone before the player
+	// sees it land.
 	REQUIRE(EntityPosition(*fixture.scene, "TetBlockClear_0_19").y ==
 			Catch::Approx(BoardView::CellToWorld(0, 19).y).margin(1e-3f));
 
 	for (int i = 0; i < 70; ++i)
 		fixture.view.Update(1.0f / 60.0f);
 
-	// The row is gone, the block that was hovering is where the pack put it,
-	// and nothing is drawn where the board does not hold it. The pack slid it
-	// into the row the O vacated, and the clear dropped that row down once
-	// more.
+	// The row is gone, and the piece that travelled down with the closing stack
+	// dropped into the row it filled.
 	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlockClear_0_19"));
-	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_0_19"));
+	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_4_19"));
 	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_4_18"));
-	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_4_10"));
+	REQUIRE(HasEntityNamed(*fixture.scene, "TetBlock_4_17"));
+	REQUIRE_FALSE(HasEntityNamed(*fixture.scene, "TetBlock_4_16"));
 
 	for (uint32_t row = 0; row < state.Height; ++row)
 	{
@@ -919,10 +921,10 @@ TEST_CASE("Impact measures the pack as distance the landing blocks slid",
 
 	// The same drop with a hole under the column it lands in: the blocks come
 	// to rest below the cells they locked into, and a strike measured against
-	// the landing cell stops short of where the block ends up. Column 4 is
-	// broken by a hovering block, so its landing blocks pack down 7 rows;
-	// column 5 is a column with a gap in the middle of it, and packs down 8.
-	// The strike is measured against the deepest of them.
+	// the landing cell stops short of where the block ends up. The pack closes
+	// the stack first, then the piece travels as one body, so all four of its
+	// blocks slide the same 7 rows - the row where any one of them would not
+	// fit is where the whole piece stops.
 	state.CurrentPiece.Type = TetrominoType::O;
 	state.CurrentPiece.Position = glm::ivec2(4, 0);
 	state.UpdatePieceBlocks(state.CurrentPiece);
@@ -933,6 +935,6 @@ TEST_CASE("Impact measures the pack as distance the landing blocks slid",
 	fixture.view.HandleAction(Action::HardDrop, true);
 	fixture.view.Update(1.0f / 60.0f);
 	REQUIRE(fixture.view.GetLastImpact().Occurred);
-	REQUIRE(fixture.view.GetLastImpact().Compact == Catch::Approx(8.0f));
+	REQUIRE(fixture.view.GetLastImpact().Compact == Catch::Approx(7.0f));
 }
 

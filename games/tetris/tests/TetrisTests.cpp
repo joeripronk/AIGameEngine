@@ -692,15 +692,15 @@ TEST_CASE("A board with no full row is left untouched", "[tetris][lines]")
 // Hard drop compaction
 // ---------------------------------------------------------------------------
 
-TEST_CASE("A hard drop packs every block down into the gap beneath it", "[tetris][lines][compaction]")
+TEST_CASE("A hard drop compacts the columns its impact reaches", "[tetris][lines][compaction]")
 {
 	TetrisManager manager = Playing();
 	auto& state = manager.GetState();
 
-	// A column with a block hovering over empty space: the rules say where it
-	// is, and nothing in a soft drop ever says otherwise.
-	state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] = 1;
+	// A column far from the drop with a block hovering over empty space, and a
+	// column the piece lands on with a gap under the block it lands on.
 	state.Board[state.GetBoardIndex(glm::ivec2(0, 15))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] = 1;
 
 	state.CurrentPiece.Type = TetrominoType::O;
 	state.CurrentPiece.Position = glm::ivec2(4, 0);
@@ -708,15 +708,130 @@ TEST_CASE("A hard drop packs every block down into the gap beneath it", "[tetris
 
 	manager.HardDrop();
 
-	// Two blocks in a column pack onto its floor, in the order they fell.
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 1);
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 18))] == 1);
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 15))] == 0);
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] == 0);
+	// The column the impact travelled down closes its gap: the block the piece
+	// landed on is on the floor, and the piece travelled down onto it.
+	const uint8_t o = static_cast<uint8_t>(TetrominoType::O) + 1;
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(5, 18))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(5, 17))] == o);
 
-	// The piece that dropped lands on the packed floor too, not on the gap.
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == static_cast<uint8_t>(TetrominoType::O) + 1);
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == static_cast<uint8_t>(TetrominoType::O) + 1);
+	// The column the impact never touched is untouched. Its gap is a hole the
+	// player already chose to leave open, and a drop landing nowhere near it
+	// has no business closing it.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 15))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 0);
+}
+
+TEST_CASE("A column the piece lands beside keeps its holes", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// The piece lands on columns 4 and 5. Column 3 has a block standing right
+	// beside the piece, with a gap under it and stack above that gap. Touching
+	// the piece is not landing on it: the impact is the columns the piece came
+	// down on, and a column it only brushed keeps the holes it has.
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(5, 18))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(5, 19))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(3, 13))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(3, 14))] = 2;
+	state.Board[state.GetBoardIndex(glm::ivec2(3, 17))] = 3;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	// Column 3 is exactly as it was.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 13))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 14))] == 2);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 17))] == 3);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 19))] == 0);
+
+	// The column the piece landed on packed: the block it came down on is on
+	// the floor.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == 1);
+}
+
+TEST_CASE("The column the piece lands on packs into the gap under it", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// The piece lands on a column whose stack has a gap in the middle of it.
+	// The run standing on the gap falls into it and the block standing on that
+	// run falls with it - a block is moved by this landing because the block it
+	// stands on is moved by it. A block in a column the piece never landed on
+	// is not part of the landing.
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 14))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 15))] = 2;
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 11))] = 4;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	// The run that was standing on the gap is on the floor, and the piece
+	// came down onto it.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == 2);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == 1);
+	const uint8_t o = static_cast<uint8_t>(TetrominoType::O) + 1;
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 16))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 15))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 14))] == 0);
+
+	// A block in a column the contact never reached.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 11))] == 4);
+}
+
+TEST_CASE("A gap below the impact's reach stays open", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// A tall column with a hole in the floor under it. The piece lands on top
+	// of it, so the impact travels the length of the column and finds the gap
+	// six rows below the row it landed on - out of reach.
+	for (uint32_t row = 13; row <= 17; ++row)
+		state.Board[state.GetBoardIndex(glm::ivec2(4, row))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 13))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == 0);
+	REQUIRE(state.CompactedCells.empty());
+
+	// The same stack three rows shorter puts the hole at the edge of the reach,
+	// and the impact closes it. Column 0, so the piece that landed in the
+	// column above is not in the way.
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 16))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 17))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(0, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	const uint8_t square = static_cast<uint8_t>(TetrominoType::O) + 1;
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 18))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 17))] == square);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 16))] == square);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 14))] == 0);
 }
 
 TEST_CASE("Compaction keeps the order of a column and reports what moved", "[tetris][lines][compaction]")
@@ -768,11 +883,19 @@ TEST_CASE("Compaction closes a hole and the row it completes is cleared", "[tetr
 	TetrisManager manager = Playing();
 	auto& state = manager.GetState();
 
-	// The bottom row is one column short, and the block that would fill it is
-	// hovering above the hole. Discrete play can never complete this row: the
-	// piece that lands in column 9 stops on top of the hole, not in it.
-	FillRow(state, state.Height - 1, state.Width - 1);
-	state.Board[state.GetBoardIndex(glm::ivec2(state.Width - 1, 17))] = 1;
+	// The bottom row has one hole in column 4, and the column above the hole is
+	// a short stack resting on a gap. The impact travels down that stack, finds
+	// the gap within its reach, closes it - and the stack lands in the hole.
+	// Discrete play can never complete this row: a piece dropped into column 4
+	// stops on top of the stack, not in the hole.
+	for (uint32_t col = 0; col < state.Width; ++col)
+	{
+		if (col == 4)
+			continue;
+		state.Board[state.GetBoardIndex(glm::ivec2(static_cast<int32_t>(col), state.Height - 1))] = 1;
+	}
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 16))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] = 1;
 
 	state.CurrentPiece.Type = TetrominoType::O;
 	state.CurrentPiece.Position = glm::ivec2(4, 0);
@@ -784,11 +907,17 @@ TEST_CASE("Compaction closes a hole and the row it completes is cleared", "[tetr
 	// A 1-line clear applies the x2 tier: base 40 at level 1, x2.
 	REQUIRE(state.Score == 80);
 
-	// The block that completed the row went with it, and the stack above the
-	// row dropped into it: the O that landed at rows 17-18 is at 16-17.
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(state.Width - 1, 17))] == 0);
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == static_cast<uint8_t>(TetrominoType::O) + 1);
-	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == static_cast<uint8_t>(TetrominoType::O) + 1);
+	// The piece travelled down as far as the closing stack let it, and the row
+	// it completed took the stack with it, dropping the piece into the row
+	// below.
+	const uint8_t o = static_cast<uint8_t>(TetrominoType::O) + 1;
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 16))] == 0);
+	// The stack block that completed the row went with the row, and the row
+	// above it - the one it packed into - dropped into it.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 0);
 }
 
 TEST_CASE("A lock that is not a hard drop leaves the stack where it stands", "[tetris][lines][compaction]")
@@ -809,6 +938,59 @@ TEST_CASE("A lock that is not a hard drop leaves the stack where it stands", "[t
 	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] == 1);
 	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 0);
 	REQUIRE(state.CompactedCells.empty());
+}
+
+TEST_CASE("A hard drop keeps the dropped piece in one piece", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// A floating pair with a deep gap under it: the piece that lands on it has
+	// nine rows to travel once the pack closes, and a per-column pack slides
+	// each of its blocks by its own distance - which is a shape arriving as a
+	// scatter of blocks, the piece the player dropped dissolved by the drop.
+	state.Board[state.GetBoardIndex(glm::ivec2(4, 10))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(5, 10))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	// The square is a square, nine rows lower than where it locked, sitting on
+	// the pair it landed on - which packed down beneath it.
+	const uint8_t o = static_cast<uint8_t>(TetrominoType::O) + 1;
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 17))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(5, 17))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(5, 18))] == o);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(5, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 10))] == 0);
+
+	// A non-rectangular piece is the case that matters: the nub is part of the
+	// shape, so it travels with the rest of it.
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 12))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(1, 12))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(2, 12))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::T;
+	state.CurrentPiece.Position = glm::ivec2(0, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	const uint8_t t = static_cast<uint8_t>(TetrominoType::T) + 1;
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 17))] == t);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(1, 17))] == t);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(2, 17))] == t);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(1, 18))] == t);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 18))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(2, 18))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(1, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(2, 19))] == 1);
 }
 
 TEST_CASE("Compaction moves each column on its own", "[tetris][lines][compaction]")

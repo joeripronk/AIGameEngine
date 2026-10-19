@@ -35,12 +35,23 @@ menu is silent - and fades out on pause and game over.
 Moving and soft-dropping are delayed-autorepeat: one step on the press, then a
 repeat after 0.15 s, then every 0.05 s.
 
-A hard drop **packs the stack** on the way in: every block with empty space
-under it falls into it, column by column, keeping the order it was dropped in.
-That is what lets a hard drop complete a row a hole was keeping open - the
-block above the hole falls into it and the row goes out. A soft drop and a
-gravity lock leave the stack exactly where it stands; only the hard drop spends
-the gaps.
+A hard drop **compacts the columns it lands on**. The piece falls to the floor,
+the gap under it closes - the blocks standing on that gap, and the blocks
+standing on them, pack down - and the piece travels down into the space they
+made, as one body: all four blocks moving the same number of rows, stopping at
+the first row where any one of them would not fit. A piece keeps the shape you
+dropped it in; it does not tear itself apart filling holes.
+A gap opening more than three rows below the row the piece landed on stays open,
+and a column the piece never landed on keeps its holes - a drop that lands
+nowhere near them has no business closing them. A soft drop and a gravity lock
+compact nothing.
+
+The piece you dropped is packed as **one body**: the gaps close first, and the
+piece then slides down into the space they made - all four blocks moving the
+same number of rows, stopping at the first row where any one of them would not
+fit. A piece keeps the shape you dropped it in; it does not tear itself apart
+filling holes. A rigid piece landing on an uneven surface can bridge a gap, and
+that hole stays - which is the trade the compaction makes.
 
 ## What lives where
 

@@ -89,6 +89,16 @@ public:
 	// moved (0 when the stack was already packed).
 	uint32_t CompactStack();
 
+	// The hard drop's pack. The piece falls to the floor, and the columns it
+	// lands on close the gap under it: the blocks standing on that gap - and
+	// the blocks standing on them, all the way up - pack down, while the
+	// blocks under the gap keep their floor. A column the piece never touched
+	// keeps its holes, and a gap opening more than three rows below the row the
+	// piece landed on stays open. The piece then travels down as one body, all
+	// four blocks moving the same number of rows, as far as all four of them
+	// fit, so it arrives in the shape it was dropped in.
+	uint32_t CompactStack(const TetrisPiece& settled);
+
 	// Remove every full row, dropping the rows above it down. Updates score,
 	// level and combo. Safe to call at any time.
 	void ClearLines();
@@ -163,6 +173,12 @@ private:
 	static constexpr float kFireBaseChance = 0.0f;
 	static constexpr float kFireChanceStep = 0.02f;
 	static constexpr float kFireMaxChance = 1.0f;
+
+	// A hard drop's compaction reaches this many rows below the row it landed
+	// on. A gap opening deeper than that is not the landing's business: closing
+	// it would move blocks the drop never touched. Blocks above the gap are
+	// moved by the landing because the block they stand on is moved by it.
+	static constexpr uint32_t kCompactionReachRows = 3u;
 
 	// A clear's tier stacks onto the live multiplier and stays live for this
 	// many turns; the combo doubles per consecutive clear. Both are capped so a
