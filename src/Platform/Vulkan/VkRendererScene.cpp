@@ -675,10 +675,17 @@ void VkRenderer::RenderFinalPass()
 		return;
 
 	// The present render pass has DONT_CARE load: the whole quad covers it.
+	// It is left OPEN: the ImGui backend records its draw commands onto this
+	// same command buffer after BeginFinalPass, and it never begins rendering
+	// itself - the app's active render pass is its render target. Closing
+	// the pass here records those draws outside any render pass, which is
+	// undefined: the driver drops them and the overlay never appears
+	// (measured: Tetris HUD invisible, draw data valid). EndScene closes
+	// the pass, EndFrame takes the image to PRESENT_SRC.
 	BeginRenderPass(m_Device, cmd, m_RenderPassPresent, m_SwapchainFramebuffers[m_CurrentImageIndex],
 		m_PresentWidth, m_PresentHeight, {});
 	DrawFullscreenQuad(m_Device, cmd, m_PipelineFinal, m_LayoutFinal, set, m_QuadVertexBuffer, m_QuadIndexBuffer, m_PresentWidth, m_PresentHeight);
-	m_Device.GetFunctions().CmdEndRenderPass(cmd);
+	m_RenderPassOpen = true;
 }
 
 // ---------------------------------------------------------------------------
