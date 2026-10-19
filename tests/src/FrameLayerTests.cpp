@@ -66,6 +66,16 @@ TEST_CASE("Frame loop: acquire and present results classify into decisions", "[f
 	REQUIRE(ClassifyAcquire(VK_TIMEOUT) == AcquireOutcome::Error);
 	REQUIRE(ClassifyAcquire(VK_ERROR_UNKNOWN) == AcquireOutcome::Error);
 
+	// VK_EVENT_SET is a *success* from vkAcquireNextImageKHR: the image
+	// is acquired and the index valid, the semaphore was already
+	// signaled. Classifying it as an error discards a valid image,
+	// the acquire ring never advances, and every later acquire answers
+	// VK_EVENT_SET on the same signaled semaphore - the frame loop
+	// hot-spins with zero frames presented (measured on Intel at the
+	// Tetris parity run).
+	REQUIRE(ClassifyAcquire(VK_EVENT_SET) == AcquireOutcome::Ok);
+	REQUIRE(ClassifyAcquire(VK_EVENT_RESET) == AcquireOutcome::Error);
+
 	REQUIRE(ClassifyPresent(VK_SUCCESS) == PresentOutcome::Ok);
 	REQUIRE(ClassifyPresent(VK_SUBOPTIMAL_KHR) == PresentOutcome::Suboptimal);
 	REQUIRE(ClassifyPresent(VK_TIMEOUT) == PresentOutcome::Idle);
@@ -81,9 +91,12 @@ TEST_CASE("Frame loop: the acquire semaphore ring rotates independently of the f
 	REQUIRE(ring.Count() == 4);
 	REQUIRE(ring.Index() == 0);
 
-	// Six consecutive submits walk the ring and wrap: the frame index
+	// Six consecutive acquires walk the ring and wrap: the frame index
 	// (which follows the acquired images, e.g. 0,1,2,0,1,2) never decides
-	// which semaphore is used.
+	// which semaphore is used. Rotating per acquire - not per submit -
+	// is what lets a leaked (signaled, never-waited) semaphore come back
+	// around and be consumed by a later submit instead of poisoning the
+	// ring forever.
 	for (uint32_t i = 1; i <= 6; ++i)
 	{
 		ring.Advance();

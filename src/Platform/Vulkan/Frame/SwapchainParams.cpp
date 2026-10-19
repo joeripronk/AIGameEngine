@@ -51,6 +51,18 @@ AcquireOutcome ClassifyAcquire(VkResult result)
 	{
 	case VK_SUCCESS:
 		return AcquireOutcome::Ok;
+	case VK_EVENT_SET:
+		// A *success* result: the image was acquired and the index is
+		// valid - the semaphore handed to the acquire was already
+		// signaled (leaked by a frame that acquired and never
+		// submitted). Treating it as an error discards a valid image,
+		// the ring never advances, and every later acquire answers
+		// VK_EVENT_SET on the same signaled semaphore: the frame loop
+		// hot-spins with zero frames presented. The submit's wait
+		// consumes the signal, so the leak heals on this frame.
+		return AcquireOutcome::Ok;
+	case VK_EVENT_RESET:
+		return AcquireOutcome::Error;
 	case VK_TIMEOUT:
 		return AcquireOutcome::Error;
 	case VK_NOT_READY:

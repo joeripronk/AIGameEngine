@@ -52,8 +52,8 @@ Ref<FrameLoop> FrameLoop::Create(Device& device, Ref<Queue> queue, Swapchain& sw
 	}
 
 	// ImageCount + 1 acquire semaphores: the ring rotates once per
-	// submitted frame, so the (ImageCount+1)-th submit reuses the first
-	// semaphore exactly when the first frame's present has completed.
+	// acquired frame, so the (ImageCount+1)-th acquire reuses the first
+	// semaphore exactly when the first frame's submit has consumed it.
 	VkSemaphoreCreateInfo semaphoreInfo{};
 	semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 	loop->m_AcquireSemaphores.resize(imageCount + 1);
@@ -132,6 +132,16 @@ AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex)
 	const AcquireOutcome outcome = m_Swapchain->AcquireNextImage(kAcquireTimeoutNs, m_AcquireSemaphores[ringIndex], imageIndex);
 	if (outcome != AcquireOutcome::Ok && outcome != AcquireOutcome::Suboptimal)
 		return outcome;
+
+	// The ring rotates on the acquire, not on the submit: a frame that
+	// acquires and never submits (a failed fence wait, an EndFrame that
+	// bails before Submit) leaks its signaled semaphore, and rotating
+	// only on submit would reuse that same signaled semaphore forever -
+	// every later acquire answers VK_EVENT_SET and the loop hot-spins
+	// with zero frames presented. Rotating per acquire means the leak
+	// comes back around ImageCount+1 frames later, the submit's wait
+	// consumes it, and the loop heals itself.
+	m_AcquireRing.Advance();
 
 	if (imageIndex >= m_Frames.size())
 	{
@@ -216,10 +226,6 @@ PresentOutcome FrameLoop::EndFrame(uint32_t imageIndex)
 	presentInfo.pImageIndices = &imageIndex;
 
 	const PresentOutcome outcome = ClassifyPresent(m_Queue->PresentKHR(presentInfo));
-
-	// The ring rotates once per submitted frame, independently of the frame
-	// index - the next frame acquires with the next semaphore.
-	m_AcquireRing.Advance();
 
 	if (outcome == PresentOutcome::RebuildNextFrame)
 		FG_CORE_INFO("FrameLoop: present reported OUT_OF_DATE; swapchain rebuild scheduled");

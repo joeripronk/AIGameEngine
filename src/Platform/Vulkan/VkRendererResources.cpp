@@ -569,6 +569,11 @@ void VkRenderer::DestroyTargets()
 
 	// IBL / probe cubemaps follow the targets they are sized with.
 	destroyImage(m_ReflectionImage, m_ReflectionView, m_ReflectionAlloc);
+	destroyImage(m_ReflectionDepthImage, m_ReflectionDepthView, m_ReflectionDepthAlloc);
+	for (::VkImageView& view : m_ReflectionFaceViews)
+		if (view != VK_NULL_HANDLE)
+			m_Device.GetFunctions().DestroyImageView(m_Device.Handle(), view, nullptr);
+	m_ReflectionFaceViews.clear();
 	destroyImage(m_EnvImage, m_EnvImageView, m_EnvAlloc);
 	destroyImage(m_IrradianceImage, m_IrradianceView, m_IrradianceAlloc);
 	destroyImage(m_PrefilterImage, m_PrefilterView, m_PrefilterAlloc);
@@ -802,16 +807,57 @@ bool VkRenderer::CreateDescriptorLayouts()
 	if (!m_SetLayoutPrefilter.Create(m_Device, irradianceBindings, "Layout.Prefilter"))
 		return false;
 
-	// The frame pool: sized for the full chain of a 128-draw frame with
-	// headroom, freed-descriptor capable so the pool resets per frame.
+	// The frame pool: sized from the layout censuses, not from a hand-picked
+	// number. The reflection probe redraws the whole scene into six faces
+	// every frame, so the PBR census is paid (faces + 1) times per mesh
+	// entity and the shadow census once more. A pool sized for the camera
+	// pass alone runs out mid-frame the moment a probe is enabled, and every
+	// mesh whose set then refuses is silently skipped - measured on Tetris,
+	// 33 blocks x 7 PBR sets x 5 samplers blew an 800-sampler pool and the
+	// scene stopped drawing entirely.
+	constexpr uint32_t kMeshDrawBudget = 128;  // mesh entities per frame
+	constexpr uint32_t kProbeFaces = 6;
+	constexpr uint32_t kPostSets = 16;         // SSAO/Bloom/Tonemap/Final chain with headroom
+
+	uint32_t sampled = 0, sampler = 0, uniform = 0;
+	const auto add = [&](const DescriptorCensus& census, uint32_t sets)
+	{
+		for (const VkDescriptorPoolSize& size : census.Sizes)
+		{
+			const uint32_t total = size.descriptorCount * sets;
+			switch (size.type)
+			{
+			case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: sampled += total; break;
+			case VK_DESCRIPTOR_TYPE_SAMPLER: sampler += total; break;
+			case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER: uniform += total; break;
+			default: break;
+			}
+		}
+	};
+	add(m_SetLayoutPbr.GetCensus(), kMeshDrawBudget * (kProbeFaces + 1));
+	add(m_SetLayoutShadow.GetCensus(), kMeshDrawBudget);
+	add(m_SetLayoutSsao.GetCensus(), kPostSets);
+	add(m_SetLayoutBloom.GetCensus(), kPostSets);
+	add(m_SetLayoutTonemap.GetCensus(), kPostSets);
+	add(m_SetLayoutFinal.GetCensus(), kPostSets);
+	add(m_SetLayoutIrradiance.GetCensus(), kProbeFaces);
+	add(m_SetLayoutPrefilter.GetCensus(), kProbeFaces);
+
+	// 25% headroom: a scene with more mesh entities than the budget is
+	// reported by the accounting, not silently starved.
+	sampled += sampled / 4;
+	sampler += sampler / 4;
+	uniform += uniform / 4;
+	const uint32_t maxSets = (kMeshDrawBudget * (kProbeFaces + 2) + 4 * kPostSets + 2 * kProbeFaces) * 5 / 4;
+
 	const std::array<VkDescriptorPoolSize, 3> poolSizes{
-		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024 },
-		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 800 },
-		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024 },
+		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, sampled },
+		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, sampler },
+		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, uniform },
 	};
 	for (DescriptorPool& pool : m_DescriptorPools)
 	{
-		if (!pool.Create(m_Device, poolSizes, 512, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT))
+		if (!pool.Create(m_Device, poolSizes, maxSets, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT))
 			return false;
 	}
 

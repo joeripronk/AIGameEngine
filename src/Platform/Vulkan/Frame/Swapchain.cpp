@@ -131,6 +131,7 @@ void Swapchain::Destroy()
 	m_Device = nullptr;
 	m_NeedRebuild = false;
 	m_Suboptimal = false;
+	m_LastAcquireFailure = VK_SUCCESS;
 }
 
 AcquireOutcome Swapchain::AcquireNextImage(uint64_t timeoutNanos, ::VkSemaphore semaphore, uint32_t& outImageIndex)
@@ -147,16 +148,26 @@ AcquireOutcome Swapchain::AcquireNextImage(uint64_t timeoutNanos, ::VkSemaphore 
 	{
 	case AcquireOutcome::Ok:
 		outImageIndex = index;
+		m_LastAcquireFailure = VK_SUCCESS;
 		break;
 	case AcquireOutcome::Suboptimal:
 		outImageIndex = index;
 		m_Suboptimal = true;
+		m_LastAcquireFailure = VK_SUCCESS;
 		break;
 	case AcquireOutcome::RebuildNextFrame:
 		m_NeedRebuild = true;
 		break;
 	default:
-		FG_CORE_ERROR("Swapchain: acquire failed ({0})", (int)result);
+		// Throttled: a frame loop that spins on a dead surface logs per
+		// acquire, and a per-frame flood buries the reason in noise.
+		// One line per distinct failing result; the counter resets when
+		// an acquire succeeds.
+		if (result != m_LastAcquireFailure)
+		{
+			FG_CORE_ERROR("Swapchain: acquire failed ({0})", (int)result);
+			m_LastAcquireFailure = result;
+		}
 		break;
 	}
 

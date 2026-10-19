@@ -73,6 +73,7 @@ private:
 	VkSurfaceTransformFlagBitsKHR m_PreTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	bool m_NeedRebuild = false;
 	bool m_Suboptimal = false;
+	VkResult m_LastAcquireFailure = VK_SUCCESS;  // acquire-failure log throttle
 };
 
 }}
