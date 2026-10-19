@@ -324,6 +324,19 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/Resources/Image.cpp
     Platform/Vulkan/Resources/ImageView.h
     Platform/Vulkan/Resources/ImageView.cpp
+    # BRUTAL rewrite - frame, swapchain, synchronization
+    Platform/Vulkan/Frame/SwapchainParams.h
+    Platform/Vulkan/Frame/SwapchainParams.cpp
+    Platform/Vulkan/Frame/SyncObjects.h
+    Platform/Vulkan/Frame/SyncObjects.cpp
+    Platform/Vulkan/Frame/FrameResources.h
+    Platform/Vulkan/Frame/FrameResources.cpp
+    Platform/Vulkan/Frame/Barriers.h
+    Platform/Vulkan/Frame/Barriers.cpp
+    Platform/Vulkan/Frame/Swapchain.h
+    Platform/Vulkan/Frame/Swapchain.cpp
+    Platform/Vulkan/Frame/FrameLoop.h
+    Platform/Vulkan/Frame/FrameLoop.cpp
     Forge/UI/UI.h
 )
 target_include_directories(vulkan

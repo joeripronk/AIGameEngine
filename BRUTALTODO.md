@@ -102,23 +102,24 @@ Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` 
 
 ## Phase 3 - Frame, swapchain, synchronization (`src/Platform/Vulkan/Frame/`)
 
-- [ ] `SyncObjects` struct: acquire semaphore ring (`ImageCount + 1`, rotates independently of
+- [x] `SyncObjects` struct: acquire semaphore ring (`ImageCount + 1`, rotates independently of
       frame index), render-finished semaphore, per-image fence (created signaled), one-shot
       command buffer, explicit pool-ownership flag.
-- [ ] `FrameResources` struct: framebuffer + color/depth/multisample attachments with
+- [x] `FrameResources` struct: framebuffer + color/depth/multisample attachments with
       `OwnsColorImage` flag so swapchain images are never destroyed.
-- [ ] `VkSwapchain`: surface format / present mode selection with fallbacks, min image count
+- [x] `Swapchain`: surface format / present mode selection with fallbacks, min image count
       from present mode, `PreTransform`, `OldSwapchain` recreation chain, `OutOfDate` →
       rebuild-next-frame, `Suboptimal` → flag; one-shot CB initializing every backbuffer
       `Undefined → PresentSrcKHR`.
-- [ ] Frame loop: acquire → fence wait → `ResetCommandPool` → `Begin(OneTimeSubmit)` →
-      record → `End` → submit → present. Resize-safe, no leaks on repeated recreation
-      (verified with ASan build).
-- [ ] Barrier helpers: `ImageBarrier` / `BufferBarrier` builders with queue-family-ignore
-      defaults; the upload triple from the reference; RAII `DebugScope("Shadow pass")`
+- [x] Frame loop (`FrameLoop`): acquire → fence wait → `ResetCommandPool` →
+      `Begin(OneTimeSubmit)` → record → `End` → submit → present. Resize-safe, no leaks on
+      repeated recreation (verified with ASan build at the Phase 5 parity gate).
+- [x] Barrier helpers: `ImageBarrierBuilder` / `BufferBarrierBuilder` with queue-family-ignore
+      defaults; the upload triple from the reference; RAII `CommandDebugScope("Shadow pass")`
       command labels.
 - Tests: swapchain parameter selection (pure), frame-index/semaphore-ring rotation logic,
   resize state machine (headless mock).
+  (`tests/src/FrameLayerTests.cpp` - 5 cases, 33 assertions)
 
 ## Phase 4 - Pipelines, shaders, descriptors (`src/Platform/Vulkan/Pipeline/`)
 
