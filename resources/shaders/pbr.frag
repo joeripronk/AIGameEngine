@@ -1,9 +1,14 @@
 #version 450
 #extension GL_EXT_scalar_block_layout : require
 
-layout(location = 0) in vec3 vWorldPosition;
-layout(location = 1) in vec3 vNormal;
-layout(location = 2) in vec2 vUV;
+// The locations must match pbr.vert's outputs exactly: location 0 is
+// vNormal, location 1 is vUV, location 2 is vWorldPosition. A varying
+// that arrives at the wrong location is not a compile error - the
+// pipeline is created and the fragment shader reads another varying's
+// values, which is a rendering bug that looks like bad lighting.
+layout(location = 0) in vec3 vNormal;
+layout(location = 1) in vec2 vUV;
+layout(location = 2) in vec3 vWorldPosition;
 
 layout(location = 0) out vec4 oColor;
 
