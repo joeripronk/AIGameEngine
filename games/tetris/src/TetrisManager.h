@@ -86,8 +86,10 @@ private:
 	// End the game if the newly spawned piece has nowhere to go.
 	void CheckGameOver();
 
-	// Pick the next piece, weighted by type.
-	TetrominoType NextRandomType();
+	// Pick the next piece, weighted by type. `lastType` is the piece just
+	// spawned; a repeat of it is rejected half the time, so the same piece
+	// appearing back-to-back is half as likely as the raw weights allow.
+	TetrominoType NextRandomType(TetrominoType lastType);
 
 	TetrisGameState m_State;
 

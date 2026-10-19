@@ -181,8 +181,8 @@ void TetrisManager::StartGame()
 	Reset();
 
 	m_State.CurrentState = TetrisGameState::State::Playing;
-	m_State.NextPiece = CreatePiece(NextRandomType());
-	m_State.CurrentPiece = CreatePiece(NextRandomType());
+	m_State.NextPiece = CreatePiece(NextRandomType(TetrominoType::Count));
+	m_State.CurrentPiece = CreatePiece(NextRandomType(m_State.NextPiece.Type));
 }
 
 void TetrisManager::TogglePause()
@@ -493,7 +493,7 @@ void TetrisManager::SpawnNextPiece()
 	m_State.CurrentPiece = m_State.NextPiece;
 	m_State.CurrentPiece.State = TetrisPieceState::Active;
 	m_State.PieceDropTimer = 0.0f;
-	m_State.NextPiece = CreatePiece(NextRandomType());
+	m_State.NextPiece = CreatePiece(NextRandomType(m_State.CurrentPiece.Type));
 }
 
 void TetrisManager::CheckGameOver()
@@ -588,7 +588,7 @@ float TetrisManager::GetDropInterval() const
 	return std::max(0.05f, baseInterval - levelModifier);
 }
 
-TetrominoType TetrisManager::NextRandomType()
+TetrominoType TetrisManager::NextRandomType(TetrominoType lastType)
 {
 	// Weighted bag: O and the flat-sided pieces are rarer, which is the usual
 	// way to keep a piece randomiser from handing out awkward stacks.
@@ -598,15 +598,35 @@ TetrominoType TetrisManager::NextRandomType()
 	for (uint32_t w : kWeights)
 		totalWeight += w;
 
-	const uint32_t roll = NextRandom(m_RandomState) % totalWeight;
-	uint32_t cumulative = 0;
-	for (uint32_t i = 0; i < static_cast<uint32_t>(TetrominoType::Count); ++i)
+	const auto rollWeighted = [this, totalWeight]() {
+		const uint32_t roll = NextRandom(m_RandomState) % totalWeight;
+		uint32_t cumulative = 0;
+		for (uint32_t i = 0; i < static_cast<uint32_t>(TetrominoType::Count); ++i)
+		{
+			cumulative += kWeights[i];
+			if (roll < cumulative)
+				return static_cast<TetrominoType>(i);
+		}
+		return TetrominoType::I;
+	};
+
+	TetrominoType type = rollWeighted();
+
+	// Halve the chance of the same piece back to back: a repeat is accepted
+	// only on a coin flip, so it happens half as often as the weights allow.
+	// The coin is a full-range comparison on the generator's output - a single
+	// xorshift bit is correlated run to run, so a coin built from one bit is
+	// not a coin. The re-roll cannot loop forever - the weights cover all
+	// seven types.
+	if (type == lastType && lastType != TetrominoType::Count
+		&& NextRandom(m_RandomState) < 0x80000000u)
 	{
-		cumulative += kWeights[i];
-		if (roll < cumulative)
-			return static_cast<TetrominoType>(i);
+		do
+			type = rollWeighted();
+		while (type == lastType);
 	}
-	return TetrominoType::I;
+
+	return type;
 }
 
 }  // namespace Tetris

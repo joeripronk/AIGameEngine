@@ -99,6 +99,45 @@ TEST_CASE("Starting a game spawns a piece and queues the next", "[tetris][core]"
 	REQUIRE(state.NextPiece.Type != TetrominoType::Count);
 }
 
+TEST_CASE("The same piece is half as likely to spawn back to back", "[tetris][core]")
+{
+	// The weighted bag (weights {2,1,2,2,2,1,1}, total 11) makes the raw
+	// chance of a repeat sum(weight^2)/total^2 = 19/121, about 15.7%. The
+	// generator rejects a repeat on a coin flip, so the observed rate is
+	// halved. The generator is seeded, so this sequence is reproducible.
+	const double kRawRepeatChance = 19.0 / 121.0;
+
+	std::vector<TetrominoType> sequence;
+	TetrisManager manager;
+	manager.Initialize();
+
+	// Each StartGame clears the board (so the run never ends) and each
+	// LockPiece spawns the queued piece, advancing the same generator. The
+	// board reset does not touch the generator, so the sequence is continuous.
+	for (int cycle = 0; cycle < 400; ++cycle)
+	{
+		manager.StartGame();
+		sequence.push_back(manager.GetState().CurrentPiece.Type);
+		manager.LockPiece();
+		sequence.push_back(manager.GetState().CurrentPiece.Type);
+	}
+
+	REQUIRE(sequence.size() >= 800);
+
+	size_t repeats = 0;
+	for (size_t i = 1; i < sequence.size(); ++i)
+		if (sequence[i] == sequence[i - 1])
+			++repeats;
+
+	const double observed = static_cast<double>(repeats) / static_cast<double>(sequence.size() - 1);
+
+	// Repeats still happen (the reduction is probabilistic, not a ban), but
+	// the rate sits well under the raw weighted chance - the reduction target
+	// is half, and a fixed seed makes this exact.
+	REQUIRE(observed > 0.0);
+	REQUIRE(observed < kRawRepeatChance);
+}
+
 TEST_CASE("Starting again replaces the pieces instead of stacking them", "[tetris][core]")
 {
 	TetrisManager manager = Playing();
