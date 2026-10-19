@@ -283,6 +283,9 @@ void VkRenderer::ShutdownDevice()
 	DestroyDescriptorLayouts();
 	DestroySwapchainFramebuffers();
 	DestroyTargets();
+	// The probe and the IBL are not sized with the window, so they survive a
+	// resize - and are freed here, with the rest of the device.
+	DestroyEnvironmentResources();
 	DestroyFullscreenQuad();
 	DestroySamplersAndFallbacks();
 	DestroyRenderPasses();
@@ -345,14 +348,21 @@ bool VkRenderer::RecreateSwapchain(uint32_t width, uint32_t height)
 
 	if (m_FrameLoop)
 	{
+		// The frame loop's command pool is destroyed with it, and a command
+		// pool cannot be destroyed while one of its buffers is still in
+		// flight. The GPU is idle before the loop goes: a resize rebuilds the
+		// loop, and the frame submitted a moment ago is still running.
+		WaitForGpuIdle();
 		m_FrameLoop->Destroy();
 		m_FrameLoop = nullptr;
 	}
 
 	// Rebuild in place: the swapchain object is non-movable, and the frame
-	// loop is already gone, so the old handle is free to destroy before the
-	// new swapchain is created with it as OldSwapchain.
-	m_Swapchain.Destroy();
+	// loop is already gone. The old swapchain is not destroyed here - it is
+	// passed to the new one as OldSwapchain and destroyed by Create, once the
+	// new one exists: the driver keeps the old resources alive through the
+	// chain, and a handle that has already been destroyed is a handle the
+	// driver has no record of.
 	if (!m_Swapchain.Create(*m_PhysicalDevicePtr, m_Device, info))
 		return false;
 

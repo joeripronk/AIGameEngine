@@ -196,3 +196,36 @@ TEST_CASE("Combo labels name the chain and escalate as it grows", "[tetris][anim
 	REQUIRE(std::string(ComboLabelForChain(8)) == "Epic Combo");
 	REQUIRE(std::string(ComboLabelForChain(64)) == "Epic Combo");
 }
+
+TEST_CASE("The camera stands back far enough for the content to fit", "[tetris][animation][view]")
+{
+	constexpr float kFov = 60.0f;
+	constexpr float kHalfHeight = 12.0f;
+	constexpr float kHalfWidth = 8.0f;
+
+	// A wide window is held by the height: the content is taller than it is
+	// wide, and the camera comes to the same place whatever the width is.
+	const float wide = FitDistanceForContent(kHalfHeight, kHalfWidth, 16.0f / 9.0f, kFov);
+	const float wider = FitDistanceForContent(kHalfHeight, kHalfWidth, 2.0f, kFov);
+	REQUIRE(wide == Catch::Approx(wider));
+
+	// A narrow window is held by the width, and the camera has to come further
+	// back: the content is wider than the window is, and cropping the preview
+	// off the side of the playfield is not an option.
+	const float narrow = FitDistanceForContent(kHalfHeight, kHalfWidth, 0.5f, kFov);
+	REQUIRE(narrow > wide);
+
+	// The distance that holds the content is the one where the frustum's own
+	// half-height is the content's half-height.
+	const float halfFov = std::tan(glm::radians(kFov) * 0.5f);
+	REQUIRE(wide * halfFov == Catch::Approx(kHalfHeight));
+
+	// A square window is held by both, and the wider content is what governs.
+	const float square = FitDistanceForContent(10.0f, 20.0f, 1.0f, kFov);
+	REQUIRE(square * halfFov == Catch::Approx(20.0f));
+
+	// A window of no size is not a shape to fit to, and a field of view of
+	// zero has no frustum: neither may divide by zero.
+	REQUIRE(FitDistanceForContent(10.0f, 10.0f, 0.0f, kFov) > 0.0f);
+	REQUIRE(FitDistanceForContent(10.0f, 10.0f, 1.0f, 0.0f) == 0.0f);
+}

@@ -264,30 +264,20 @@ bool TetrisApp::CreateScene()
 
 void TetrisApp::ApplyViewLayout()
 {
-	const glm::vec3 centre = BoardView::BoardCentre();
-
-	auto& cameraTransform = m_CameraEntity.GetComponent<Forge::TransformComponent>();
 	auto& cameraComponent = m_CameraEntity.GetComponent<Forge::CameraComponent>();
 
 	if (m_ThreeDimensional)
 	{
-		const glm::vec3 eye = centre + glm::vec3(8.5f, 5.0f, 20.5f);
-		const glm::vec3 target = centre + glm::vec3(-1.5f, 0.5f, -0.5f);
-		cameraTransform.Translation = eye;
-		m_CameraBasePosition = eye;
-		cameraTransform.Rotation = CameraOrientation(eye, target);
 		cameraComponent.FieldOfView = 65.0f;
 	}
 	else
 	{
-		const glm::vec3 eye = centre + glm::vec3(0.0f, 0.0f, 22.0f);
-		cameraTransform.Translation = eye;
-		m_CameraBasePosition = eye;
-		cameraTransform.Rotation = { 0.0f, 0.0f, 0.0f };
 		cameraComponent.FieldOfView = 60.0f;
 	}
 
-	cameraComponent.UpdateProjection();
+	// Where the camera stands and how far it looks are the window's business:
+	// the mode decides the angle, the window decides the distance.
+	FitViewToViewport();
 
 	auto& lightComponent = m_LightEntity.GetComponent<Forge::LightComponent>();
 	if (m_ThreeDimensional)
@@ -316,6 +306,77 @@ void TetrisApp::ApplyViewLayout()
 	// DIAGNOSTIC ONLY: FG_LIGHT_SCALE scales the key light.
 	if (const char* v = std::getenv("FG_LIGHT_SCALE"))
 		lightComponent.Intensity *= std::atof(v);
+}
+
+void TetrisApp::FitViewToViewport()
+{
+	if (!m_CameraEntity)
+		return;
+
+	const uint32_t width = GetWindow().GetWidth();
+	const uint32_t height = GetWindow().GetHeight();
+	if (width == 0 || height == 0)
+		return;  // minimised: there is no shape to fit to
+
+	auto& cameraComponent = m_CameraEntity.GetComponent<Forge::CameraComponent>();
+	auto& cameraTransform = m_CameraEntity.GetComponent<Forge::TransformComponent>();
+
+	// The projection takes the window's shape. A fixed 16:9 in a window of
+	// another shape stretches the image: the blocks come out wider than they
+	// are tall, and the playfield is not the shape the player is looking at.
+	cameraComponent.AspectRatio =
+		static_cast<float>(width) / static_cast<float>(height);
+
+	const glm::vec3 centre = BoardView::BoardCentre();
+	const glm::vec3 boardSize = BoardView::BoardSize();
+	const float block = BoardView::BlockSize();
+
+	// What the camera looks at, and what has to be in frame around it: the
+	// playfield with its border or its well walls, and the preview tray beside
+	// it. The extents are measured from the point the camera looks at, because
+	// that is what stays put while the window changes shape.
+	const glm::vec3 aim = m_ThreeDimensional
+		? centre + glm::vec3(-1.5f, 0.5f, -0.5f)
+		: centre;
+
+	const float margin = m_ThreeDimensional ? 1.4f : 0.5f;
+	const float halfHeight = boardSize.y * 0.5f + margin;
+
+	const float previewCentre = centre.x + boardSize.x * 0.5f +
+		block * (kPreviewGap + kPreviewColumns * 0.5f);
+	const float previewHalf = (kPreviewColumns + 0.5f) * block * 0.5f;
+	const float halfWidth = std::max(
+		boardSize.x * 0.5f + margin,
+		previewCentre + previewHalf - aim.x);
+
+	// How far back the camera has to stand for that content to fit: the
+	// vertical extent and the horizontal one, whichever needs it further
+	// away. A window that is short and wide is held by the height, a narrow
+	// one by the width, and a square window by both.
+	const float distance = FitDistanceForContent(halfHeight, halfWidth,
+		cameraComponent.AspectRatio, cameraComponent.FieldOfView);
+
+	glm::vec3 eye;
+	if (m_ThreeDimensional)
+	{
+		// The angled well keeps its angle; only the distance changes, so the
+		// view opens up instead of cropping the playfield.
+		const glm::vec3 direction = glm::normalize(glm::vec3(10.0f, 4.5f, 21.0f));
+		eye = aim + direction * distance;
+		cameraTransform.Rotation = CameraOrientation(eye, aim);
+	}
+	else
+	{
+		eye = aim + glm::vec3(0.0f, 0.0f, distance);
+		cameraTransform.Rotation = { 0.0f, 0.0f, 0.0f };
+	}
+
+	cameraTransform.Translation = eye;
+	m_CameraBasePosition = eye;
+	cameraComponent.UpdateProjection();
+
+	m_FittedWidth = width;
+	m_FittedHeight = height;
 }
 
 void TetrisApp::CreateDecor()
@@ -757,6 +818,16 @@ void TetrisApp::Run()
 				}
 			}
 		}
+		// A window can change shape at any time - a drag, a maximise, a
+		// monitor change - and the view has to follow it: the projection takes
+		// the window's shape and the camera stands back far enough for the
+		// playfield to stay in frame. It is fitted before the shake, so the
+		// shake is applied on top of the fitted camera and a resize during a
+		// landing does not strand the offset.
+		if (GetWindow().GetWidth() != m_FittedWidth ||
+			GetWindow().GetHeight() != m_FittedHeight)
+			FitViewToViewport();
+
 		// The landing animation is written onto the scene by the view; the
 		// camera answers to the same impact, so the strike and the shake are
 		// two readings of one event rather than two events.

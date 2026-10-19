@@ -141,6 +141,15 @@ namespace {
 	uint32_t Renderer::s_InitialWidth = 0;
 	uint32_t Renderer::s_InitialHeight = 0;
 	bool Renderer::s_SwapchainNeedsRecreate = false;
+
+	// The window's size as the last resize event reported it, and the size it
+	// had in the previous frame. A size that has not changed since the last
+	// frame has settled, and a settled size is the one worth rebuilding the
+	// swapchain and the render targets for.
+	uint32_t Renderer::s_WindowWidth = 0;
+	uint32_t Renderer::s_WindowHeight = 0;
+	uint32_t Renderer::s_SettledWidth = 0;
+	uint32_t Renderer::s_SettledHeight = 0;
 	void* Renderer::s_WindowHandle = nullptr;
 	float Renderer::s_RenderScale = 1.0f;
 
@@ -654,12 +663,20 @@ namespace {
 
 	void Renderer::OnWindowResize(uint32_t width, uint32_t height)
 	{
-		// The Final pass viewport follows the swapchain extent, which the
-		// renderer reads from the swapchain itself; the resize marks the
-		// swapchain for recreation, which AcquireSwapchainImage performs
-		// lazily (on the next frame, rather than mid-resize).
-		(void)width;
-		(void)height;
+		// The window's new size is recorded here, and the swapchain and the
+		// render targets are rebuilt from it once the size has settled. The
+		// Final pass viewport follows the swapchain extent, which the renderer
+		// reads from the swapchain itself.
+		//
+		// Ignoring the size here is what left the frame rendering at the
+		// window's old size: the frame size was only corrected when a
+		// swapchain happened to fail, and a driver that keeps handing out the
+		// old images never fails.
+		if (width == 0 || height == 0)
+			return;
+
+		s_WindowWidth = width;
+		s_WindowHeight = height;
 		if (Vulkan::VkRenderer::Get().HasSwapchain())
 			s_SwapchainNeedsRecreate = true;
 	}
@@ -686,17 +703,45 @@ namespace {
 		if (!renderer.HasSwapchain())
 			return UINT32_MAX;
 
-		uint32_t imageIndex = renderer.BeginFrame();
-
-		// An out-of-date swapchain (e.g. after a resize) is rebuilt so the next
-		// frame has a usable presentation target. The rebuilt swapchain clamps
-		// itself to the surface extent, so the render targets follow *it*, or
-		// every pass would set a viewport that does not match the attachment it
-		// draws into.
-		if (imageIndex == UINT32_MAX && (s_SwapchainNeedsRecreate || renderer.SwapchainNeedsRebuild()))
+		// A resize is rebuilt before the frame is acquired, not after a failed
+		// acquire. Waiting for the acquire to fail leaves the swapchain and the
+		// render targets at the size the window had before, and whether the
+		// acquire fails is the driver's business: a driver that keeps handing
+		// out the old swapchain's images never reports the resize at all, and
+		// the scene is drawn into a corner of the window with the rest of it
+		// black. The window's size is a fact, not something to infer from a
+		// failure.
+		//
+		// It is rebuilt once the size has settled, though, and not on every
+		// event: a drag-resize delivers a size per frame, and rebuilding the
+		// swapchain and every offscreen target on each of them is a
+		// hundred-megabyte allocation per frame on a high-resolution display.
+		// The GPU is waited on for each of those rebuilds, so the whole thing
+		// becomes a stall per frame - the screen flashes, and the driver
+		// eventually gives up on the queue. One rebuild when the drag stops is
+		// the same picture without the churn.
+		const bool sizeSettled = s_WindowWidth == s_SettledWidth &&
+			s_WindowHeight == s_SettledHeight;
+		if (s_SwapchainNeedsRecreate && sizeSettled)
 		{
 			s_SwapchainNeedsRecreate = false;
-			if (renderer.RecreateSwapchain(s_Width, s_Height))
+			if (renderer.RecreateSwapchain(s_WindowWidth, s_WindowHeight))
+				ApplyFrameSize(renderer.GetPresentWidth(), renderer.GetPresentHeight());
+		}
+		s_SettledWidth = s_WindowWidth;
+		s_SettledHeight = s_WindowHeight;
+
+		uint32_t imageIndex = renderer.BeginFrame();
+
+		// A swapchain that went out of date on its own - the surface moved
+		// under it - is rebuilt too, so the next frame has a usable
+		// presentation target. The rebuilt swapchain clamps itself to the
+		// surface extent, so the render targets follow *it*, or every pass
+		// would set a viewport that does not match the attachment it draws
+		// into.
+		if (imageIndex == UINT32_MAX && renderer.SwapchainNeedsRebuild())
+		{
+			if (renderer.RecreateSwapchain(s_WindowWidth, s_WindowHeight))
 			{
 				ApplyFrameSize(renderer.GetPresentWidth(), renderer.GetPresentHeight());
 				imageIndex = renderer.BeginFrame();

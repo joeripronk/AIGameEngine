@@ -74,6 +74,16 @@ namespace Forge {
 			// render scale). Recreating targets is the resize path.
 			[[nodiscard]] bool CreateTargets(uint32_t presentWidth, uint32_t presentHeight, uint32_t renderWidth, uint32_t renderHeight);
 			void DestroyTargets();
+
+			// The environment resources: the reflection probe's cubemap and the
+			// IBL cubemaps built from the environment map.
+			//
+			// They are NOT sized with the window - the probe is a fixed cube and
+			// the IBL is sized with the environment map that was loaded - so a
+			// resize must not touch them. Destroying them with the targets and
+			// never recreating them left the probe with no framebuffer at all,
+			// and the frame after a resize read one out of bounds.
+			void DestroyEnvironmentResources();
 			[[nodiscard]] bool HasTargets() const { return m_HdrImage != VK_NULL_HANDLE; }
 
 			// Frame loop: BeginFrame acquires the swapchain image, waits the

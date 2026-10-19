@@ -148,6 +148,15 @@ namespace Forge {
 		// AcquireSwapchainImage() recreates it.
 		static bool s_SwapchainNeedsRecreate;
 
+		// The window's size as the last resize event reported it, and the size
+		// it had in the previous frame. A size that has not changed since the
+		// last frame has settled, and a settled size is the one worth
+		// rebuilding the swapchain and the render targets for.
+		static uint32_t s_WindowWidth;
+		static uint32_t s_WindowHeight;
+		static uint32_t s_SettledWidth;
+		static uint32_t s_SettledHeight;
+
 		// GLFW window handle used to create the Vulkan surface and swapchain.
 		static void* s_WindowHandle;
 

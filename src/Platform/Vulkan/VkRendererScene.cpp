@@ -968,7 +968,12 @@ void VkRenderer::RenderReflectionProbe(const CameraParams& baseCamera, const std
 	{
 		EndActiveRenderPass();
 		::VkCommandBuffer cmd = CurrentCommandBuffer();
-		if (cmd == VK_NULL_HANDLE || m_ReflectionFaceFramebuffers[face] == VK_NULL_HANDLE)
+		// The face framebuffers are indexed, so their count is checked before
+		// they are: a probe that was never created has no framebuffers at all,
+		// and reading one out of bounds hands the driver a garbage handle.
+		if (cmd == VK_NULL_HANDLE || face >= m_ReflectionFaceFramebuffers.size())
+			return;
+		if (m_ReflectionFaceFramebuffers[face] == VK_NULL_HANDLE)
 			return;
 
 		CameraParams faceCamera = baseCamera;

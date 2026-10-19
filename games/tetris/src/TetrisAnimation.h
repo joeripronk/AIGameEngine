@@ -220,4 +220,25 @@ inline const char* ComboLabelForChain(int chain)
 	return "Epic Combo";
 }
 
+// How far back a perspective camera has to stand for a piece of content to
+// fit the viewport.
+//
+// The frustum's half-height at distance d is d * tan(fov/2), and its half-width
+// is that times the aspect ratio, so the distance that holds the content is
+// whichever of the two needs the camera further back. A window that is short
+// and wide is held by the height, a narrow one by the width, and a square
+// window by both - which is what makes the view follow the window instead of
+// cropping the playfield or leaving it in a corner.
+inline float FitDistanceForContent(float halfHeight, float halfWidth, float aspect, float fovDegrees)
+{
+	if (aspect <= 0.0f)
+		aspect = 1.0f;
+
+	const float tanHalfFov = std::tan(glm::radians(fovDegrees) * 0.5f);
+	if (tanHalfFov <= 0.0f)
+		return 0.0f;
+
+	return std::max(halfHeight / tanHalfFov, halfWidth / (tanHalfFov * aspect));
+}
+
 }  // namespace Tetris

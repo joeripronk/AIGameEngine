@@ -585,8 +585,34 @@ void VkRenderer::DestroyTargets()
 	destroyImage(m_BloomAImage, m_BloomAView, m_BloomAAlloc);
 	destroyImage(m_BloomBImage, m_BloomBView, m_BloomBAlloc);
 	destroyImage(m_ShadowImage, m_ShadowView, m_ShadowAlloc);
+}
 
-	// IBL / probe cubemaps follow the targets they are sized with.
+void VkRenderer::DestroyEnvironmentResources()
+{
+	// The IBL and the probe are not sized with the window: the probe is a
+	// fixed-size cube and the environment map is sized with the image that was
+	// loaded. Destroying them with the targets and never recreating them left
+	// the probe with no framebuffer, and the frame after a resize read one out
+	// of bounds - a garbage handle handed to the driver, which crashed inside
+	// it. They are freed when the device goes down, not when the window
+	// changes shape.
+	auto destroyImage = [this](::VkImage& image, ::VkImageView& view, VmaAllocation& alloc)
+	{
+		if (view != VK_NULL_HANDLE)
+			m_Device.GetFunctions().DestroyImageView(m_Device.Handle(), view, nullptr);
+		view = VK_NULL_HANDLE;
+		if (image != VK_NULL_HANDLE && m_Allocator)
+		{
+			ImageAllocationInfo allocation{};
+			allocation.Image = image;
+			allocation.Allocation.Handle = alloc;
+			allocation.Allocation.Allocator = m_Allocator.get();
+			(void)m_Allocator->FreeAllocation(allocation);
+		}
+		image = VK_NULL_HANDLE;
+		alloc = nullptr;
+	};
+
 	destroyImage(m_ReflectionImage, m_ReflectionView, m_ReflectionAlloc);
 	destroyImage(m_ReflectionDepthImage, m_ReflectionDepthView, m_ReflectionDepthAlloc);
 	for (::VkImageView& view : m_ReflectionFaceViews)

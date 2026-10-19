@@ -104,13 +104,38 @@ bool Swapchain::Create(const PhysicalDevice& physicalDevice, Device& device, con
 		info.pQueueFamilyIndices = queueFamilies;
 	}
 
-	if (device.GetFunctions().CreateSwapchainKHR(device.Handle(), &info, nullptr, &m_Handle) != VK_SUCCESS)
+	// The recreation chain: the new swapchain takes the old one's resources
+	// with it, so the old one may only be destroyed once the new one exists.
+	// Creating the new one with a handle that has already been destroyed is a
+	// handle the driver has no record of, and the driver is entitled to do
+	// anything with it.
+	::VkSwapchainKHR oldHandle = createInfo.OldSwapchain;
+	if (oldHandle == VK_NULL_HANDLE)
+		oldHandle = m_Handle;
+	info.oldSwapchain = oldHandle;
+
+	::VkSwapchainKHR created = VK_NULL_HANDLE;
+	if (device.GetFunctions().CreateSwapchainKHR(device.Handle(), &info, nullptr, &created) != VK_SUCCESS)
 	{
 		FG_CORE_ERROR("Swapchain::Create: vkCreateSwapchainKHR failed (requested {0} images at {1}x{2})",
 			imageCount, m_Extent.width, m_Extent.height);
 		return false;
 	}
+
+	// The new swapchain holds the old one's resources alive, so the old one can
+	// go now.
+	if (m_Handle != VK_NULL_HANDLE && m_Handle != created && m_Device)
+		m_Device->GetFunctions().DestroySwapchainKHR(m_Device->Handle(), m_Handle, nullptr);
+	m_Handle = created;
 	m_Device = &device;
+
+	// A fresh swapchain has not gone out of date and is not suboptimal. The
+	// flags are what the renderer reads to decide whether to rebuild, so
+	// leaving the old ones set makes it rebuild the swapchain it has just
+	// built, over and over, for as long as the window is open.
+	m_NeedRebuild = false;
+	m_Suboptimal = false;
+	m_LastAcquireFailure = VK_SUCCESS;
 
 	uint32_t count = 0;
 	device.GetFunctions().GetSwapchainImagesKHR(device.Handle(), m_Handle, &count, nullptr);

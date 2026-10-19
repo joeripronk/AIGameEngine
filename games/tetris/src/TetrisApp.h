@@ -46,6 +46,17 @@ private:
 	// Point the camera and light at the playfield for the current mode.
 	void ApplyViewLayout();
 
+	// Fit the view to the window. The projection takes the window's shape, so
+	// the image is never stretched, and the camera stands far enough back that
+	// the whole playfield - the board and the preview beside it - is in frame
+	// whatever shape the window is.
+	void FitViewToViewport();
+
+	// The window size the view was last fitted to. A resize is a change here,
+	// and the frame loop fits the view again when it sees one.
+	uint32_t m_FittedWidth = 0;
+	uint32_t m_FittedHeight = 0;
+
 	// Shake the camera after a landing, by how fast the blocks were moving when
 	// they stopped. The camera's base position is what ApplyViewLayout set; the
 	// shake is an offset off it that decays, and settles back onto it.
