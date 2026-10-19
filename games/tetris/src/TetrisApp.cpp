@@ -215,6 +215,13 @@ bool TetrisApp::ParseCommandLineMode(const Forge::ApplicationCommandLineArgs& ar
 			FG_INFO("Tetris: usage: ForgeTetris [--mode 2d|3d] [--2d] [--3d]");
 			return false;
 		}
+		else if (arg.rfind("--profile", 0) == 0 || arg.rfind("--project", 0) == 0)
+		{
+			// Engine-level options: Application parses --profile and
+			// --project for every application. Rejecting them here killed
+			// the game before its first frame - a --profile run produced
+			// an empty trace and an instant exit.
+		}
 		else if (!arg.empty() && arg[0] == '-')
 		{
 			FG_ERROR("Tetris: unknown option '{0}'", arg);
