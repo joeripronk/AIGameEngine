@@ -293,6 +293,19 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/VulkanWindow.cpp
     Platform/Vulkan/ImGuiLayer.cpp
     Platform/Vulkan/ImGuiLayer.h
+    # BRUTAL rewrite - device layer (parallel to the nvrhi path until Phase 6)
+    Platform/Vulkan/Device/DeviceSelection.h
+    Platform/Vulkan/Device/DeviceSelection.cpp
+    Platform/Vulkan/Device/DebugName.h
+    Platform/Vulkan/Device/DebugName.cpp
+    Platform/Vulkan/Device/VkInstance.h
+    Platform/Vulkan/Device/VkInstance.cpp
+    Platform/Vulkan/Device/VkPhysicalDevice.h
+    Platform/Vulkan/Device/VkPhysicalDevice.cpp
+    Platform/Vulkan/Device/VkDevice.h
+    Platform/Vulkan/Device/VkDevice.cpp
+    Platform/Vulkan/Device/VkQueue.h
+    Platform/Vulkan/Device/VkQueue.cpp
     Forge/UI/UI.h
 )
 target_include_directories(vulkan

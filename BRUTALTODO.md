@@ -49,30 +49,33 @@ what changes is the layer underneath it.
 - [x] Branch `brutalrewrite` created.
 - [x] nvrhi submodule reset to upstream NVIDIA-RTX/NVRHI (`6b96fb0`); `.gitmodules` url updated,
       fork branch removed. Full build and `ForgeTests` + `ForgeTetrisTests` pass on upstream.
-- [ ] Commit the setup (branch, `.gitmodules`, submodule pointer, this plan).
-- [ ] Add `vendor/VulkanMemoryAllocator` submodule (`https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git`)
+- [x] Commit the setup (branch, `.gitmodules`, submodule pointer, this plan).
+- [x] Add `vendor/VulkanMemoryAllocator` submodule (`https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git`)
       and wire it into `src/CMakeLists.txt` (replace nvrhi's vendored VMA usage).
+      Pinned `v3.4.0`; the `vma` target is the copy the new renderer allocates through -
+      nvrhi compiles its own vendored copy until Phase 6 deletes it.
 
 ## Phase 1 - Device layer (`src/Platform/Vulkan/Device/`)
 
 Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` pattern):
 
-- [ ] `VkInstance` - instance, extension/layer lists from `VulkanHelpers`-style bootstrap
+- [x] `VkInstance` - instance, extension/layer lists from `VulkanHelpers`-style bootstrap
       (validation "mandatory if supported"), debug messenger with severity callbacks,
       eager physical device enumeration.
-- [ ] `VkPhysicalDevice` - extension name sets (allocation-free span lookup),
+- [x] `VkPhysicalDevice` - extension name sets (allocation-free span lookup),
       `FindMemoryType(bits, required, preferred)` with popcount ranking,
       `FindSupportedFormat(candidates, tiling, features)`, queue family selection that
       prefers the family with the fewest extra capabilities (dedicated transfer wins).
-- [ ] `VkDevice` - per-device function table resolved via `vkGetDeviceProcAddr`
+- [x] `VkDevice` - per-device function table resolved via `vkGetDeviceProcAddr`
       (kills the `forge_vk_dispatch` / Vulkan-Hpp dynamic-dispatch workaround block in
       `src/CMakeLists.txt:243-252,395-403`), cached `VkQueue` objects, VMA allocator
       creation, device-address feature enable.
-- [ ] `VkQueue` - every submit/present/wait-idle serialized by one mutex; record on any
+- [x] `VkQueue` - every submit/present/wait-idle serialized by one mutex; record on any
       thread, submit through the queue object.
-- [ ] Debug naming helper: `SetDebugName(handle, name)` on every resource, DEBUG-only,
+- [x] Debug naming helper: `SetDebugName(handle, name)` on every resource, DEBUG-only,
       UTF-8-safe 255-byte truncation.
 - Tests: memory-type preference ranking, queue family choice, format selection (pure parts).
+      (`tests/src/DeviceLayerTests.cpp` - 6 cases, 25 assertions)
 
 ## Phase 2 - Memory + resources (`src/Platform/Vulkan/Memory/`, `Resources/`)
 
@@ -181,8 +184,8 @@ onto Phases 1-4:
 | 2026-10-19 | nvrhi reset to upstream, fork branch dropped | fork patches (commandlist lifetime, CHECK_VK_FAIL, Vulkan-Hpp init) are made obsolete by the raw-Vulkan rewrite; upstream builds and passes tests unchanged |
 | 2026-10-19 | Raw Vulkan + VMA, no Vulkan-Hpp in render path | BRUTAL's layering is the inspiration; per-device function tables + handle wrappers map 1:1 to C++; kills the dispatch-loader workarounds |
 | 2026-10-19 | Classic render passes first, dynamic rendering evaluated at Phase 5 | parity first, simplification second |
+| 2026-10-19 | Vulkan loader: link the system loader (`Vulkan::Vulkan`), no dynamic-dispatch loader | raw `vk*` calls need the loader only at instance scope; everything device-scope goes through the `DeviceFunctions` table resolved by `vkGetDeviceProcAddr` (Phase 1), which is what kills `forge_vk_dispatch` in Phase 6 |
 | | Dynamic rendering: yes/no | |
-| | Vulkan loader: system loader / dynamic dispatch | |
 | | Slang evaluation | |
 
 ## Working order note
