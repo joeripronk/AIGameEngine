@@ -308,11 +308,14 @@ void VkRenderer::BeginScene(const CameraParams& camera)
 	WriteShadowParams(camera);
 
 	EndActiveRenderPass();
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
 	const std::array<VkClearValue, 2> clears{
 		VkClearValue{ .color = { kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3] } },
 		VkClearValue{ .depthStencil = { 1.0f, 0 } },
 	};
-	BeginRenderPass(m_Device, CurrentCommandBuffer(), m_RenderPassHdr, m_FbHdr,
+	BeginRenderPass(m_Device, cmd, m_RenderPassHdr, m_FbHdr,
 		m_RenderWidth, m_RenderHeight, clears);
 	m_RenderPassOpen = true;
 	m_SceneBegun = true;
@@ -379,10 +382,13 @@ void VkRenderer::BeginShadowScene(const glm::mat4& shadowViewProjection)
 	m_CurrentTargetHeight = m_ShadowMapSize;
 
 	EndActiveRenderPass();
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
 	const std::array<VkClearValue, 1> clears{
 		VkClearValue{ .depthStencil = { 1.0f, 0 } },
 	};
-	BeginRenderPass(m_Device, CurrentCommandBuffer(), m_RenderPassShadow, m_FbShadow,
+	BeginRenderPass(m_Device, cmd, m_RenderPassShadow, m_FbShadow,
 		m_ShadowMapSize, m_ShadowMapSize, clears);
 	m_RenderPassOpen = true;
 }
@@ -451,6 +457,8 @@ void VkRenderer::RenderSSAOPass(const glm::mat4& viewProjection)
 		return;
 
 	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
 	const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
 	BeginRenderPass(m_Device, cmd, m_RenderPassR8, m_FbSsao, m_RenderWidth, m_RenderHeight, clears);
 	DrawFullscreenQuad(m_Device, cmd, m_PipelineSsao, m_LayoutSsao, set, m_QuadVertexBuffer, m_QuadIndexBuffer, m_RenderWidth, m_RenderHeight);
@@ -462,19 +470,22 @@ void VkRenderer::ClearHdrTarget()
 	EndActiveRenderPass();
 	if (!HasTargets())
 		return;
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
 	const std::array<VkClearValue, 2> clears{
 		VkClearValue{ .color = { kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3] } },
 		VkClearValue{ .depthStencil = { 1.0f, 0 } },
 	};
-	BeginRenderPass(m_Device, CurrentCommandBuffer(), m_RenderPassHdr, m_FbHdr,
+	BeginRenderPass(m_Device, cmd, m_RenderPassHdr, m_FbHdr,
 		m_RenderWidth, m_RenderHeight, clears);
-	m_Device.GetFunctions().CmdEndRenderPass(CurrentCommandBuffer());
+	m_Device.GetFunctions().CmdEndRenderPass(cmd);
 }
 
 void VkRenderer::SubmitFrameOnly()
 {
 	EndActiveRenderPass();
-	if (!m_DeviceReady || !m_FrameLoop)
+	if (!m_DeviceReady || !m_FrameLoop || m_CurrentImageIndex == UINT32_MAX)
 		return;
 	(void)m_Staging->Submit();
 	(void)m_Staging->Wait();
@@ -503,6 +514,8 @@ void VkRenderer::DiagDrawSsaoIntoTonemap()
 	rendering.pColorAttachments = &attachment;
 
 	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
 	vkCmdBeginRendering(cmd, &rendering);
 
 	const std::array<::VkImageView, 1> views{ m_DepthView };
@@ -531,13 +544,16 @@ void VkRenderer::ClearHdrTargetRed()
 	EndActiveRenderPass();
 	if (!HasTargets())
 		return;
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
 	const std::array<VkClearValue, 2> clears{
 		VkClearValue{ .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
 		VkClearValue{ .depthStencil = { 1.0f, 0 } },
 	};
-	BeginRenderPass(m_Device, CurrentCommandBuffer(), m_RenderPassHdr, m_FbHdr,
+	BeginRenderPass(m_Device, cmd, m_RenderPassHdr, m_FbHdr,
 		m_RenderWidth, m_RenderHeight, clears);
-	m_Device.GetFunctions().CmdEndRenderPass(CurrentCommandBuffer());
+	m_Device.GetFunctions().CmdEndRenderPass(cmd);
 	(void)m_Staging->Submit();
 	(void)m_Staging->Wait();
 	(void)m_GraphicsQueue->WaitIdle();
@@ -666,9 +682,27 @@ void VkRenderer::RenderFinalPass()
 // Descriptor set builders
 // ---------------------------------------------------------------------------
 
+namespace {
+
+	// Every set built here is recorded into the current frame's command
+	// buffer, so a set requested with no frame begun has no consumer. The
+	// per-frame pool reset only runs in BeginFrame: allocating these sets
+	// on frames that never begin drains the pool's accounting with nothing
+	// to show for it (measured: 512 refused allocations after a window
+	// close while the app spun on failed acquires).
+	[[nodiscard]] bool FrameRecording(::VkCommandBuffer cmd)
+	{
+		return cmd != VK_NULL_HANDLE;
+	}
+
+}  // namespace
+
 ::VkDescriptorSet VkRenderer::BuildPbrSet(::VkBuffer objectBuffer, size_t objectOffset,
 	::VkImageView albedoView, bool probeDraw)
 {
+	if (!FrameRecording(CurrentCommandBuffer()))
+		return VK_NULL_HANDLE;
+
 	std::vector<::VkDescriptorSet> sets;
 	std::string reason;
 	if (!CurrentDescriptorPool().AllocateSets(m_SetLayoutPbr, 1, sets, reason))
@@ -724,6 +758,9 @@ void VkRenderer::RenderFinalPass()
 
 ::VkDescriptorSet VkRenderer::BuildShadowSet(::VkBuffer objectBuffer, size_t objectOffset)
 {
+	if (!FrameRecording(CurrentCommandBuffer()))
+		return VK_NULL_HANDLE;
+
 	std::vector<::VkDescriptorSet> sets;
 	std::string reason;
 	if (!CurrentDescriptorPool().AllocateSets(m_SetLayoutShadow, 1, sets, reason))
@@ -751,6 +788,9 @@ void VkRenderer::RenderFinalPass()
 	std::span<const ::VkSampler> samplers,
 	std::span<const VkDescriptorBufferInfo> buffers)
 {
+	if (!FrameRecording(CurrentCommandBuffer()))
+		return VK_NULL_HANDLE;
+
 	std::vector<::VkDescriptorSet> sets;
 	std::string reason;
 	if (!CurrentDescriptorPool().AllocateSets(layout, 1, sets, reason))

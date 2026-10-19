@@ -151,7 +151,11 @@ bool VmaDeviceAllocator::AllocateBuffer(
 
 bool VmaDeviceAllocator::FreeAllocation(const BufferAllocationInfo& allocation)
 {
-	if (allocation.Allocation.Memory == VK_NULL_HANDLE)
+	// The handle *is* the allocation; Memory is derived bookkeeping that
+	// callers describing a VMA allocation need not repeat. Testing Memory
+	// here refused every free from a hand-built AllocationInfo, leaking the
+	// allocation until vmaDestroyAllocator asserted on the live block.
+	if (allocation.Allocation.Handle == nullptr)
 		return false;  // nothing was allocated
 	if (allocation.Allocation.Allocator != this)
 	{
@@ -212,8 +216,8 @@ bool VmaDeviceAllocator::AllocateImage(
 
 bool VmaDeviceAllocator::FreeAllocation(const ImageAllocationInfo& allocation)
 {
-	if (allocation.Allocation.Memory == VK_NULL_HANDLE)
-		return false;
+	if (allocation.Allocation.Handle == nullptr)
+		return false;  // nothing was allocated - see the buffer overload
 	if (allocation.Allocation.Allocator != this)
 	{
 		FG_CORE_ERROR("VMA: image allocation was not made by this allocator; refusing to free it");

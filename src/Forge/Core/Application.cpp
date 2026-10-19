@@ -47,6 +47,12 @@ namespace Forge {
 			else
 				FG_CORE_ERROR("Could not open profiling output file '{0}'", path);
 		}
+
+		// The constructor reaches this point only with a valid window; the
+		// answer is latched here because the entry point asks after Run()
+		// returns, when a normally-closed window has long been destroyed.
+		m_StartupSucceeded = true;
+		FG_CORE_INFO("Application: startup latched OK");
 	}
 
 	std::string Application::GetArgumentValue(const ApplicationCommandLineArgs& args, const std::string& option)
@@ -146,6 +152,7 @@ namespace Forge {
 	bool Application::OnWindowClose(WindowCloseEvent& e)
 	{
 		(void)e;
+		FG_CORE_INFO("Application: window close -> stopping");
 		Close();
 		return true;
 	}

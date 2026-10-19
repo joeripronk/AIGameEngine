@@ -309,6 +309,8 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/Frame/FrameLoop.cpp
     # BRUTAL rewrite - pipelines, shaders, descriptors
     Platform/Vulkan/Pipeline/PipelinePresets.h
+    Platform/Vulkan/Pipeline/PipelineCache.h
+    Platform/Vulkan/Pipeline/PipelineCache.cpp
     Platform/Vulkan/Pipeline/VertexLayout.h
     Platform/Vulkan/Pipeline/VertexLayout.cpp
     Platform/Vulkan/Pipeline/ShaderModule.h

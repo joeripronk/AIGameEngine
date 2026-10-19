@@ -264,6 +264,14 @@ void VkRenderer::ShutdownDevice()
 {
 	WaitForGpuIdle();
 
+	// The cache is dumped while the device is alive: everything this
+	// session compiled is what the next session starts from. With no
+	// cache (startup never reached CreatePipelines) there is nothing to
+	// say.
+	if (!m_PipelineCache.IsNull() && !SavePipelineCache())
+		FG_CORE_WARN("VkRenderer: pipeline cache not saved");
+	m_PipelineCache.Destroy();
+
 	DestroyUploadCaches();
 	DestroyPipelines();
 	DestroyDescriptorLayouts();
@@ -357,6 +365,13 @@ bool VkRenderer::RecreateSwapchain(uint32_t width, uint32_t height)
 
 uint32_t VkRenderer::BeginFrame()
 {
+	// The frame is inactive until the acquire succeeds: every pass checks
+	// this index, so a failed acquire leaves nothing to record into. The
+	// command buffer of the previous frame is submitted and not begun -
+	// recording into it is undefined behaviour the driver punishes with a
+	// crash (measured on NVIDIA at window close).
+	m_CurrentImageIndex = UINT32_MAX;
+
 	if (!m_DeviceReady || !m_FrameLoop)
 		return UINT32_MAX;
 
@@ -415,6 +430,7 @@ void VkRenderer::EndFrame(uint32_t imageIndex)
 	(void)m_Staging->Submit();  // flush uploads recorded this frame, before the frame's work
 
 	const PresentOutcome outcome = m_FrameLoop->EndFrame(imageIndex);
+	m_CurrentImageIndex = UINT32_MAX;   // the frame is closed; passes record nothing after this
 	if (outcome == PresentOutcome::RebuildNextFrame)
 		FG_CORE_INFO("VkRenderer: present reported OUT_OF_DATE; swapchain rebuild scheduled by the app");
 }
@@ -433,6 +449,12 @@ float VkRenderer::s_BloomIntensity = BloomParams{}.Intensity;
 
 VkCommandBuffer VkRenderer::CurrentCommandBuffer() const
 {
+	// No frame begun (acquire failed, or EndFrame already ran) means there
+	// is no command buffer that may legally be recording: answering the
+	// previous frame's buffer is how a failed acquire turned into a driver
+	// crash. Passes treat VK_NULL_HANDLE as "skip this pass".
+	if (m_CurrentImageIndex == UINT32_MAX)
+		return VK_NULL_HANDLE;
 	return m_FrameLoop ? m_FrameLoop->CurrentCommandBuffer() : VK_NULL_HANDLE;
 }
 
@@ -445,7 +467,8 @@ VkCommandBuffer VkRenderer::CurrentCommandBuffer() const
 	::VkPipelineLayout layout,
 	const VkPipelineRasterizationStateCreateInfo& rasterizer,
 	const VkPipelineDepthStencilStateCreateInfo& depth,
-	const VkPipelineColorBlendStateCreateInfo& blend)
+	const VkPipelineColorBlendStateCreateInfo& blend,
+	::VkPipelineCache pipelineCache)
 {
 	std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
 	uint32_t stageCount = 0;
@@ -508,12 +531,41 @@ VkCommandBuffer VkRenderer::CurrentCommandBuffer() const
 	info.subpass = subpassIndex;
 
 	::VkPipeline pipeline = VK_NULL_HANDLE;
-	if (device.GetFunctions().CreateGraphicsPipelines(device.Handle(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
+	if (device.GetFunctions().CreateGraphicsPipelines(device.Handle(), pipelineCache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
 	{
 		FG_CORE_ERROR("VkRenderer: graphics pipeline creation failed");
 		return VK_NULL_HANDLE;
 	}
 	return pipeline;
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline cache persistence
+// ---------------------------------------------------------------------------
+
+bool VkRenderer::SavePipelineCache() const
+{
+	if (m_PipelineCache.IsNull())
+		return false;   // nothing was compiled through a cache
+
+	const std::vector<uint8_t> payload = m_PipelineCache.GetData();
+	if (payload.empty())
+		return true;    // an empty cache has nothing to persist
+
+	const std::string_view deviceName =
+		m_PhysicalDevicePtr ? std::string_view(m_PhysicalDevicePtr->GetProperties().deviceName) : std::string_view();
+	const std::filesystem::path path = PipelineCacheFile::CachePathFor(deviceName);
+	const std::vector<uint8_t> file = PipelineCacheFile::Build(
+		m_PhysicalDevicePtr ? PipelineCacheFile::UuidOf(m_PhysicalDevicePtr->GetProperties())
+		                    : std::span<const uint8_t, 16>(std::array<uint8_t, 16>{}),
+		payload);
+	if (!FileSystem::WriteFile(path, file.data(), file.size()))
+	{
+		FG_CORE_ERROR("VkRenderer: pipeline cache '{0}' could not be written", path.string());
+		return false;
+	}
+	FG_CORE_INFO("VkRenderer: pipeline cache saved ({0} bytes to {1})", payload.size(), path.string());
+	return true;
 }
 
 }}

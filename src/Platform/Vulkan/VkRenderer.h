@@ -13,6 +13,7 @@
 #include "Platform/Vulkan/Memory/StagingPool.h"
 #include "Platform/Vulkan/Memory/VmaDeviceAllocator.h"
 #include "Platform/Vulkan/Pipeline/DescriptorPool.h"
+#include "Platform/Vulkan/Pipeline/PipelineCache.h"
 #include "Platform/Vulkan/Pipeline/ShaderModule.h"
 #include "Platform/Vulkan/Pipeline/VertexLayout.h"
 
@@ -241,16 +242,23 @@ namespace Forge {
 			[[nodiscard]] bool CreatePipelines();
 			void DestroyPipelines();
 
+			// Dump the driver's pipeline cache to its file so the next
+			// session starts from what this one compiled. Reports false
+			// when the dump could not be written.
+			[[nodiscard]] bool SavePipelineCache() const;
+
 			// Graphics pipeline builder (VkRendererDevice.cpp; composed from
 			// the Phase 4 presets). Dynamic viewport/scissor, so one pipeline
-			// serves every target size.
+			// serves every target size. The cache is the renderer's dumped
+			// VkPipelineCache (VK_NULL_HANDLE is legal: no caching).
 			[[nodiscard]] static ::VkPipeline CreateGraphicsPipeline(const Device& device,
 				::VkShaderModule vertex, ::VkShaderModule fragment,
 				const VertexLayout* layout, ::VkRenderPass renderPass, uint32_t subpassIndex,
 				::VkPipelineLayout pipelineLayout,
 				const VkPipelineRasterizationStateCreateInfo& rasterizer,
 				const VkPipelineDepthStencilStateCreateInfo& depth,
-				const VkPipelineColorBlendStateCreateInfo& blend);
+				const VkPipelineColorBlendStateCreateInfo& blend,
+				::VkPipelineCache pipelineCache = VK_NULL_HANDLE);
 			[[nodiscard]] bool CreateSwapchainFramebuffers();
 			void DestroySwapchainFramebuffers();
 
@@ -466,6 +474,7 @@ namespace Forge {
 			ShaderModule m_FragmentShaderPrefilter;
 
 			// Pipelines.
+			PipelineCache m_PipelineCache;   // dumped/loaded across sessions
 			::VkPipeline m_PipelinePbr = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineShadow = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineSsao = VK_NULL_HANDLE;

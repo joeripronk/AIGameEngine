@@ -3,6 +3,7 @@
 #include "Platform/Vulkan/Device/DebugName.h"
 #include "Platform/Vulkan/Memory/UploadRegions.h"
 #include "Platform/Vulkan/Pipeline/DescriptorAccounting.h"
+#include "Platform/Vulkan/Pipeline/PipelineCache.h"
 #include "Platform/Vulkan/Pipeline/PipelinePresets.h"
 #include "Platform/Vulkan/Pipeline/VertexLayout.h"
 #include "Platform/Vulkan/Resources/Subresources.h"
@@ -309,4 +310,64 @@ TEST_CASE("Format aspects: depth formats resolve to depth, not color", "[pipelin
 	REQUIRE(FormatTexelBlockBytes(VK_FORMAT_R32G32B32A32_SFLOAT) == 16);
 	REQUIRE(FormatTexelBlockBytes(VK_FORMAT_D24_UNORM_S8_UINT) == 8);
 	REQUIRE(FormatTexelBlockBytes(VK_FORMAT_R8_UNORM) == 1);
+}
+
+TEST_CASE("Pipeline cache file: build/parse round trip with the device UUID binding", "[pipeline]")
+{
+	const std::array<uint8_t, 16> uuid{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+	const std::vector<uint8_t> payload{ 'd', 'r', 'i', 'v', 'e', 'r', ' ', 'b', 'l', 'o', 'b' };
+
+	const std::vector<uint8_t> file = PipelineCacheFile::Build(uuid, payload);
+	REQUIRE(file.size() == 8 + 4 + 16 + payload.size());
+
+	std::vector<uint8_t> out;
+	std::string reason;
+	REQUIRE(PipelineCacheFile::Parse(file, uuid, out, reason));
+	REQUIRE(out == payload);
+
+	// An empty payload is a legal cache (first run with nothing compiled).
+	const std::vector<uint8_t> emptyFile = PipelineCacheFile::Build(uuid, {});
+	REQUIRE(PipelineCacheFile::Parse(emptyFile, uuid, out, reason));
+	REQUIRE(out.empty());
+}
+
+TEST_CASE("Pipeline cache file: foreign device, garbage and truncation are refused", "[pipeline]")
+{
+	const std::array<uint8_t, 16> uuid{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
+	const std::array<uint8_t, 16> other{ 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1 };
+	const std::vector<uint8_t> payload{ 0xDE, 0xAD, 0xBE, 0xEF };
+	const std::vector<uint8_t> file = PipelineCacheFile::Build(uuid, payload);
+
+	// A payload from one driver is meaningless to another: the UUID binds it.
+	std::vector<uint8_t> out;
+	std::string reason;
+	REQUIRE_FALSE(PipelineCacheFile::Parse(file, other, out, reason));
+	REQUIRE(out.empty());
+	REQUIRE_FALSE(reason.empty());
+
+	// Garbage is "not a cache", not a crash.
+	const std::vector<uint8_t> garbage{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 };
+	REQUIRE_FALSE(PipelineCacheFile::Parse(garbage, uuid, out, reason));
+
+	// A header cut short reports false and yields nothing. (A payload cut
+	// short is undetectable by the format - the driver validates the
+	// payload itself - so the parser's job is the header.)
+	const std::vector<uint8_t> headerOnly = PipelineCacheFile::Build(uuid, {});
+	const std::vector<uint8_t> truncated(headerOnly.begin(), headerOnly.end() - 2);
+	REQUIRE_FALSE(PipelineCacheFile::Parse(truncated, uuid, out, reason));
+	REQUIRE(out.empty());
+
+	// A header-only file parses to an empty payload.
+	REQUIRE(PipelineCacheFile::Parse(headerOnly, uuid, out, reason));
+	REQUIRE(out.empty());
+}
+
+TEST_CASE("Pipeline cache path: device names become safe, device-specific file names", "[pipeline]")
+{
+	REQUIRE(PipelineCacheFile::SanitizeDeviceName("Intel(R) Iris(R) Xe Graphics (ADL GT2)")
+	        == "Intel_R__Iris_R__Xe_Graphics__ADL_GT2_");
+	REQUIRE(PipelineCacheFile::SanitizeDeviceName("NVIDIA GeForce RTX 3080 Ti")
+	        == "NVIDIA_GeForce_RTX_3080_Ti");
+	REQUIRE(PipelineCacheFile::CachePathFor("NVIDIA GeForce RTX 3080 Ti").string()
+	        == "pipelines-NVIDIA_GeForce_RTX_3080_Ti.vkcache");
 }

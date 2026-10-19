@@ -1,12 +1,23 @@
 #include "fgpch.h"
 #include "Platform/Vulkan/VkRenderer.h"
+#include "Platform/Vulkan/Pipeline/PipelineCache.h"
 #include "Platform/Vulkan/Pipeline/PipelinePresets.h"
 
+#include "Forge/Core/FileSystem.h"
 #include "Forge/Core/Log.h"
+
+#include <array>
+#include <cctype>
+#include <filesystem>
+#include <span>
+#include <string>
 
 namespace Forge { namespace Vulkan {
 
 namespace {
+
+	// The cache file is device-keyed (PipelineCacheFile::CachePathFor); the
+	// payload is the driver's own format validated by pipelineCacheUuid.
 
 	// Pipeline-state parity with the nvrhi renderer it replaces:
 	//  - PBR: cull none, clockwise front face (nvrhi's default), depth test,
@@ -30,7 +41,7 @@ namespace {
 
 	[[nodiscard]] ::VkPipeline MakeFullscreenPipeline(const Device& device, const DeviceFunctions& functions,
 		::VkShaderModule vert, ::VkShaderModule frag, ::VkRenderPass renderPass, ::VkPipelineLayout layout,
-		const VertexLayout& quadLayout)
+		const VertexLayout& quadLayout, ::VkPipelineCache pipelineCache)
 	{
 		const std::array<VkPipelineShaderStageCreateInfo, 2> stages{
 			VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vert, "main", nullptr },
@@ -88,7 +99,7 @@ namespace {
 		info.subpass = 0;
 
 		::VkPipeline pipeline = VK_NULL_HANDLE;
-		if (functions.CreateGraphicsPipelines(device.Handle(), VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
+		if (functions.CreateGraphicsPipelines(device.Handle(), pipelineCache, 1, &info, nullptr, &pipeline) != VK_SUCCESS)
 			FG_CORE_ERROR("VkRenderer: fullscreen pipeline creation failed");
 		return pipeline;
 	}
@@ -99,6 +110,32 @@ bool VkRenderer::CreatePipelines()
 {
 	const Device& device = m_Device;
 	const DeviceFunctions& functions = device.GetFunctions();
+
+	// The cross-session pipeline cache: load the device's file (if a real
+	// one is there), start the driver's cache from its payload, and let
+	// every pipeline creation below feed it. A missing, corrupt, foreign
+	// or unreadable file is a cold start, not a failure.
+	std::vector<uint8_t> initialPayload;
+	{
+		const std::string_view deviceName =
+			m_PhysicalDevicePtr ? std::string_view(m_PhysicalDevicePtr->GetProperties().deviceName) : std::string_view();
+		const std::filesystem::path path = PipelineCacheFile::CachePathFor(deviceName);
+		std::vector<uint8_t> file;
+		std::string reason;
+		if (FileSystem::ReadFile(path, file))
+		{
+			const std::array<uint8_t, 16> kNoDevice{};
+			const std::span<const uint8_t, 16> uuid =
+				m_PhysicalDevicePtr ? PipelineCacheFile::UuidOf(m_PhysicalDevicePtr->GetProperties())
+				                    : std::span<const uint8_t, 16>(kNoDevice);
+			if (PipelineCacheFile::Parse(file, uuid, initialPayload, reason))
+				FG_CORE_INFO("VkRenderer: pipeline cache loaded ({0} bytes from {1})", file.size(), path.string());
+			else
+				FG_CORE_WARN("VkRenderer: pipeline cache '{0}' ignored - {1}", path.string(), reason);
+		}
+	}
+	if (!m_PipelineCache.Create(device, initialPayload))
+		FG_CORE_WARN("VkRenderer: pipeline cache unavailable; pipelines compile fresh every session");
 
 	m_LayoutPbr = MakeLayout(device, m_SetLayoutPbr);
 	m_LayoutShadow = MakeLayout(device, m_SetLayoutShadow);
@@ -127,7 +164,7 @@ bool VkRenderer::CreatePipelines()
 				r.frontFace = VK_FRONT_FACE_CLOCKWISE;
 				return r;
 			}(),
-			Presets::DepthStencil::Opaque, Presets::Blend::None);
+			Presets::DepthStencil::Opaque, Presets::Blend::None, m_PipelineCache.Handle());
 	}
 
 	// The shadow pipeline: depth-only, back-face culled, counter-clockwise
@@ -138,7 +175,7 @@ bool VkRenderer::CreatePipelines()
 			m_VertexShaderShadow.Handle(), m_FragmentShaderShadow.Handle(), &m_VertexLayoutMesh,
 			m_RenderPassShadow, 0, m_LayoutShadow,
 			Presets::Rasterizer::FillCullBack,
-			Presets::DepthStencil::Opaque, Presets::Blend::None);
+			Presets::DepthStencil::Opaque, Presets::Blend::None, m_PipelineCache.Handle());
 	}
 
 	// Fullscreen passes share the fullscreen vertex shader; the strip
@@ -150,7 +187,7 @@ bool VkRenderer::CreatePipelines()
 			return VK_NULL_HANDLE;
 		return MakeFullscreenPipeline(device, functions,
 			m_VertexShaderFullscreen.Handle(), frag.Handle(), renderPass, layout,
-			m_VertexLayoutQuad);
+			m_VertexLayoutQuad, m_PipelineCache.Handle());
 	};
 
 	m_PipelineSsao = makePost(m_FragmentShaderSsao, m_RenderPassR8, m_LayoutSsao);

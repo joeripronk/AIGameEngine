@@ -123,7 +123,13 @@ AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex)
 	const uint32_t ringIndex = m_AcquireRing.Index();
 
 	uint32_t imageIndex = 0;
-	const AcquireOutcome outcome = m_Swapchain->AcquireNextImage(UINT64_MAX, m_AcquireSemaphores[ringIndex], imageIndex);
+	// A bounded acquire timeout: an infinite wait on a swapchain that has
+	// lost its surface (window closed) never returns, and the app loop
+	// blocks there with a quit event queued behind it - the editor spins
+	// forever after the window closes. One second is generous for a
+	// present queue and finite for a dead surface.
+	constexpr uint64_t kAcquireTimeoutNs = 1000ull * 1000ull * 1000ull;
+	const AcquireOutcome outcome = m_Swapchain->AcquireNextImage(kAcquireTimeoutNs, m_AcquireSemaphores[ringIndex], imageIndex);
 	if (outcome != AcquireOutcome::Ok && outcome != AcquireOutcome::Suboptimal)
 		return outcome;
 

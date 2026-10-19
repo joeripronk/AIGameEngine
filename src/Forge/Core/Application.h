@@ -40,7 +40,10 @@ namespace Forge {
 
 		// False when startup never got a window - the entry point turns that
 		// into a non-zero exit code so scripts can classify the failure.
-		bool StartupSucceeded() const { return m_Window != nullptr && m_Window->IsValid(); }
+		// Latched at the end of the constructor: a window closed later is a
+		// normal exit (0), not a startup failure, and the entry point runs
+		// this after the loop, when the window is long gone.
+		bool StartupSucceeded() const { return m_StartupSucceeded; }
 
 		void OnEvent(Event& e);
 
@@ -93,6 +96,7 @@ namespace Forge {
 		ApplicationSpecification m_Specification;
 		Scope<Window> m_Window;
 		bool m_Running = true;
+		bool m_StartupSucceeded = false;   // latched by the constructor
 		bool m_Minimized = false;
 		LayerStack m_LayerStack;
 		float m_LastFrameTime = 0.0f;

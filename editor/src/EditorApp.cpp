@@ -261,6 +261,17 @@ namespace Forge {
 		while (IsRunning())
 		{
 			FG_PROFILE_SCOPE("Frame");
+
+			// Poll and dispatch first: the window-close event must be able
+			// to end the loop *before* this frame acquires a swapchain
+			// image. Acquired after the close, the acquire blocks on a
+			// surface that is gone, and the quit event sits in the queue
+			// behind it forever - the editor spins after the window closes.
+			GetWindowScope()->OnUpdate();
+			ExecuteMainThreadQueue();
+			if (!IsRunning())
+				break;
+
 			float time = (float)Time::GetTime();
 			Timestep timestep = time - lastFrameTime;
 			lastFrameTime = time;
@@ -338,9 +349,6 @@ namespace Forge {
 				// Present the swapchain image.
 				Renderer::PresentSwapchainImage(swapchainImage);
 			}
-
-			GetWindowScope()->OnUpdate();
-			ExecuteMainThreadQueue();
 		}
 	}
 

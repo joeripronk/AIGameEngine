@@ -139,8 +139,11 @@ Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` 
       allocation validated against the accounting before the driver is asked, out-of-sets /
       out-of-descriptors reported with human-readable counts, credit-exact free
       (set→layout map).
-- [ ] Pipeline cache (explicit `VkPipelineCache`, dumped/loaded across sessions) -
-      **TODO**, tracked here, out of scope for parity.
+- [x] Pipeline cache: explicit `VkPipelineCache` (`Pipeline/PipelineCache.h/.cpp`) -
+      file format (magic/version/device-UUID header, pure + unit-tested), loaded into
+      the driver cache at `CreatePipelines`, fed to every pipeline creation, dumped
+      at shutdown to `pipelines-<device>.vkcache` (measured 150 KB from a real session;
+      a foreign-device/corrupt/truncated file is refused and the session cold-starts).
 - [x] RenderPass equivalents: **classic render passes** (one per offscreen target,
       DONT_CARE/LOAD clear policy per pass); dynamic rendering evaluated and
       rejected for this rewrite - see Decisions.
@@ -170,6 +173,16 @@ onto Phases 1-4:
 - [x] Parity gate: `startup_check.sh` green on the Intel driver and under
       xvfb+lavapipe, full `ctest` green (unit + startup + tetris), ASan + UBSan
       suite green, valgrind clean on the editor.
+      Fixed at the gate: passes must not record when no frame is begun
+      (`CurrentCommandBuffer()` answers `VK_NULL_HANDLE` after a failed acquire -
+      recording into the previous frame's submitted buffer crashed the NVIDIA
+      driver); `AcquireNextImage` uses a finite 1 s timeout (infinite blocks on a
+      dead surface with the quit event queued behind it); `VmaDeviceAllocator::
+      FreeAllocation` tests the allocation Handle, not the derived Memory field
+      (hand-built `AllocationInfo` frees were refused, leaking until
+      `vmaDestroyAllocator` asserted); `StartupSucceeded()` latches in the
+      constructor (a normal window close is exit 0, not startup failure); the
+      editor polls events before acquiring, not after presenting.
 
 ## Phase 6 - Remove nvrhi
 
@@ -205,3 +218,7 @@ Phases 1-4 land as a **parallel layer** (`src/Platform/Vulkan/{Device,Memory,Res
 with unit tests, while the nvrhi renderer keeps running - the engine stays green at every commit.
 Phase 5 is the switch-over; Phase 6 is the cleanup. No half-migrated renderer files: a pass is
 ported completely or not at all.
+
+**Status: complete.** Phases 1-6 all landed on `brutalrewrite`; nvrhi is gone from the build
+and the repo. The only open line in the Decisions table is the Slang evaluation, explicitly
+deferred beyond this rewrite.

@@ -97,6 +97,9 @@ struct DeviceFunctions final
 
 	PFN_vkCreatePipelineLayout CreatePipelineLayout = nullptr;
 	PFN_vkDestroyPipelineLayout DestroyPipelineLayout = nullptr;
+	PFN_vkCreatePipelineCache CreatePipelineCache = nullptr;
+	PFN_vkGetPipelineCacheData GetPipelineCacheData = nullptr;
+	PFN_vkDestroyPipelineCache DestroyPipelineCache = nullptr;
 	PFN_vkCreateGraphicsPipelines CreateGraphicsPipelines = nullptr;
 	PFN_vkCreateComputePipelines CreateComputePipelines = nullptr;
 	PFN_vkDestroyPipeline DestroyPipeline = nullptr;
