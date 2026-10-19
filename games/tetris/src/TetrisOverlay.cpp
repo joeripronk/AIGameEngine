@@ -209,7 +209,11 @@ void OverlayLayer::OnImGuiRender()
 		const float offY = amp * std::sin(7.0f * phase);
 
 		const float scale = RewardFontScale(lines);
-		const char* label = TetrisManager::RewardLabelForLines(lines);
+
+		// A live combo names the chain on the toast ("Nice Combo".."Epic
+		// Combo"); a lone clear keeps its line label.
+		const char* combo = ComboLabelForChain(m_RewardChain);
+		const char* label = combo ? combo : TetrisManager::RewardLabelForLines(lines);
 
 		char toast[32];
 		std::snprintf(toast, sizeof(toast), "%s!", label);
@@ -268,6 +272,7 @@ void OverlayLayer::OnUpdate(Forge::Timestep ts)
 			if (state.LastRewardLines > 0)
 			{
 				m_RewardLines = state.LastRewardLines;
+				m_RewardChain = state.Combo;
 				m_RewardTimer = RewardDuration(m_RewardLines);
 				m_RewardElapsed = 0.0f;
 			}

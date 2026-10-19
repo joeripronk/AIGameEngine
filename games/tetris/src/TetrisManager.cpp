@@ -556,7 +556,7 @@ void TetrisManager::LockPiece()
 	ClearLines();
 
 	// Each lock is a turn. The multiplier's window ticks down with it; when the
-	// 10 turns run out the stacked multiplier is spent and scoring returns to
+	// 5 turns run out the stacked multiplier is spent and scoring returns to
 	// x1. A clear refreshed the window in ClearLines, so it survives this tick.
 	if (m_State.MultiplierTurns > 0)
 	{
@@ -639,7 +639,7 @@ void TetrisManager::ClearLines()
 	}
 
 	// The tier this clear adds stacks onto the live multiplier and refreshes its
-	// 10-turn window. Consecutive clears also double a combo multiplier: the
+	// 5-turn window. Consecutive clears also double a combo multiplier: the
 	// first clear of a chain is 1x, the second 2x, the third 4x.
 	const uint32_t tier = MultiplierTierForLines(linesCleared);
 	const uint64_t stacked =

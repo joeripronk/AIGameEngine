@@ -158,7 +158,7 @@ private:
 	// A clear's tier stacks onto the live multiplier and stays live for this
 	// many turns; the combo doubles per consecutive clear. Both are capped so a
 	// long streak cannot overflow the score.
-	static constexpr int32_t kMultiplierTurns = 10;
+	static constexpr int32_t kMultiplierTurns = 5;
 	static constexpr uint32_t kMaxMultiplier = 256u;
 	static constexpr uint32_t kMaxComboMultiplier = 64u;
 

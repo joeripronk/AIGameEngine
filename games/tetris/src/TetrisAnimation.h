@@ -203,4 +203,21 @@ inline float RewardDuration(int linesCleared)
 	return kBaseSeconds + kPerLine * static_cast<float>(lines - 1);
 }
 
+// Reward label for a combo chain of `chain` consecutive clears: a single
+// clear is no combo (nullptr), and the label escalates Nice / Great /
+// Amazing / Epic as the chain grows. The toast shows this in place of the
+// line label when a combo is live.
+inline const char* ComboLabelForChain(int chain)
+{
+	if (chain < 2)
+		return nullptr;
+	if (chain < 4)
+		return "Nice Combo";
+	if (chain < 6)
+		return "Great Combo";
+	if (chain < 8)
+		return "Amazing Combo";
+	return "Epic Combo";
+}
+
 }  // namespace Tetris

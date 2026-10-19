@@ -42,9 +42,13 @@ private:
 	float m_LastFireChance = 0.0f;
 
 	// Reward toast: the "Nice".."Epic" label shown at a line clear, flashing
-	// and shaking harder for more lines. m_RewardTimer counts it down.
+	// and shaking harder for more lines. m_RewardTimer counts it down. With a
+	// combo live, the label names the chain ("Nice Combo".."Epic Combo")
+	// instead of the line count. m_RewardChain is the chain length at the
+	// moment the toast was raised.
 	int32_t m_LastClearCount = 0;
 	int32_t m_RewardLines = 0;
+	int32_t m_RewardChain = 0;
 	float m_RewardTimer = 0.0f;
 	float m_RewardElapsed = 0.0f;
 };

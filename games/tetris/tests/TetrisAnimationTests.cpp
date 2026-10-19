@@ -4,6 +4,7 @@
 #include "TetrisAnimation.h"
 
 #include <cmath>
+#include <string>
 
 using namespace Tetris;
 
@@ -178,4 +179,20 @@ TEST_CASE("Reward shake, font scale and duration all grow with lines cleared", "
 
 	// Nothing cleared shakes nothing.
 	REQUIRE(RewardShakeAmplitude(0, 100.0f) == 0.0f);
+}
+
+TEST_CASE("Combo labels name the chain and escalate as it grows", "[tetris][animation][reward]")
+{
+	// A lone clear is not a combo: the toast keeps its line label.
+	REQUIRE(ComboLabelForChain(0) == nullptr);
+	REQUIRE(ComboLabelForChain(1) == nullptr);
+
+	REQUIRE(std::string(ComboLabelForChain(2)) == "Nice Combo");
+	REQUIRE(std::string(ComboLabelForChain(3)) == "Nice Combo");
+	REQUIRE(std::string(ComboLabelForChain(4)) == "Great Combo");
+	REQUIRE(std::string(ComboLabelForChain(5)) == "Great Combo");
+	REQUIRE(std::string(ComboLabelForChain(6)) == "Amazing Combo");
+	REQUIRE(std::string(ComboLabelForChain(7)) == "Amazing Combo");
+	REQUIRE(std::string(ComboLabelForChain(8)) == "Epic Combo");
+	REQUIRE(std::string(ComboLabelForChain(64)) == "Epic Combo");
 }

@@ -116,7 +116,7 @@ struct TetrisGameState
 	int32_t Combo = 0;
 
 	// Score multiplier. Clearing lines applies a tier (x2 / x3 / x4) that
-	// stacks onto the live multiplier and lasts 10 turns; consecutive clears
+	// stacks onto the live multiplier and lasts 5 turns; consecutive clears
 	// also double a combo multiplier. Both reset when the window expires.
 	int32_t Multiplier = 1;
 	int32_t MultiplierTurns = 0;

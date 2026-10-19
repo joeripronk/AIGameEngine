@@ -765,28 +765,28 @@ TEST_CASE("A clear applies its multiplier tier (x2 / x3 / x4)", "[tetris][scorin
 	REQUIRE(TetrisManager::MultiplierTierForLines(4) == 4u);
 }
 
-TEST_CASE("The multiplier stacks across clears and is spent after 10 turns", "[tetris][scoring][reward]")
+TEST_CASE("The multiplier stacks across clears and is spent after 5 turns", "[tetris][scoring][reward]")
 {
 	TetrisManager manager = Playing();
 	auto& state = manager.GetState();
 
-	// First clear: a single line applies x2, refreshing the 10-turn window.
+	// First clear: a single line applies x2, refreshing the 5-turn window.
 	FillRow(state, state.Height - 1, state.Width);
 	manager.LockPiece();
 	REQUIRE(state.Multiplier == 2);
-	REQUIRE(state.MultiplierTurns == 9);  // the lock that cleared ticks the window down
+	REQUIRE(state.MultiplierTurns == 4);  // the lock that cleared ticks the window down
 
 	// A second clear stacks x3 onto the live x2, so the multiplier is x6.
 	FillRow(state, state.Height - 2, state.Width);
 	FillRow(state, state.Height - 1, state.Width);
 	manager.LockPiece();
 	REQUIRE(state.Multiplier == 6);
-	REQUIRE(state.MultiplierTurns == 9);
+	REQUIRE(state.MultiplierTurns == 4);
 
-	// Nine locks with no clear burn the window down to zero and reset the
+	// Four locks with no clear burn the window down to zero and reset the
 	// multiplier to x1. Each lock starts from a cleared board so the spawn row
 	// stays free and no row fills.
-	for (int i = 0; i < 9; ++i)
+	for (int i = 0; i < 4; ++i)
 	{
 		state.InitializeBoard();
 		FillRow(state, 10, 1);  // a row that never fills: no clear
