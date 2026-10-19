@@ -65,7 +65,7 @@ public:
 	// Drop the active piece one row. Returns false if blocked.
 	bool SoftDrop();
 
-	// Drop the active piece to the floor and lock it.
+	// Drop the active piece to the floor, pack the stack beneath it and lock it.
 	void HardDrop();
 
 	// Where the active piece would come to rest, as a piece origin.
@@ -78,7 +78,16 @@ public:
 	bool CanPlaceAt(glm::ivec2 pos, uint8_t rotation) const;
 
 	// Write the active piece into the board, clear lines and spawn the next.
-	void LockPiece();
+	// `compact` packs the stack first, which is what a hard drop does; a
+	// gravity lock leaves the stack where it stands.
+	void LockPiece(bool compact = false);
+
+	// Slide every block down onto the first occupied cell beneath it, closing
+	// every gap in every column. The bottom of the stack is packed, the order
+	// of each column is kept, and the top is left empty. Records what moved in
+	// `CompactedCells` for the view to animate, and returns how many blocks
+	// moved (0 when the stack was already packed).
+	uint32_t CompactStack();
 
 	// Remove every full row, dropping the rows above it down. Updates score,
 	// level and combo. Safe to call at any time.

@@ -493,7 +493,9 @@ void TetrisManager::HardDrop()
 	{
 	}
 
-	LockPiece();
+	// A hard drop packs the stack on the way in, so the player can compact the
+	// blocks they have already dropped, not only place new ones.
+	LockPiece(/*compact*/ true);
 }
 
 glm::ivec2 TetrisManager::GetGhostPosition() const
@@ -533,7 +535,7 @@ bool TetrisManager::CanPlaceAt(glm::ivec2 pos, uint8_t rotation) const
 	return true;
 }
 
-void TetrisManager::LockPiece()
+void TetrisManager::LockPiece(bool compact)
 {
 	const TetrisPiece& piece = m_State.CurrentPiece;
 
@@ -553,6 +555,13 @@ void TetrisManager::LockPiece()
 			m_State.Board[index] = static_cast<uint8_t>(piece.Type) + 1;
 	}
 
+	// A hard drop packs the stack before anything is scored: every block with
+	// empty space under it falls into it. That is what lets a hard drop close a
+	// row a hole was keeping open, and it has to happen before ClearLines for
+	// the line it completes to be cleared by this lock.
+	if (compact)
+		CompactStack();
+
 	ClearLines();
 
 	// Each lock is a turn. The multiplier's window ticks down with it; when the
@@ -567,6 +576,42 @@ void TetrisManager::LockPiece()
 
 	SpawnNextPiece();
 	CheckGameOver();
+}
+
+uint32_t TetrisManager::CompactStack()
+{
+	uint32_t moved = 0;
+	m_State.CompactedCells.clear();
+
+	// Each column is packed from its own floor upwards: a write row walks down
+	// from the bottom of the column, and every block lands on it, so the gaps
+	// close from the bottom and the blocks keep the order they were dropped in.
+	// Walking source rows from the floor up is what makes this safe in place -
+	// the destination is always at or below the source, so no block is
+	// overwritten before it has been read.
+	for (uint32_t col = 0; col < m_State.Width; ++col)
+	{
+		uint32_t dst = m_State.Height;
+		for (uint32_t src = m_State.Height; src-- > 0;)
+		{
+			const uint32_t from = src * m_State.Width + col;
+			if (from >= m_State.Board.size() || m_State.Board[from] == 0)
+				continue;
+
+			--dst;
+			const uint32_t to = dst * m_State.Width + col;
+			if (to >= m_State.Board.size() || to == from)
+				continue;
+
+			m_State.Board[to] = m_State.Board[from];
+			m_State.Board[from] = 0;
+			m_State.CompactedCells.push_back(
+				CompactionMove{ col, src, dst });
+			++moved;
+		}
+	}
+
+	return moved;
 }
 void TetrisManager::SpawnNextPiece()
 {

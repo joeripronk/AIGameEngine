@@ -94,6 +94,17 @@ struct TetrisPiece
 	bool BlockAlive[4] = { true, true, true, true };
 };
 
+// One block a hard-drop compaction slid down: same column, from `FromRow` to
+// `ToRow`. The rules move the block in the step that locks, so this is not how
+// far it travels - it is where it came from, which is the only thing that can
+// animate a slide.
+struct CompactionMove
+{
+	uint32_t Column = 0;
+	uint32_t FromRow = 0;
+	uint32_t ToRow = 0;
+};
+
 // Game state.
 struct TetrisGameState
 {
@@ -141,6 +152,13 @@ struct TetrisGameState
 	// blocks it touched). The rules clear them in the same step; the view
 	// animates them out, so it needs to be told which cells were burned.
 	std::vector<uint32_t> MeltedCells;
+
+	// Blocks the most recent hard drop compacted down, each with the row it
+	// slid from. A hard drop closes the gaps under the blocks it lands on, so
+	// the stack ends where the rules say it ends in the same step; the view
+	// animates the slide, so it needs the rows the blocks came from. Consumed
+	// (and cleared) by the view, like MeltedCells.
+	std::vector<CompactionMove> CompactedCells;
 
 	// Timing.
 	float PieceDropTimer = 0.0f;

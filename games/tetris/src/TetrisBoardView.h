@@ -118,6 +118,7 @@ public:
 	{
 		bool Occurred = false;
 		float Rows = 0.0f;           // cells fallen in the step that locked
+		float Compact = 0.0f;        // cells the landing blocks slid as the stack packed
 		float Speed = 0.0f;          // cells per second at the moment of impact
 		int LinesCleared = 0;        // lines removed by this lock
 		int ClearedLines = 0;        // alias for LinesCleared
@@ -247,6 +248,11 @@ private:
 		float TravelDuration = 0.0f;
 		float Elapsed = 0.0f;
 		float Duration = 0.0f;
+
+		// Seconds before the clear starts. A hard drop packs the stack on the
+		// way in, and the rows the compaction completes are the rows that
+		// clear: the stack has to arrive before the row it filled goes out.
+		float Delay = 0.0f;
 
 		// A melting block burns toward the fire's colour; a cleared row flashes
 		// white. Same animation, different glow.

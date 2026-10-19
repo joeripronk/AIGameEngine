@@ -688,6 +688,146 @@ TEST_CASE("A board with no full row is left untouched", "[tetris][lines]")
 	REQUIRE(state.LinesCleared == 0);
 }
 
+// ---------------------------------------------------------------------------
+// Hard drop compaction
+// ---------------------------------------------------------------------------
+
+TEST_CASE("A hard drop packs every block down into the gap beneath it", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// A column with a block hovering over empty space: the rules say where it
+	// is, and nothing in a soft drop ever says otherwise.
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 15))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	// Two blocks in a column pack onto its floor, in the order they fell.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 18))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 15))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] == 0);
+
+	// The piece that dropped lands on the packed floor too, not on the gap.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == static_cast<uint8_t>(TetrominoType::O) + 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == static_cast<uint8_t>(TetrominoType::O) + 1);
+}
+
+TEST_CASE("Compaction keeps the order of a column and reports what moved", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// Three blocks with gaps between them, each a different type so the order
+	// is readable in the board.
+	state.Board[state.GetBoardIndex(glm::ivec2(3, 2))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(3, 9))] = 2;
+	state.Board[state.GetBoardIndex(glm::ivec2(3, 16))] = 3;
+
+	const uint32_t moved = manager.CompactStack();
+
+	REQUIRE(moved == 3u);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 19))] == 3);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 18))] == 2);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 17))] == 1);
+
+	// The record is where each block came from, which is the only thing that
+	// can animate a slide.
+	REQUIRE(state.CompactedCells.size() == 3u);
+	REQUIRE(state.CompactedCells[0].Column == 3u);
+	REQUIRE(state.CompactedCells[0].FromRow == 16u);
+	REQUIRE(state.CompactedCells[0].ToRow == 19u);
+	REQUIRE(state.CompactedCells[2].FromRow == 2u);
+	REQUIRE(state.CompactedCells[2].ToRow == 17u);
+}
+
+TEST_CASE("A packed stack compacts to nothing", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// A floor with no holes in it is the ordinary state of a stack that has
+	// only ever been hard dropped, and a drop on top of it must not shuffle it.
+	FillRow(state, state.Height - 1, state.Width);
+	FillRow(state, state.Height - 2, 4);
+
+	REQUIRE(manager.CompactStack() == 0u);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 18))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == 0);
+}
+
+TEST_CASE("Compaction closes a hole and the row it completes is cleared", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// The bottom row is one column short, and the block that would fill it is
+	// hovering above the hole. Discrete play can never complete this row: the
+	// piece that lands in column 9 stops on top of the hole, not in it.
+	FillRow(state, state.Height - 1, state.Width - 1);
+	state.Board[state.GetBoardIndex(glm::ivec2(state.Width - 1, 17))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 0);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	manager.HardDrop();
+
+	REQUIRE(state.LinesCleared == 1);
+	// A 1-line clear applies the x2 tier: base 40 at level 1, x2.
+	REQUIRE(state.Score == 80);
+
+	// The block that completed the row went with it, and the stack above the
+	// row dropped into it: the O that landed at rows 17-18 is at 16-17.
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(state.Width - 1, 17))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 19))] == static_cast<uint8_t>(TetrominoType::O) + 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(4, 18))] == static_cast<uint8_t>(TetrominoType::O) + 1);
+}
+
+TEST_CASE("A lock that is not a hard drop leaves the stack where it stands", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] = 1;
+
+	state.CurrentPiece.Type = TetrominoType::O;
+	state.CurrentPiece.Position = glm::ivec2(4, 18);
+	state.UpdatePieceBlocks(state.CurrentPiece);
+
+	// Gravity locking is a landing, not a pack: the gap under a block is part
+	// of the stack the player built, and only a hard drop spends it.
+	manager.LockPiece();
+
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 10))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 19))] == 0);
+	REQUIRE(state.CompactedCells.empty());
+}
+
+TEST_CASE("Compaction moves each column on its own", "[tetris][lines][compaction]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// A block resting on its own shelf is packed, and the empty column beside
+	// it stays empty: compaction closes gaps, it does not pull blocks sideways.
+	state.Board[state.GetBoardIndex(glm::ivec2(2, 11))] = 1;
+	state.Board[state.GetBoardIndex(glm::ivec2(2, 19))] = 1;
+
+	REQUIRE(manager.CompactStack() == 1u);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(2, 19))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(2, 18))] == 1);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(2, 11))] == 0);
+	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(3, 19))] == 0);
+}
+
 TEST_CASE("Level rises every ten lines and the pieces fall faster", "[tetris][lines][timing]")
 {
 	TetrisManager manager = Playing();

@@ -135,9 +135,9 @@ glm::ivec2 SpawnPosition(TetrominoType type, uint32_t width)
 
 // The rows a clear removes, as the view has to see them: the board it was
 // given, with the piece that locked written into it at the origin it came to
-// rest in, full from edge to edge. The board is cleared in the same step that
-// writes the piece, so nothing outside this snapshot records that a row was
-// ever full.
+// rest in, packed the way a hard drop packs it, full from edge to edge. The
+// board is cleared in the same step that writes the piece, so nothing outside
+// this snapshot records that a row was ever full.
 //
 // The origin is the position the piece locked at, not the position the snapshot
 // has it in: a hard drop moves the piece all the way down and locks it there,
@@ -146,8 +146,14 @@ glm::ivec2 SpawnPosition(TetrominoType type, uint32_t width)
 // line that was just completed goes unrecorded - no clear animation, and no
 // impact, because a lock that cleared a row and wrote nothing at its landing
 // cells reports neither.
+//
+// Compaction has to be applied here for the same reason: the rows a hard drop
+// completes are the rows full *after* the stack packed, and a row with a hole
+// in it is not full before the block above it falls into the hole. Measuring
+// fullness on the unpacked board is what makes a compaction clear invisible.
 std::vector<uint32_t> ClearedRows(const std::vector<uint8_t>& board, const TetrisPiece& piece,
-                                  glm::ivec2 landing, uint32_t width, uint32_t height)
+                                   glm::ivec2 landing, uint32_t width, uint32_t height,
+                                   const std::vector<CompactionMove>& moves)
 {
 	std::vector<uint8_t> filled = board;
 	if (piece.State == TetrisPieceState::Active)
@@ -164,6 +170,21 @@ std::vector<uint32_t> ClearedRows(const std::vector<uint8_t>& board, const Tetri
 				filled[index] = static_cast<uint8_t>(piece.Type) + 1;
 		}
 	}
+
+	// The rules compact in recorded order, which packs each column from its
+	// floor upwards, so replaying it in the same order lands every block on the
+	// cell the rules put it in.
+	for (const CompactionMove& move : moves)
+	{
+		const uint32_t from = move.FromRow * width + move.Column;
+		const uint32_t to = move.ToRow * width + move.Column;
+		if (from >= filled.size() || to >= filled.size())
+			continue;
+
+		filled[to] = filled[from];
+		filled[from] = 0;
+	}
+
 
 	std::vector<uint32_t> rows;
 	for (uint32_t row = 0; row < height; ++row)
@@ -182,6 +203,42 @@ std::vector<uint32_t> ClearedRows(const std::vector<uint8_t>& board, const Tetri
 			rows.push_back(row);
 	}
 	return rows;
+}
+
+// The row a block that locked into `row` ends up in once the stack has packed.
+// A hard drop slides it down into the gap beneath it, so the cell it locked
+// into is not always the cell it comes to rest in - and a landing check that
+// only looks at the cell it locked into reports a lock that compacted as a
+// lock that never happened.
+int32_t CompactedRow(const std::vector<CompactionMove>& moves, int32_t col, int32_t row)
+{
+	for (const CompactionMove& move : moves)
+	{
+		if (static_cast<int32_t>(move.Column) == col && static_cast<int32_t>(move.FromRow) == row)
+			return static_cast<int32_t>(move.ToRow);
+	}
+	return row;
+}
+
+// True when `block` ended up standing in the current board, following the
+// compaction slide the rules applied to it on the way in.
+bool LandedOnBoard(const std::vector<uint8_t>& board, uint32_t width, uint32_t height,
+                   int32_t col, int32_t row, const std::vector<CompactionMove>& moves)
+{
+	if (col < 0 || col >= static_cast<int32_t>(width) ||
+		row < 0 || row >= static_cast<int32_t>(height))
+		return false;
+
+	const uint32_t index = static_cast<uint32_t>(row) * width + static_cast<uint32_t>(col);
+	if (index < board.size() && board[index] != 0)
+		return true;
+
+	const int32_t resting = CompactedRow(moves, col, row);
+	if (resting == row || resting < 0 || resting >= static_cast<int32_t>(height))
+		return false;
+
+	const uint32_t restingIndex = static_cast<uint32_t>(resting) * width + static_cast<uint32_t>(col);
+	return restingIndex < board.size() && board[restingIndex] != 0;
 }
 
 }  // namespace
@@ -539,6 +596,57 @@ void BoardView::SyncBoardEntities()
 		}
 	}
 
+	// A hard drop packed the stack on the way in, and a packed block moves to a
+	// key the cache has never heard of for the same reason a cleared row's block
+	// does: it keeps its entity and its name, so it slides into the gap it fell
+	// into instead of being destroyed at the top of the gap and built at the
+	// bottom of it. Relabelling happens before the clear takes any row out,
+	// because the rules compacted first - the rows that clear are the rows the
+	// pack filled.
+	//
+	// The slide waits for the landing strike to finish: the block the player
+	// just dropped has to come to rest before the stack beneath it closes, and a
+	// strike and a slide in the same frame read as one block passing through
+	// another.
+	const std::vector<CompactionMove>& moves = state.CompactedCells;
+	const float compactDelay = locked
+		? StrikeDuration(m_LastImpact.Rows + m_LastImpact.Compact)
+		: 0.0f;
+	float compactSlide = 0.0f;
+	for (const CompactionMove& move : moves)
+	{
+		if (move.Column >= state.Width || move.FromRow >= state.Height || move.ToRow >= state.Height)
+			continue;
+
+		const uint64_t from = CellKey(move.Column, move.FromRow);
+		const auto block = m_Blocks.find(from);
+		if (block == m_Blocks.end())
+			continue;  // nothing was drawn there, so nothing slid
+
+		const uint64_t to = CellKey(move.Column, move.ToRow);
+		Forge::Entity entity = block->second;
+
+		m_Motions.erase(from);
+		m_Blocks.erase(block);
+		m_Blocks[to] = entity;
+		RenameEntity(entity, BlockName(move.Column, move.ToRow));
+
+		const float distance = static_cast<float>(move.ToRow - move.FromRow);
+		const float duration = SlideDuration(distance);
+		if (duration > compactSlide)
+			compactSlide = duration;
+		m_Motions[to] = Motion{ CellToWorld(move.Column, move.FromRow),
+			CellToWorld(move.Column, move.ToRow), 0.0f, duration, Curve::Slide, compactDelay };
+	}
+
+	// Everything the clear animates waits for the pack to finish: the rows a
+	// hard drop completes are the rows the pack filled, so a row flashing out
+	// while the block that filled it is still travelling is the reward
+	// disappearing before the player sees it land. With nothing packed there is
+	// nothing to wait for, and a clear that has no compaction in front of it
+	// must start when the piece lands, as it always has.
+	const float clearStart = moves.empty() ? 0.0f : compactDelay + compactSlide;
+
 	// A cleared row's blocks leave the cache by row, not by occupancy. They are
 	// the cells the rows above are about to fall into, so taking them out first
 	// is what keeps those keys free for the drop - and moving them out by row
@@ -566,6 +674,7 @@ void BoardView::SyncBoardEntities()
 			cb.TravelDuration = 0.0f;
 			cb.Elapsed = 0.0f;
 			cb.Duration = kLineClearSeconds;
+			cb.Delay = clearStart;
 
 			RenameEntity(it->second, ClearingBlockName(col, row));
 			m_ClearingBlocks[it->first] = cb;
@@ -628,13 +737,17 @@ void BoardView::SyncBoardEntities()
 
 		for (uint32_t slot = 0; slot < 4; ++slot)
 		{
-			const glm::ivec2 cell = m_LastImpact.Landing + m_Snapshot.Piece.Blocks[slot];
-			if (cell.x < 0 || cell.x >= static_cast<int32_t>(state.Width) ||
-				cell.y < 0 || cell.y >= static_cast<int32_t>(state.Height))
+			const glm::ivec2 landed = m_LastImpact.Landing + m_Snapshot.Piece.Blocks[slot];
+			// The block that completed the row may have been packed down into
+			// it by the same drop, so the row it filled is the row it came to
+			// rest in, not the row it locked into.
+			const int32_t restingRow = CompactedRow(moves, landed.x, landed.y);
+			if (landed.x < 0 || landed.x >= static_cast<int32_t>(state.Width) ||
+				restingRow < 0 || restingRow >= static_cast<int32_t>(state.Height))
 				continue;
 
-			const uint32_t row = static_cast<uint32_t>(cell.y);
-			const uint32_t col = static_cast<uint32_t>(cell.x);
+			const uint32_t row = static_cast<uint32_t>(restingRow);
+			const uint32_t col = static_cast<uint32_t>(landed.x);
 			if (row >= cleared.size() || !cleared[row])
 				continue;
 
@@ -665,9 +778,10 @@ void BoardView::SyncBoardEntities()
 			cb.Color = pieceColor;
 			cb.From = from;
 			cb.To = target;
-			cb.TravelDuration = StrikeDuration(m_LastImpact.Rows);
+			cb.TravelDuration = StrikeDuration(m_LastImpact.Rows + m_LastImpact.Compact);
 			cb.Elapsed = 0.0f;
 			cb.Duration = kLineClearSeconds;
+			cb.Delay = clearStart;
 			m_ClearingBlocks[key] = cb;
 		}
 	}
@@ -707,14 +821,18 @@ void BoardView::SyncBoardEntities()
 					// Matched against the origin the piece locked at: the
 					// landing cells are its blocks measured from there, while
 					// the positions it is drawn at in the snapshot are where
-					// it was when the fall began.
+					// it was when the fall began. A hard drop packs the stack
+					// as it locks, so the cell a block ends in is the cell it
+					// slid down to, and the strike covers the fall and the
+					// slide as one travel.
 					for (uint32_t slot = 0; slot < 4; ++slot)
 					{
 						const glm::ivec2 cell = m_LastImpact.Landing + m_Snapshot.Piece.Blocks[slot];
-						if (cell.x != static_cast<int32_t>(col) || cell.y != static_cast<int32_t>(row))
+						if (cell.x != static_cast<int32_t>(col) ||
+							CompactedRow(moves, cell.x, cell.y) != static_cast<int32_t>(row))
 							continue;
 						from = m_Snapshot.SlotPosition[slot];
-						duration = StrikeDuration(m_LastImpact.Rows);
+						duration = StrikeDuration(m_LastImpact.Rows + m_LastImpact.Compact);
 						break;
 					}
 					if (duration <= 0.0f)
@@ -774,10 +892,11 @@ void BoardView::SyncBoardEntities()
 					// clear reads as the stack moving through a fading wall.
 					// The drop waits for the row to go, and a row that falls
 					// two cells buys its time the way a block moving two cells
-					// always has.
+					// always has. A hard drop's pack runs first, so the row
+					// itself starts that much later.
 					m_Motions[key] = Motion{ CellToWorld(col, source->second), target, 0.0f,
 						SlideDuration(static_cast<float>(row - source->second)), Curve::Slide,
-						kLineClearSeconds };
+						clearStart + kLineClearSeconds };
 					continue;
 				}
 			}
@@ -809,6 +928,12 @@ void BoardView::SyncBoardEntities()
 		m_Motions.erase(it->first);
 		it = m_Blocks.erase(it);
 	}
+
+	// Each compaction is presented once, in the frame that made it. The list
+	// lives until the next hard drop, so leaving it here would slide the same
+	// blocks a second time - and the second slide would be measured against
+	// rows the first one already moved.
+	m_Manager.GetState().CompactedCells.clear();
 }
 
 void BoardView::SyncPieceEntities()
@@ -1006,7 +1131,24 @@ void BoardView::DetectImpact(float dt)
 		++landing.y;
 	const float rows = static_cast<float>(landing.y - previous.Position.y);
 
-	m_LastClearedRows = ClearedRows(m_Snapshot.Board, previous, landing, state.Width, state.Height);
+	// A hard drop packs the stack on the way in, and the rows it completes are
+	// the rows full after the pack, not before it.
+	const std::vector<CompactionMove>& moves = state.CompactedCells;
+	m_LastClearedRows = ClearedRows(m_Snapshot.Board, previous, landing, state.Width, state.Height, moves);
+
+	// How far the landing blocks slid as the stack packed. The strike that
+	// carries a dropped block to its resting cell covers the fall *and* the
+	// slide, so a compaction that buries a block deep is measured as the
+	// distance it travelled, not as the cell it locked into.
+	float compact = 0.0f;
+	for (const glm::ivec2& block : previous.Blocks)
+	{
+		const int32_t resting =
+			CompactedRow(moves, landing.x + block.x, landing.y + block.y);
+		const float slide = static_cast<float>(resting - (landing.y + block.y));
+		if (slide > compact)
+			compact = slide;
+	}
 
 	// A lock writes the piece's blocks, at the position it came to rest in,
 	// into the board - or the row it filled is gone in the same step. A move
@@ -1021,8 +1163,7 @@ void BoardView::DetectImpact(float dt)
 			landed = false;
 			break;
 		}
-		const uint32_t index = state.GetBoardIndex(cell);
-		if (index >= state.Board.size() || state.Board[index] == 0)
+		if (!LandedOnBoard(state.Board, state.Width, state.Height, cell.x, cell.y, moves))
 		{
 			landed = false;
 			break;
@@ -1039,7 +1180,7 @@ void BoardView::DetectImpact(float dt)
 		? rows / frame
 		: 1.0f / std::max(state.PieceDropInterval, kMinFallInterval);
 
-	m_LastImpact = Impact{ true, rows, speed, static_cast<int>(m_LastClearedRows.size()),
+	m_LastImpact = Impact{ true, rows, compact, speed, static_cast<int>(m_LastClearedRows.size()),
 		static_cast<int>(m_LastClearedRows.size()), landing };
 }
 
@@ -1107,12 +1248,14 @@ void BoardView::AdvanceClearAnimations(float dt)
 		// One clock, two phases: a block that completed the line travels from
 		// where the piece drew it into the row it filled, and only then does
 		// the row go. A block already in the row travels nowhere, so the clear
-		// starts at once.
+		// starts at once. A hard drop's pack runs ahead of both phases, so the
+		// row waits out the slide that filled it before it lights up.
+		const float local = cb.Elapsed - cb.Delay;
 		const float travel = cb.TravelDuration > 0.0f
-			? Clamp01(cb.Elapsed / cb.TravelDuration)
+			? Clamp01(local / cb.TravelDuration)
 			: 1.0f;
 		const float clear = cb.Duration > 0.0f
-			? Clamp01((cb.Elapsed - cb.TravelDuration) / cb.Duration)
+			? Clamp01((local - cb.TravelDuration) / cb.Duration)
 			: 1.0f;
 
 		if (cb.Entity)
@@ -1139,7 +1282,7 @@ void BoardView::AdvanceClearAnimations(float dt)
 			}
 		}
 
-		if (cb.Elapsed >= cb.TravelDuration + cb.Duration)
+		if (cb.Elapsed >= cb.Delay + cb.TravelDuration + cb.Duration)
 		{
 			Forge::Entity entity = cb.Entity;
 			DestroyEntity(entity);

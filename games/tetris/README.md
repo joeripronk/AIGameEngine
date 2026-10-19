@@ -35,6 +35,13 @@ menu is silent - and fades out on pause and game over.
 Moving and soft-dropping are delayed-autorepeat: one step on the press, then a
 repeat after 0.15 s, then every 0.05 s.
 
+A hard drop **packs the stack** on the way in: every block with empty space
+under it falls into it, column by column, keeping the order it was dropped in.
+That is what lets a hard drop complete a row a hole was keeping open - the
+block above the hole falls into it and the row goes out. A soft drop and a
+gravity lock leave the stack exactly where it stands; only the hard drop spends
+the gaps.
+
 ## What lives where
 
 ```
