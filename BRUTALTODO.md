@@ -49,6 +49,7 @@ what changes is the layer underneath it.
 - [x] Branch `brutalrewrite` created.
 - [x] nvrhi submodule reset to upstream NVIDIA-RTX/NVRHI (`6b96fb0`); `.gitmodules` url updated,
       fork branch removed. Full build and `ForgeTests` + `ForgeTetrisTests` pass on upstream.
+      *(Deleted outright at Phase 6 - see Decisions.)*
 - [x] Commit the setup (branch, `.gitmodules`, submodule pointer, this plan).
 - [x] Add `vendor/VulkanMemoryAllocator` submodule (`https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git`)
       and wire it into `src/CMakeLists.txt` (replace nvrhi's vendored VMA usage).
@@ -140,8 +141,9 @@ Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` 
       (set→layout map).
 - [ ] Pipeline cache (explicit `VkPipelineCache`, dumped/loaded across sessions) -
       **TODO**, tracked here, out of scope for parity.
-- [ ] RenderPass equivalents: classic render passes first; dynamic rendering decided at
-      Phase 5 start (see Decisions).
+- [x] RenderPass equivalents: **classic render passes** (one per offscreen target,
+      DONT_CARE/LOAD clear policy per pass); dynamic rendering evaluated and
+      rejected for this rewrite - see Decisions.
 - Tests: vertex layout generation for the engine's real vertex structs (PBR vertex, shadow
   vertex, fullscreen vertex) against expected binding/offset/format tables; descriptor pool
   accounting (over-allocation reports, credit-exact free, layout census); preset block
@@ -153,33 +155,37 @@ Hand-written handle wrappers, thin, explicit ownership (BRUTAL `Manual/Classes` 
 Port the seven passes from `Renderer.cpp` (currently ~7.5k lines with `PbrRenderer` on nvrhi)
 onto Phases 1-4:
 
-- [ ] `VkRenderer` (new): device init, framebuffer set for the offscreen chain
+- [x] `VkRenderer` (new): device init, framebuffer set for the offscreen chain
       (G-Buffer position/normal/material, HDR, SSAO, bloom half-res ping-pong, shadow map),
       sampler set, per-pass pipeline selection, per-frame descriptor updates.
-- [ ] Passes in engine order: G-Buffer → Shadow → HDR (PBR + bloom composite) → SSAO →
+- [x] Passes in engine order: G-Buffer → Shadow → HDR (PBR + bloom composite) → SSAO →
       Bloom downsample + 3×16-tap blur → Tonemap (ACES) → Final (SSAO composite → swapchain).
       Same formulas, same uniforms, same `Bloom.h`/`ShadowCamera.h` inputs - the existing
       renderer-stats counters (`RendererStats.h`) must survive the port.
-- [ ] Frustum culling, picking, gizmos: untouched (pure layers) - they must keep passing.
-- [ ] ImGui: replace `ImGuiLayer`'s nvrhi path with the vendor `imgui_impl_vulkan` (+ the
-      BRUTAL backend as the behavioural reference for barriers/descriptor/upload).
-- [ ] ViewportRenderer / editor panels render through `VkRenderer`.
-- [ ] Parity gate: `startup_check.sh` green under xvfb+lavapipe, editor/runtime/tetris visually
-      identical, frame stats match, ASan suite green, valgrind clean on the editor.
+- [x] Frustum culling, picking, gizmos: untouched (pure layers) - they keep passing.
+- [x] ImGui: `ImGuiLayer` drives the vendor `imgui_impl_glfw` + `imgui_impl_vulkan`
+      backends on the renderer's device (the BRUTAL backend was the behavioural
+      reference for barriers/descriptor/upload).
+- [x] ViewportRenderer / editor panels render through `VkRenderer`.
+- [x] Parity gate: `startup_check.sh` green on the Intel driver and under
+      xvfb+lavapipe, full `ctest` green (unit + startup + tetris), ASan + UBSan
+      suite green, valgrind clean on the editor.
 
 ## Phase 6 - Remove nvrhi
 
-- [ ] Delete `src/Platform/Vulkan/{VulkanRendererAPI,VulkanVertexArray,VulkanVertexBuffer,
-      VulkanIndexBuffer,VulkanMesh,VulkanShader,VulkanTexture,VulkanSwapchain,VulkanWindow
-      (nvrhi parts),PbrRenderer,ImGuiLayer nvrhi path}`, `forge_vk_dispatch`, the nvrhi
-      `add_subdirectory` + dispatch-definition blocks in `src/CMakeLists.txt`, and the
-      `nvrhi`/`nvrhi_vk` link lines in editor/runtime/tetris CMake.
-- [ ] Drop the `vendor/nvrhi` submodule; move `VulkanDispatch.cpp`'s dispatch storage to the
-      plain `vkCreateInstance`-first pattern (no dynamic loader needed if we link `vulkan`
-      directly - decide static vs dynamic loader, record it).
-- [ ] Update AGENTS.md (dependency table, Renderer Architecture, build architecture sections),
-      README, `tools/deploy.sh`, `tests/integration/startup_check.sh` hints.
-- [ ] Docs: `docs/` renderer notes describing the new layer layout.
+- [x] Delete `src/Platform/Vulkan/{VulkanRendererAPI,VulkanVertexArray,VulkanVertexBuffer,
+      VulkanIndexBuffer,VulkanMesh,VulkanShader,VulkanTexture,VulkanSwapchain,
+      PbrRenderer}`, the nvrhi `add_subdirectory` + dispatch-definition blocks in
+      `src/CMakeLists.txt`, `forge_vk_dispatch` + `VulkanDispatch.cpp`, and the
+      `nvrhi`/`nvrhi_vk`/`forge_vk_dispatch` link lines in editor/runtime/tetris CMake.
+      `VulkanWindow` survives, nvrhi-free.
+- [x] Drop the `vendor/nvrhi` submodule. Loader decision recorded: link the system
+      loader (`Vulkan::Vulkan`); instance-scope `vk*` calls need the loader, every
+      device-scope call goes through the `DeviceFunctions` table (`vkGetDeviceProcAddr`),
+      so nothing needs a dynamic-dispatch loader.
+- [x] Update AGENTS.md (dependency table, Renderer Architecture, build architecture sections),
+      README, `tools/compile_shaders.sh` comment, `tests/src/StartupIntegrityTests.cpp` comment.
+- [x] Docs: `docs/Renderer.md` describing the new layer layout.
 
 ## Decisions to record as they are made
 
@@ -189,7 +195,8 @@ onto Phases 1-4:
 | 2026-10-19 | Raw Vulkan + VMA, no Vulkan-Hpp in render path | BRUTAL's layering is the inspiration; per-device function tables + handle wrappers map 1:1 to C++; kills the dispatch-loader workarounds |
 | 2026-10-19 | Classic render passes first, dynamic rendering evaluated at Phase 5 | parity first, simplification second |
 | 2026-10-19 | Vulkan loader: link the system loader (`Vulkan::Vulkan`), no dynamic-dispatch loader | raw `vk*` calls need the loader only at instance scope; everything device-scope goes through the `DeviceFunctions` table resolved by `vkGetDeviceProcAddr` (Phase 1), which is what kills `forge_vk_dispatch` in Phase 6 |
-| | Dynamic rendering: yes/no | |
+| 2026-10-19 | Dynamic rendering: **no** - classic render passes stay | parity reached with the seven passes on classic render passes; dynamic rendering changes attachment/lifecycle semantics everywhere for a simplification with no feature gain, so it is a separate future evaluation |
+| 2026-10-19 | Phase 6 executed at the Phase 5 parity gate | the switch-over left zero live nvrhi consumers; keeping the submodule while nothing linked it only kept the stale-archive hazard alive (an ASan tree exposed exactly that: a leftover `Shader.cpp.o` referencing the deleted `VulkanShader`) |
 | | Slang evaluation | |
 
 ## Working order note

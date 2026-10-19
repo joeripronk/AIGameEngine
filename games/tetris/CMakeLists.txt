@@ -48,8 +48,6 @@ target_sources(ForgeTetris
 target_link_libraries(ForgeTetris
     PRIVATE
         ForgeApp
-        nvrhi
-        forge_vk_dispatch
         imgui
         glfw
 )

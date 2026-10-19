@@ -3,13 +3,7 @@
 #include "Forge/Renderer/Shader.h"
 #include "Forge/Renderer/ShaderLibrary.h"
 
-#if !defined(FG_NO_VULKAN_RUNTIME)
-	#include "Platform/Vulkan/VulkanShader.h"
-#endif
-
 #include "Forge/Core/FileSystem.h"
-
-#if !defined(FG_NO_VULKAN_RUNTIME)
 
 namespace Forge {
 
@@ -77,9 +71,14 @@ namespace Forge {
 
 	Ref<Shader> Shader::CreateFromSPIRV(const std::string& name, const std::string& vertexSpvPath, const std::string& fragmentSpvPath)
 	{
-		return CreateRef<VulkanShader>(name, vertexSpvPath, fragmentSpvPath);
+		// Shader objects are built by the Vulkan platform layer (VkRenderer
+		// composes its pipelines from resources/shaders/*.spv through
+		// ShaderModule); the core has no device to create a module on.
+		(void)name;
+		(void)vertexSpvPath;
+		(void)fragmentSpvPath;
+		FG_CORE_ERROR("Shader::CreateFromSPIRV: shader modules are created by the renderer; the core cannot create one");
+		return nullptr;
 	}
 
 }
-
-#endif // FG_NO_VULKAN_RUNTIME

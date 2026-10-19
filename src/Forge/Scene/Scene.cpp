@@ -14,14 +14,6 @@
 
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Renderer/Mesh.h"
-#include "Forge/Renderer/Shader.h"
-#include "Forge/Renderer/ShaderLibrary.h"
-#include "Forge/Renderer/VertexArray.h"
-#include "Forge/Renderer/VertexBuffer.h"
-#include "Forge/Renderer/IndexBuffer.h"
-
-#include <nvrhi/vulkan.h>
-#include <nvrhi/nvrhi.h>
 
 #endif // FG_NO_VULKAN_RUNTIME
 

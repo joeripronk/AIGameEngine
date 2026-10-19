@@ -1,6 +1,6 @@
 # Forge Engine
 
-A production-grade, simple and straightforward 3D Game Engine for Windows, macOS and Linux (Ubuntu 24+). Built with C++20, CMake, and Vulkan (via nvrhi).
+A production-grade, simple and straightforward 3D Game Engine for Windows, macOS and Linux (Ubuntu 24+). Built with C++20, CMake, and raw Vulkan (VMA for allocation).
 
 ## Features
 
@@ -29,7 +29,7 @@ ForgeEngine/
 │   ├── Audio/          # miniaudio engine
 │   ├── Assets/         # AssetRegistry
 │   └── Project/        # GameExporter
-├── src/Platform/Vulkan/ # Vulkan (nvrhi) backend
+├── src/Platform/Vulkan/ # Raw-Vulkan backend (VkRenderer + VMA)
 ├── editor/             # ImGui editor application (ForgeEditor)
 ├── runtime/            # Standalone runtime (ForgeRuntime)
 ├── tests/              # Catch2 unit tests (ForgeTests)
@@ -40,7 +40,7 @@ ForgeEngine/
 **Targets:**
 - `ForgeCore` — headless engine (ECS, physics, scripting, serialization, CPU mesh/texture, assets, editor model). Built with `FG_NO_VULKAN_RUNTIME` so unit tests run without a graphics device.
 - `ForgeApp` — platform layer (window + renderer + application shell) linking the Vulkan backend.
-- `vulkan` — nvrhi Vulkan backend + Forge platform classes.
+- `vulkan` — raw-Vulkan backend (`VkRenderer`, Device/Memory/Resources/Frame/Pipeline layers) + Forge platform classes.
 - `ForgeTests` — links only `ForgeCore`.
 - `ForgeEditor` / `ForgeRuntime` — link `ForgeApp`.
 
@@ -55,9 +55,8 @@ ForgeEngine/
 | **Vulkan SDK** | `find_package(Vulkan REQUIRED)` runs at *configure* time, so configure fails without it — even to build the headless test binary |
 | X11 + OpenGL development headers | Needed by **GLFW and ImGui**, not by Forge |
 | yaml-cpp | Only Linux is affected: `vendor/yaml-cpp` does not exist, so the link resolves against the system library |
-| Network access at configure time | nvrhi fetches a matching Vulkan-Headers (v1.4.352) |
 
-Everything else (GLFW, nvrhi, GLM, enTT, spdlog, fmt, Lua, miniaudio, stb, assimp, Catch2, ImGui) is **vendored**; Lua is compiled from `vendor/lua/*.c` as part of the build.
+Everything else (GLFW, VulkanMemoryAllocator, GLM, enTT, spdlog, fmt, Lua, miniaudio, stb, assimp, Catch2, ImGui) is **vendored**; Lua is compiled from `vendor/lua/*.c` as part of the build.
 
 Vulkan is required at *configure* time regardless of what you build, because `find_package(Vulkan REQUIRED)` in `src/CMakeLists.txt` is unconditional. There is no configure-only-tests path: a Vulkan SDK is needed to configure, not just to run.
 
@@ -87,7 +86,7 @@ Populate them before configuring:
 git submodule update --init --recursive --depth 1
 ```
 
-This fetches ~11 repositories (assimp and nvrhi dominate). `--depth 1` works because GitHub serves the pinned commits directly; drop it if you need submodule history.
+This fetches ~12 repositories (assimp dominates). `--depth 1` works because GitHub serves the pinned commits directly; drop it if you need submodule history.
 
 `vendor/imgui` is vendored as plain files (v1.91.9), not a submodule. Pinned commits, if you ever need to clone one by hand:
 
@@ -101,7 +100,7 @@ This fetches ~11 repositories (assimp and nvrhi dominate). `--depth 1` works bec
 | `vendor/glm` | https://github.com/g-truc/glm | `f451d0ad6226ba4381c13d8ec497b98548671fc5` |
 | `vendor/lua` | https://github.com/lua/lua | `1ab3208a1fceb12fca8f24ba57d6e13c5bff15e3` |
 | `vendor/miniaudio` | https://github.com/mackron/miniaudio | `9634bedb5b5a2ca38c1ee7108a9358a4e233f14d` |
-| `vendor/nvrhi` | https://github.com/NVIDIA-RTX/NVRHI | `6b96fb03e07539f08327aea76c56d55f1de9d906` |
+| `vendor/VulkanMemoryAllocator` | https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator | `3aa921224c154a0d2c43912bc88e1c42ce1f7607` (v3.4.0) |
 | `vendor/spdlog` | https://github.com/gabime/spdlog | `08155a51c532126597db917c42aabdac1b20f011` |
 | `vendor/stb` | https://github.com/nothings/stb | `2c980bb59875b0d32144a71867fbdebb2f77cd20` |
 
@@ -167,7 +166,7 @@ Three consequences worth knowing:
 
 ### Shaders
 
-The engine consumes SPIR-V directly (nvrhi). The generated `.spv` files next to the GLSL in `resources/shaders/` are committed, so a normal engine build does not need `glslang`. After editing a shader:
+The engine consumes SPIR-V directly (raw Vulkan shader modules). The generated `.spv` files next to the GLSL in `resources/shaders/` are committed, so a normal engine build does not need `glslang`. After editing a shader:
 
 ```bash
 tools/compile_shaders.sh          # requires glslangValidator (apt install glslang-tools)

@@ -38,8 +38,6 @@ target_sources(ForgeRuntime
 target_link_libraries(ForgeRuntime
     PRIVATE
         ForgeApp
-        nvrhi
-        forge_vk_dispatch
 )
 
 set_target_properties(ForgeRuntime PROPERTIES

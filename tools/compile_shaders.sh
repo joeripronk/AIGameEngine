@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Compiles the GLSL shaders in resources/shaders/ to SPIR-V.
 #
-# The engine consumes SPIR-V directly (nvrhi), so this is a build-time step,
+# The engine consumes SPIR-V directly (raw Vulkan shader modules), so this is a build-time step,
 # not a runtime dependency. The generated .spv files are committed so a normal
 # engine build does not require glslang.
 #

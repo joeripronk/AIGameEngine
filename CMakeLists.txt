@@ -14,14 +14,12 @@ endif()
 enable_testing()
 
 # Repeat static libraries on the link line so inter-archive symbol
-# dependencies (nvrhi <-> nvrhi_vk, ForgeCore <-> vulkan) resolve regardless
-# of declaration order.
+# dependencies (ForgeCore <-> vulkan) resolve regardless of declaration order.
 set(CMAKE_LINK_INTERFACE_MULTIPLICITY 3)
 
-# nvrhi_vk references symbols in the nvrhi core library and vice versa; a
-# link group lets the linker resolve that mutual dependency in any order.
-# The group is opened before the objects and closed after the libraries
-# (via CMAKE_CXX_STANDARD_LIBRARIES, which is emitted last).
+# Mutual dependencies between static libraries are resolved in any order by
+# the link group. The group is opened before the objects and closed after the
+# libraries (via CMAKE_CXX_STANDARD_LIBRARIES, which is emitted last).
 #
 # Not on macOS. --start-group is a GNU ld option; Apple's linker does not
 # accept it. That alone would only break the final link, but

@@ -84,7 +84,7 @@ TEST_CASE("Every shader the renderer loads at startup exists as SPIR-V", "[start
 {
 	Forge::Log::Init();
 
-	// The exact list Renderer::Init passes to Shader::CreateFromSPIRV, checked
+	// The exact shader list VkRenderer builds its pipelines from, checked
 	// as a loader would: readable, right magic, sane header.
 	for (const ShaderLoad& load : RendererShaderLoads())
 	{

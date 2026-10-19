@@ -60,10 +60,8 @@ target_sources(ForgeEditor
 target_link_libraries(ForgeEditor
     PRIVATE
         ForgeApp
-        nvrhi
         imgui
         nfd
-        forge_vk_dispatch
         ${CMAKE_DL_LIBS}
 )
 

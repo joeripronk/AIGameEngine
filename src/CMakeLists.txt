@@ -11,13 +11,13 @@ target_include_directories(ForgeCore
         ${CMAKE_SOURCE_DIR}/vendor/miniaudio
         ${CMAKE_SOURCE_DIR}/vendor/lua
         ${CMAKE_SOURCE_DIR}/vendor/stb
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
         ${CMAKE_BINARY_DIR}/vendor/assimp/include
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
         ${CMAKE_SOURCE_DIR}/vendor/yaml-cpp/include
 
         ${CMAKE_SOURCE_DIR}/vendor/VulkanMemoryAllocator/include
+        ${FORGE_VK_HEADERS_INCLUDE}
     )
 
 target_sources(ForgeCore
@@ -169,16 +169,8 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw
 
 
 # The Vulkan SDK: the loader library to link. The loader is what matters at run
-# time, and it comes from the system/SDK package rather than from nvrhi's fetch.
-#
-# Deliberately placed *after* nvrhi. nvrhi must not be given the SDK headers: it
-# requires >= 1.4.318 and refuses to compile against anything older, and Ubuntu
-# 24.04 ships 1.4.303. nvrhi only falls back to fetching its own pinned headers
-# when no Vulkan::Headers target exists yet, so finding Vulkan first silently
-# substitutes the system headers for the version nvrhi is written against. The
-# order reads backwards on purpose; the comment is here because it was tried the
-# other way round and only failed on a machine with an old SDK.
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/nvrhi ${CMAKE_BINARY_DIR}/vendor/nvrhi)
+# time; device-scope entry points are resolved through the per-device function
+# table (VkDevice), so the loader is needed only at instance scope.
 find_package(Vulkan REQUIRED)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/spdlog ${CMAKE_BINARY_DIR}/vendor/spdlog)
@@ -244,10 +236,7 @@ unset(_forge_vk_headers_target)
 # VulkanMemoryAllocator (vendor/VulkanMemoryAllocator, pinned v3.4.0).
 #
 # Single-header allocator with one implementation translation unit: this is
-# the VMA the raw-Vulkan rewrite (BRUTAL plan, Phases 1-4) allocates through.
-# nvrhi keeps compiling its own vendored copy until Phase 6 deletes it -
-# the two copies coexist during the parallel-layer phases on purpose, and
-# each allocator owns its own allocations, so they never touch each other.
+# the VMA the raw-Vulkan renderer (BRUTAL plan, Phases 1-4) allocates through.
 # ---------------------------------------------------------------------------
 add_library(vma STATIC
     Platform/Vulkan/VmaImpl.cpp
@@ -265,19 +254,6 @@ endif()
 target_link_libraries(vma PUBLIC Vulkan::Vulkan)
 set_target_properties(vma PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-
-# nvrhi's Vulkan backend forces VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 but only
-# initializes the Vulkan-Hpp dispatcher when NVRHI_SHARED_LIBRARY_BUILD is
-# defined (normally shared builds). Because we link nvrhi statically, define it
-# here so createDevice() initializes the dynamic dispatcher; otherwise every
-# vk::Device call goes through an uninitialized (null) loader and aborts.
-if(TARGET nvrhi AND NOT NVRHI_BUILD_SHARED)
-    target_compile_definitions(nvrhi PRIVATE NVRHI_SHARED_LIBRARY_BUILD=1)
-endif()
-if(TARGET nvrhi_vk AND NOT NVRHI_BUILD_SHARED)
-    target_compile_definitions(nvrhi_vk PRIVATE NVRHI_SHARED_LIBRARY_BUILD=1)
-endif()
-
 target_compile_definitions(ForgeCore PRIVATE LUA_USE_C89 FG_NO_VULKAN_RUNTIME)
 
 # Vulkan platform implementation (separate from core for testability)
@@ -286,7 +262,8 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/VulkanWindow.cpp
     Platform/Vulkan/ImGuiLayer.cpp
     Platform/Vulkan/ImGuiLayer.h
-    # BRUTAL rewrite - device layer (parallel to the nvrhi path until Phase 6)
+    # BRUTAL rewrite - raw-Vulkan renderer layers (device, memory, frame,
+    # pipeline, renderer)
     Platform/Vulkan/Device/DeviceSelection.h
     Platform/Vulkan/Device/DeviceSelection.cpp
     Platform/Vulkan/Device/DebugName.h
@@ -362,7 +339,6 @@ target_include_directories(vulkan
         ${CMAKE_SOURCE_DIR}/vendor/entt/single_include
         ${CMAKE_SOURCE_DIR}/vendor/spdlog/include
         ${CMAKE_SOURCE_DIR}/vendor/fmt/include
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
         ${CMAKE_SOURCE_DIR}/vendor/stb
         ${CMAKE_SOURCE_DIR}/vendor/assimp/include
@@ -382,7 +358,6 @@ target_link_libraries(ForgeCore PUBLIC lua)
 target_link_libraries(ForgeCore
     PRIVATE
         glfw
-        nvrhi
         spdlog::spdlog
         fmt::fmt
         miniaudio
@@ -391,15 +366,12 @@ target_link_libraries(ForgeCore
         Threads::Threads
 )
 
-# Vulkan backend depends on GLFW (window/input), the nvrhi Vulkan device and
-# ForgeCore (for CpuTexture decoding used by VulkanTexture).
-# find_package(Vulkan) already ran above nvrhi, which is what lets nvrhi use
-# these imported targets instead of fetching its own headers.
+# Vulkan backend depends on GLFW (window/input), the Vulkan loader + VMA
+# (the device VkRenderer builds) and ForgeCore (for CpuTexture decoding and
+# the types the renderer draws with).
 target_link_libraries(vulkan
     PRIVATE
         glfw
-        nvrhi_vk
-        nvrhi
         ForgeCore
         Vulkan::Vulkan
         vma
@@ -447,7 +419,6 @@ target_include_directories(ForgeApp
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/vendor/glm
-        ${CMAKE_SOURCE_DIR}/vendor/nvrhi/include
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Platform/Vulkan
@@ -457,13 +428,11 @@ target_link_libraries(ForgeApp
     PUBLIC
         ForgeCore
         vulkan
-        nvrhi_vk
         glfw
         spdlog::spdlog
         fmt::fmt
         yaml-cpp
         Threads::Threads
-        nvrhi
 )
 set_target_properties(ForgeApp PROPERTIES
     CXX_STANDARD 20
@@ -475,17 +444,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(ForgeApp PRIVATE /utf-8)
 endif()
-
-# nvrhi's Vulkan backend expects the Vulkan-Hpp dynamic dispatch storage
-# (vk::detail::defaultDispatchLoaderDynamic) to be provided by a single
-# translation unit. Newer Vulkan-Hpp releases gate that definition behind the
-# C++20 module path, so we provide it explicitly in a tiny static library. Link
-# this AFTER nvrhi_vk (editor/runtime do) so the symbol resolves.
-add_library(forge_vk_dispatch STATIC
-    Platform/Vulkan/VulkanDispatch.cpp
-)
-target_link_libraries(forge_vk_dispatch PUBLIC nvrhi_vk)
-target_include_directories(forge_vk_dispatch PRIVATE ${FORGE_VK_HEADERS_INCLUDE})
 
 # Set properties
 set_target_properties(ForgeCore PROPERTIES

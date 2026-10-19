@@ -11,7 +11,7 @@ ForgeEngine/
 ├── src/Forge/          # Core engine library (static lib)
 │   ├── Core/           # Base, Logging, Time, Timer, Files, Input, Layers, Application
 │   ├── Events/         # Event system
-│   ├── Renderer/       # Rendering pipeline (Vulkan/nvrhi), CPU mesh/texture import
+│   ├── Renderer/       # Rendering pipeline (raw Vulkan + VMA), CPU mesh/texture import
 │   ├── Scene/          # ECS (entt-based)
 │   ├── Editor/         # Window-independent editor model + gizmo maths
 │   ├── Project/        # Project file, game export
@@ -41,7 +41,7 @@ ForgeEngine/
 
 | Library | Purpose |
 |---------|---------|
-| Vulkan SDK + nvrhi | Rendering abstraction |
+| Vulkan SDK + VMA | Rendering (raw Vulkan, per-device function tables) |
 | GLFW | Windowing/input |
 | GLM | Math |
 | enTT | ECS |
@@ -381,12 +381,13 @@ engine must answer with that reason, not a signal:
   loads: every shader in the loader list is a valid SPIR-V module (magic,
   version, header), and every `.vert`/`.frag` source has its `.spv` beside
   it - an uncompiled shader is a silent startup gap.
-- Binding-set items go through **nvrhi's factories**
-  (`BindingSetItem::Texture_SRV(...)` etc.), never hand-assigned structs:
-  `BindingSetItem` has no default member initialisers, so a hand-built item
-  sends stack garbage to the driver in `arrayElement`/`unused`/
-  `overrideComponentMapping`. The desktop driver tolerated the garbage;
-  lavapipe and nvidia-under-Xvfb segfaulted at the first bloom draw.
+- Descriptor writes go through the **accounting `DescriptorPool`** and the
+  renderer's builders, never raw `vkUpdateDescriptorSets` on a hand-built
+  array: the set must come from a layout the pool has censused, and every
+  `VkWriteDescriptorSet` field order (`dstBinding, dstArrayElement,
+  descriptorCount`) is what the driver indexes by. A `dstArrayElement` of 1
+  on an `arraySize`-1 binding makes the Intel driver walk past the allocated
+  descriptor and SIGSEGV inside `vkUpdateDescriptorSets`.
 
 ## Troubleshooting a startup failure
 
@@ -660,10 +661,11 @@ editor.ResolveProjectPath("textures/albedo.png");
   CPU primitives/textures, assets, editor model). Built with
   `FG_NO_VULKAN_RUNTIME` so unit tests exercise it without a graphics device.
 - **ForgeApp** — platform layer (window + renderer + application shell). Links
-  the Vulkan backend (`vulkan` target built on nvrhi).
-- **vulkan** — nvrhi Vulkan backend + Forge's platform classes.
+  the Vulkan backend (`vulkan` target: raw Vulkan + VMA).
+- **vulkan** — raw-Vulkan backend (`VkRenderer`, the Device/Memory/Resources/
+  Frame/Pipeline layers) + Forge's platform classes.
 - **ForgeTests** — links only `ForgeCore`.
-- **ForgeEditor / ForgeRuntime** — link `ForgeApp` + `forge_vk_dispatch`.
+- **ForgeEditor / ForgeRuntime** — link `ForgeApp`.
 
 ## Renderer Architecture
 
@@ -863,8 +865,8 @@ Dist branch answers "no samples", so the editor's Profiler panel needs no
 ## Games
 
 A game is **not** part of the engine. `games/tetris/` builds `ForgeTetris`, which
-links exactly what `ForgeRuntime` links — `ForgeApp`, `nvrhi`,
-`forge_vk_dispatch` — and supplies the game itself.
+links exactly what `ForgeRuntime` links — `ForgeApp` — and supplies the game
+itself.
 
 The dependency arrows only point one way:
 
