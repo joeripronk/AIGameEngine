@@ -347,6 +347,18 @@ target_sources(vulkan PRIVATE
     Platform/Vulkan/Pipeline/DescriptorAccounting.cpp
     Platform/Vulkan/Pipeline/DescriptorPool.h
     Platform/Vulkan/Pipeline/DescriptorPool.cpp
+    # BRUTAL rewrite - renderer (Phase 5: the raw-Vulkan renderer)
+    Platform/Vulkan/VkRenderer.h
+    Platform/Vulkan/VkRendererInternal.h
+    Platform/Vulkan/VkRendererInternal.cpp
+    Platform/Vulkan/VkRendererDevice.cpp
+    Platform/Vulkan/VkRendererResources.cpp
+    Platform/Vulkan/VkRendererPipelines.cpp
+    Platform/Vulkan/VkRendererScene.cpp
+    Platform/Vulkan/VkMesh.h
+    Platform/Vulkan/VkMesh.cpp
+    Platform/Vulkan/VkTexture.h
+    Platform/Vulkan/VkTexture.cpp
     Forge/UI/UI.h
 )
 target_include_directories(vulkan

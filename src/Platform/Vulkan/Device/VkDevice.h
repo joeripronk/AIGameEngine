@@ -90,6 +90,7 @@ struct DeviceFunctions final
 	PFN_vkDestroyDescriptorSetLayout DestroyDescriptorSetLayout = nullptr;
 	PFN_vkCreateDescriptorPool CreateDescriptorPool = nullptr;
 	PFN_vkDestroyDescriptorPool DestroyDescriptorPool = nullptr;
+	PFN_vkResetDescriptorPool ResetDescriptorPool = nullptr;
 	PFN_vkAllocateDescriptorSets AllocateDescriptorSets = nullptr;
 	PFN_vkFreeDescriptorSets FreeDescriptorSets = nullptr;
 	PFN_vkUpdateDescriptorSets UpdateDescriptorSets = nullptr;

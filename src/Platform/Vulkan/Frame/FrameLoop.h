@@ -40,15 +40,20 @@ public:
 	// pool reset, begin). Outcomes other than Ok/Suboptimal mean "no frame
 	// this time": RebuildNextFrame flags the swapchain, and the caller
 	// skips rendering without dropping the frame index.
-	[[nodiscard]] AcquireOutcome BeginFrame(uint32_t& outImageIndex, SyncObjects& outSync);
+	// The frame's SyncObjects stay owned by the loop (the fence, the
+	// render-finished semaphore and the command buffer are per-image); the
+	// acquire semaphore used for this frame is the ring slot current at
+	// entry.
+	[[nodiscard]] AcquireOutcome BeginFrame(uint32_t& outImageIndex);
 
-	// End the command buffer, submit under the per-image fence (wait on the
-	// acquire semaphore, signal the render-finished semaphore), present on
-	// the queue, rotate the acquire ring.
-	[[nodiscard]] PresentOutcome EndFrame(SyncObjects& sync);
+	// End the frame's command buffer, submit under its fence (wait on the
+	// acquire semaphore used at BeginFrame, signal the render-finished
+	// semaphore), present on the queue, rotate the acquire ring.
+	[[nodiscard]] PresentOutcome EndFrame(uint32_t imageIndex);
 
 	[[nodiscard]] uint32_t GetImageCount() const { return static_cast<uint32_t>(m_Swapchain->GetImages().size()); }
 	[[nodiscard]] const SemaphoreRing& GetAcquireRing() const { return m_AcquireRing; }
+	[[nodiscard]] ::VkCommandBuffer CurrentCommandBuffer() const;
 
 	void Destroy();
 
@@ -58,6 +63,11 @@ private:
 	Swapchain* m_Swapchain = nullptr;
 
 	::VkCommandPool m_CommandPool = VK_NULL_HANDLE;
+	std::vector<::VkFence> m_Fences;
+	std::vector<::VkSemaphore> m_RenderFinished;
+	std::vector<::VkCommandBuffer> m_CommandBuffers;
+	uint32_t m_CurrentFrame = 0;
+	uint32_t m_CurrentAcquireIndex = 0;
 	std::vector<SyncObjects> m_Frames;
 
 	// ImageCount + 1 acquire semaphores, rotated independently of the frame

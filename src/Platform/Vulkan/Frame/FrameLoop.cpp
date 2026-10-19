@@ -44,6 +44,12 @@ Ref<FrameLoop> FrameLoop::Create(Device& device, Ref<Queue> queue, Swapchain& sw
 		loop->m_CommandPool = VK_NULL_HANDLE;
 		return nullptr;
 	}
+	for (const SyncObjects& sync : loop->m_Frames)
+	{
+		loop->m_Fences.push_back(sync.Fence);
+		loop->m_RenderFinished.push_back(sync.RenderingFinishedSemaphore);
+		loop->m_CommandBuffers.push_back(sync.CommandBuffer);
+	}
 
 	// ImageCount + 1 acquire semaphores: the ring rotates once per
 	// submitted frame, so the (ImageCount+1)-th submit reuses the first
@@ -107,10 +113,9 @@ void FrameLoop::Destroy()
 	m_Device = nullptr;
 }
 
-AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex, SyncObjects& outSync)
+AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex)
 {
 	outImageIndex = 0;
-	outSync = SyncObjects{};
 	if (!m_Device || m_CommandPool == VK_NULL_HANDLE || m_Frames.empty())
 		return AcquireOutcome::Error;
 
@@ -152,14 +157,24 @@ AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex, SyncObjects& outSy
 	}
 
 	outImageIndex = imageIndex;
-	outSync = sync;
+	m_CurrentFrame = imageIndex;
+	m_CurrentAcquireIndex = ringIndex;
 	return outcome;
 }
 
-PresentOutcome FrameLoop::EndFrame(SyncObjects& sync)
+VkCommandBuffer FrameLoop::CurrentCommandBuffer() const
 {
-	if (!m_Device || sync.CommandBuffer == VK_NULL_HANDLE)
+	if (m_CurrentFrame >= m_CommandBuffers.size())
+		return VK_NULL_HANDLE;
+	return m_CommandBuffers[m_CurrentFrame];
+}
+
+PresentOutcome FrameLoop::EndFrame(uint32_t imageIndex)
+{
+	if (!m_Device || imageIndex >= m_CommandBuffers.size())
 		return PresentOutcome::Error;
+
+	SyncObjects& sync = m_Frames[imageIndex];
 
 	const DeviceFunctions& functions = m_Device->GetFunctions();
 
@@ -169,7 +184,7 @@ PresentOutcome FrameLoop::EndFrame(SyncObjects& sync)
 		return PresentOutcome::Error;
 	}
 
-	const uint32_t ringIndex = m_AcquireRing.Index();
+	const uint32_t ringIndex = m_CurrentAcquireIndex;
 
 	const VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	VkSubmitInfo submitInfo{};
@@ -185,7 +200,6 @@ PresentOutcome FrameLoop::EndFrame(SyncObjects& sync)
 	if (!m_Queue->Submit(std::span<const VkSubmitInfo>(&submitInfo, 1), sync.Fence))
 		return PresentOutcome::Error;
 
-	const uint32_t imageIndex = static_cast<uint32_t>(&sync - m_Frames.data());
 	::VkSwapchainKHR swapchain = m_Swapchain->Handle();
 	VkPresentInfoKHR presentInfo{};
 	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

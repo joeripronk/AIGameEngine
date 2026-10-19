@@ -29,12 +29,16 @@ public:
 
 	[[nodiscard]] ::VkDescriptorSetLayout Handle() const { return m_Handle; }
 	[[nodiscard]] const DescriptorCensus& GetCensus() const { return m_Census; }
+	// The bindings as created, sorted by binding index: the census counts
+	// types, and this says which index each type lives at.
+	[[nodiscard]] std::span<const VkDescriptorSetLayoutBinding> GetBindings() const { return m_Bindings; }
 	[[nodiscard]] bool IsNull() const { return m_Handle == VK_NULL_HANDLE; }
 
 private:
 	const Device* m_Device = nullptr;
 	::VkDescriptorSetLayout m_Handle = VK_NULL_HANDLE;
 	DescriptorCensus m_Census{};
+	std::vector<VkDescriptorSetLayoutBinding> m_Bindings;
 };
 
 // Accounting descriptor pool (BRUTAL DescriptorPoolEx): per-type census from
@@ -57,6 +61,11 @@ public:
 	[[nodiscard]] ::VkDescriptorPool Handle() const { return m_Handle; }
 	[[nodiscard]] const DescriptorAccounting& GetAccounting() const { return m_Accounting; }
 
+	// Reset the whole pool (the per-frame pattern: every set of the frame is
+	// allocated fresh, the pool resets when the frame's fence returns). The
+	// accounting is restored to its creation totals.
+	[[nodiscard]] bool Reset();
+
 	// Allocate `setCount` sets for a layout. On failure, outReason explains
 	// what ran out with the numbers, and nothing is allocated.
 	[[nodiscard]] bool AllocateSets(const DescriptorSetLayout& layout, uint32_t setCount, std::vector<::VkDescriptorSet>& outSets, std::string& outReason);
@@ -68,6 +77,7 @@ private:
 	const Device* m_Device = nullptr;
 	::VkDescriptorPool m_Handle = VK_NULL_HANDLE;
 	DescriptorAccounting m_Accounting{};
+	DescriptorAccounting m_CreationAccounting{};   // totals, restored by Reset
 	std::unordered_map<void*, const DescriptorSetLayout*> m_SetLayouts;
 };
 
