@@ -126,6 +126,10 @@ struct TetrisGameState
 	// shows at the cleared rows (0 = no reward to show).
 	int32_t LastRewardLines = 0;
 
+	// Counts every line clear. The view raises a reward toast on each new
+	// value, so two clears of the same size each show one - not just the first.
+	int32_t ClearCount = 0;
+
 	// Current piece and next piece.
 	TetrisPiece CurrentPiece;
 	TetrisPiece NextPiece;

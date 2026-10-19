@@ -186,8 +186,8 @@ inline float RewardShakeAmplitude(int linesCleared, float maxAmplitude)
 // visibly bigger than a single.
 inline float RewardFontScale(int linesCleared)
 {
-	constexpr float kBaseScale = 1.0f;
-	constexpr float kPerLine = 0.30f;
+	constexpr float kBaseScale = 4.0f;
+	constexpr float kPerLine = 1.2f;
 	if (linesCleared <= 1)
 		return kBaseScale;
 	const int lines = linesCleared > 4 ? 4 : linesCleared;

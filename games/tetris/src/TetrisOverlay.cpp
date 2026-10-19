@@ -259,13 +259,15 @@ void OverlayLayer::OnUpdate(Forge::Timestep ts)
 		}
 
 		// A new clear raises the reward toast; the timer counts it down so the
-		// label fades out after a line-count-dependent duration.
-		if (state.LastRewardLines != m_LastRewardLines)
+		// label fades out after a line-count-dependent duration. Keyed on the
+		// clear counter, not the line count, so two clears of the same size
+		// each show a toast.
+		if (state.ClearCount != m_LastClearCount)
 		{
-			m_LastRewardLines = state.LastRewardLines;
-			if (m_LastRewardLines > 0)
+			m_LastClearCount = state.ClearCount;
+			if (state.LastRewardLines > 0)
 			{
-				m_RewardLines = m_LastRewardLines;
+				m_RewardLines = state.LastRewardLines;
 				m_RewardTimer = RewardDuration(m_RewardLines);
 				m_RewardElapsed = 0.0f;
 			}
@@ -291,6 +293,7 @@ void OverlayLayer::RefreshState()
 		m_LastScore = state.Score;
 		m_LastLines = state.LinesCleared;
 		m_LastLevel = state.Level;
+		m_LastClearCount = state.ClearCount;
 	}
 }
 

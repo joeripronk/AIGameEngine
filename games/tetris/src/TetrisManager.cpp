@@ -660,6 +660,7 @@ void TetrisManager::ClearLines()
 	++m_State.Combo;
 
 	m_State.LastRewardLines = static_cast<int32_t>(linesCleared);
+	++m_State.ClearCount;
 
 	m_State.LinesCleared += static_cast<int32_t>(linesCleared);
 	m_State.Level = m_State.LinesCleared / 10 + 1;

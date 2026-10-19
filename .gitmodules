@@ -24,8 +24,7 @@
 	url = https://github.com/mackron/miniaudio.git
 [submodule "vendor/nvrhi"]
 	path = vendor/nvrhi
-	url = https://github.com/joeripronk/NVRHI.git
-	branch = forge-commandlist-lifetime
+	url = https://github.com/NVIDIA-RTX/NVRHI.git
 [submodule "vendor/spdlog"]
 	path = vendor/spdlog
 	url = https://github.com/gabime/spdlog.git
