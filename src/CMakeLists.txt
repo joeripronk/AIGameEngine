@@ -238,6 +238,30 @@ endforeach()
 unset(_forge_vk_headers_target)
 
 
+# ---------------------------------------------------------------------------
+# VulkanMemoryAllocator (vendor/VulkanMemoryAllocator, pinned v3.4.0).
+#
+# Single-header allocator with one implementation translation unit: this is
+# the VMA the raw-Vulkan rewrite (BRUTAL plan, Phases 1-4) allocates through.
+# nvrhi keeps compiling its own vendored copy until Phase 6 deletes it -
+# the two copies coexist during the parallel-layer phases on purpose, and
+# each allocator owns its own allocations, so they never touch each other.
+# ---------------------------------------------------------------------------
+add_library(vma STATIC
+    Platform/Vulkan/VmaImpl.cpp
+)
+target_include_directories(vma
+    PUBLIC ${CMAKE_SOURCE_DIR}/vendor/VulkanMemoryAllocator/include
+    PRIVATE ${FORGE_VK_HEADERS_INCLUDE}
+)
+target_compile_definitions(vma PUBLIC VMA_STATIC_VULKAN_FUNCTIONS=1 VMA_DYNAMIC_VULKAN_FUNCTIONS=0)
+if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(vma PRIVATE /std:c++20 /utf-8 /W3)
+else()
+    target_compile_options(vma PRIVATE -std=c++20 -Wno-unused-parameter -Wno-extra-semi -Wno-parentheses)
+endif()
+target_link_libraries(vma PUBLIC Vulkan::Vulkan)
+set_target_properties(vma PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 
 # nvrhi's Vulkan backend forces VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1 but only
@@ -319,6 +343,7 @@ target_link_libraries(vulkan
         nvrhi
         ForgeCore
         Vulkan::Vulkan
+        vma
 )
 
 # ImGuiLayer drives the ImGui GLFW/Vulkan backends, so the imgui target is
