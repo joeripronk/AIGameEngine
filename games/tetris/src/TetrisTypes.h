@@ -115,6 +115,17 @@ struct TetrisGameState
 	// Combo counter for multi-line clears.
 	int32_t Combo = 0;
 
+	// Score multiplier. Clearing lines applies a tier (x2 / x3 / x4) that
+	// stacks onto the live multiplier and lasts 10 turns; consecutive clears
+	// also double a combo multiplier. Both reset when the window expires.
+	int32_t Multiplier = 1;
+	int32_t MultiplierTurns = 0;
+	int32_t ComboMultiplier = 1;
+
+	// Lines cleared by the most recent clear, for the reward label the view
+	// shows at the cleared rows (0 = no reward to show).
+	int32_t LastRewardLines = 0;
+
 	// Current piece and next piece.
 	TetrisPiece CurrentPiece;
 	TetrisPiece NextPiece;

@@ -143,3 +143,39 @@ TEST_CASE("The line-clear flash lights up and goes out", "[tetris][animation][cl
 	}
 }
 
+
+TEST_CASE("Reward flash pulses in [0,1]", "[tetris][animation][reward]")
+{
+	for (float t = 0.0f; t <= 2.0f; t += 0.01f)
+	{
+		const float p = RewardFlashPulse(t);
+		REQUIRE(p >= 0.0f);
+		REQUIRE(p <= 1.0f);
+	}
+	// It is a pulse, not a constant: it reaches both extremes.
+	REQUIRE(RewardFlashPulse(0.0f) < 1.0f);
+	REQUIRE(RewardFlashPulse(1.0f) >= 0.0f);
+}
+
+TEST_CASE("Reward shake, font scale and duration all grow with lines cleared", "[tetris][animation][reward]")
+{
+	const float amp1 = RewardShakeAmplitude(1, 100.0f);
+	const float amp2 = RewardShakeAmplitude(2, 100.0f);
+	const float amp3 = RewardShakeAmplitude(3, 100.0f);
+	const float amp4 = RewardShakeAmplitude(4, 100.0f);
+	REQUIRE(amp1 > 0.0f);
+	REQUIRE(amp2 > amp1);
+	REQUIRE(amp3 > amp2);
+	REQUIRE(amp4 > amp3);
+	REQUIRE(amp4 == Catch::Approx(100.0f));  // four lines is the full amplitude
+
+	REQUIRE(RewardFontScale(1) < RewardFontScale(2));
+	REQUIRE(RewardFontScale(2) < RewardFontScale(3));
+	REQUIRE(RewardFontScale(3) < RewardFontScale(4));
+
+	REQUIRE(RewardDuration(1) < RewardDuration(2));
+	REQUIRE(RewardDuration(2) < RewardDuration(4));
+
+	// Nothing cleared shakes nothing.
+	REQUIRE(RewardShakeAmplitude(0, 100.0f) == 0.0f);
+}

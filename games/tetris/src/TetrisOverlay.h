@@ -40,6 +40,13 @@ private:
 	int32_t m_LastLines = -1;
 	int32_t m_LastLevel = -1;
 	float m_LastFireChance = 0.0f;
+
+	// Reward toast: the "Nice".."Epic" label shown at a line clear, flashing
+	// and shaking harder for more lines. m_RewardTimer counts it down.
+	int32_t m_LastRewardLines = 0;
+	int32_t m_RewardLines = 0;
+	float m_RewardTimer = 0.0f;
+	float m_RewardElapsed = 0.0f;
 };
 
 }  // namespace Tetris

@@ -653,7 +653,8 @@ TEST_CASE("Clearing a line drops the rows above it down", "[tetris][lines]")
 	REQUIRE(state.Board[state.GetBoardIndex(glm::ivec2(0, 1))] == 0);
 
 	REQUIRE(state.LinesCleared == 2);
-	REQUIRE(state.Score == 100);
+	// A 2-line clear applies the x3 multiplier tier: base 100 at level 1, x3.
+	REQUIRE(state.Score == 300);
 }
 
 TEST_CASE("Clearing the top row leaves everything below it in place", "[tetris][lines]")
@@ -713,20 +714,22 @@ TEST_CASE("Level rises every ten lines and the pieces fall faster", "[tetris][li
 
 TEST_CASE("Line scores follow the classic table", "[tetris][scoring]")
 {
-	REQUIRE(TetrisManager::GetLineScore(0, 1, 0) == 0);
-	REQUIRE(TetrisManager::GetLineScore(1, 1, 0) == 40);
-	REQUIRE(TetrisManager::GetLineScore(2, 1, 0) == 100);
-	REQUIRE(TetrisManager::GetLineScore(3, 1, 0) == 300);
-	REQUIRE(TetrisManager::GetLineScore(4, 1, 0) == 1200);
+	REQUIRE(TetrisManager::GetLineScore(0, 1, 1, 1) == 0);
+	REQUIRE(TetrisManager::GetLineScore(1, 1, 1, 1) == 40);
+	REQUIRE(TetrisManager::GetLineScore(2, 1, 1, 1) == 100);
+	REQUIRE(TetrisManager::GetLineScore(3, 1, 1, 1) == 300);
+	REQUIRE(TetrisManager::GetLineScore(4, 1, 1, 1) == 1200);
 }
 
-TEST_CASE("Score scales with level and adds a combo bonus", "[tetris][scoring]")
+TEST_CASE("Score scales with level, multiplier and combo", "[tetris][scoring]")
 {
-	REQUIRE(TetrisManager::GetLineScore(1, 3, 0) == 120);
-	REQUIRE(TetrisManager::GetLineScore(1, 1, 1) == 90);
-	REQUIRE(TetrisManager::GetLineScore(2, 2, 3) == 350);
+	// base * level * multiplier * comboMultiplier
+	REQUIRE(TetrisManager::GetLineScore(1, 3, 1, 1) == 120);
+	REQUIRE(TetrisManager::GetLineScore(1, 1, 2, 1) == 80);
+	REQUIRE(TetrisManager::GetLineScore(2, 2, 1, 2) == 400);
+	REQUIRE(TetrisManager::GetLineScore(2, 2, 3, 4) == 2400);
 	// More than four lines cannot happen, but must not read past the table.
-	REQUIRE(TetrisManager::GetLineScore(9, 1, 0) == 1200);
+	REQUIRE(TetrisManager::GetLineScore(9, 1, 1, 1) == 1200);
 }
 
 TEST_CASE("A combo is earned by consecutive clears and lost on a miss", "[tetris][scoring][lines]")
@@ -744,6 +747,81 @@ TEST_CASE("A combo is earned by consecutive clears and lost on a miss", "[tetris
 
 	manager.ClearLines();
 	REQUIRE(state.Combo == 0);
+}
+
+TEST_CASE("Reward labels run Nice / Great / Amazing / Epic for 1-4 lines", "[tetris][scoring][reward]")
+{
+	REQUIRE(std::string(TetrisManager::RewardLabelForLines(1)) == "Nice");
+	REQUIRE(std::string(TetrisManager::RewardLabelForLines(2)) == "Great");
+	REQUIRE(std::string(TetrisManager::RewardLabelForLines(3)) == "Amazing");
+	REQUIRE(std::string(TetrisManager::RewardLabelForLines(4)) == "Epic");
+}
+
+TEST_CASE("A clear applies its multiplier tier (x2 / x3 / x4)", "[tetris][scoring][reward]")
+{
+	REQUIRE(TetrisManager::MultiplierTierForLines(1) == 2u);
+	REQUIRE(TetrisManager::MultiplierTierForLines(2) == 3u);
+	REQUIRE(TetrisManager::MultiplierTierForLines(3) == 4u);
+	REQUIRE(TetrisManager::MultiplierTierForLines(4) == 4u);
+}
+
+TEST_CASE("The multiplier stacks across clears and is spent after 10 turns", "[tetris][scoring][reward]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	// First clear: a single line applies x2, refreshing the 10-turn window.
+	FillRow(state, state.Height - 1, state.Width);
+	manager.LockPiece();
+	REQUIRE(state.Multiplier == 2);
+	REQUIRE(state.MultiplierTurns == 9);  // the lock that cleared ticks the window down
+
+	// A second clear stacks x3 onto the live x2, so the multiplier is x6.
+	FillRow(state, state.Height - 2, state.Width);
+	FillRow(state, state.Height - 1, state.Width);
+	manager.LockPiece();
+	REQUIRE(state.Multiplier == 6);
+	REQUIRE(state.MultiplierTurns == 9);
+
+	// Nine locks with no clear burn the window down to zero and reset the
+	// multiplier to x1. Each lock starts from a cleared board so the spawn row
+	// stays free and no row fills.
+	for (int i = 0; i < 9; ++i)
+	{
+		state.InitializeBoard();
+		FillRow(state, 10, 1);  // a row that never fills: no clear
+		manager.LockPiece();
+	}
+	REQUIRE(state.Multiplier == 1);
+	REQUIRE(state.MultiplierTurns == 0);
+}
+
+TEST_CASE("Consecutive clears double the combo multiplier", "[tetris][scoring][reward]")
+{
+	TetrisManager manager = Playing();
+	auto& state = manager.GetState();
+
+	FillRow(state, state.Height - 1, state.Width);
+	manager.LockPiece();
+	REQUIRE(state.ComboMultiplier == 1);  // first clear of the chain: 1x
+
+	FillRow(state, state.Height - 2, state.Width);
+	FillRow(state, state.Height - 1, state.Width);
+	manager.LockPiece();
+	REQUIRE(state.ComboMultiplier == 2);  // second consecutive: 2x
+
+	FillRow(state, state.Height - 2, state.Width);
+	FillRow(state, state.Height - 1, state.Width);
+	manager.LockPiece();
+	REQUIRE(state.ComboMultiplier == 4);  // third consecutive: 4x
+
+	// A turn with no clear breaks the chain: the next clear starts at 1x again.
+	state.InitializeBoard();
+	FillRow(state, 10, 1);
+	manager.LockPiece();
+	FillRow(state, state.Height - 1, state.Width);
+	manager.LockPiece();
+	REQUIRE(state.ComboMultiplier == 1);
 }
 
 // ---------------------------------------------------------------------------

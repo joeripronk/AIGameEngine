@@ -640,6 +640,22 @@ void TetrisApp::Run()
 						static_cast<uint8_t>((row + col) % 7 + 1);
 			m_BoardView.Update(frameTime);
 		}
+		// DIAGNOSTIC ONLY: fill the bottom rows so a falling piece lands on the
+		// stack, locks and clears them - a line clear with its reward, with the
+		// spawn row left free.
+		if (std::getenv("FG_SEED_BOTTOM_ROWS") && m_FrameCount == 0)
+		{
+			const int rows = std::atoi(std::getenv("FG_SEED_BOTTOM_ROWS"));
+			TetrisGameState& seeded = m_BoardView.GetManager().GetState();
+			for (int r = 0; r < rows; ++r)
+			{
+				const uint32_t row = seeded.Height - 1 - static_cast<uint32_t>(r);
+				for (uint32_t col = 0; col < seeded.Width; ++col)
+					seeded.Board[row * seeded.Width + col] =
+						static_cast<uint8_t>((row + col) % 7 + 1);
+			}
+			m_BoardView.Update(frameTime);
+		}
 		// DIAGNOSTIC ONLY: FG_ALL_TEX=<path> gives every board block the same
 		// tile, so a capture separates "the UVs do not address the tile" from
 		// "the tile is sampled and the lighting flattens it".

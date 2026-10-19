@@ -158,4 +158,49 @@ inline float ShakeAmplitudeForSpeed(float cellsPerSecond, int linesCleared, floa
 	return ShakeAmplitudeForClear(linesCleared, cellsPerSecond, maxAmplitude);
 }
 
+// Reward feedback for a line clear: a label ("Nice".."Epic") that flashes and
+// shakes at the cleared rows, the effect stronger the more lines were cleared.
+// These are pure so the strength curve is unit-testable without a window.
+
+// A flashing pulse in [0,1] for the reward text: a fast strobe that reads as a
+// flash, not a steady label.
+inline float RewardFlashPulse(float seconds)
+{
+	constexpr float kPi = 3.14159265358979323846f;
+	constexpr float kRewardFlashHz = 5.0f;
+	const float s = std::sin(2.0f * kPi * kRewardFlashHz * seconds);
+	return 0.5f + 0.5f * s;
+}
+
+// Shake amplitude for the reward text, scaled by lines cleared: 1 line is a
+// nudge, 4 lines (a Tetris) is the full amplitude.
+inline float RewardShakeAmplitude(int linesCleared, float maxAmplitude)
+{
+	if (maxAmplitude <= 0.0f || linesCleared <= 0)
+		return 0.0f;
+	const float lines = static_cast<float>(linesCleared > 4 ? 4 : linesCleared);
+	return maxAmplitude * (0.25f * lines);
+}
+
+// Font scale for the reward text, growing with lines cleared so a Tetris is
+// visibly bigger than a single.
+inline float RewardFontScale(int linesCleared)
+{
+	constexpr float kBaseScale = 1.0f;
+	constexpr float kPerLine = 0.30f;
+	if (linesCleared <= 1)
+		return kBaseScale;
+	const int lines = linesCleared > 4 ? 4 : linesCleared;
+	return kBaseScale + kPerLine * static_cast<float>(lines - 1);
+}
+
+// How long the reward stays on screen, in seconds; more lines, longer.
+inline float RewardDuration(int linesCleared)
+{
+	constexpr float kBaseSeconds = 0.9f;
+	constexpr float kPerLine = 0.25f;
+	const int lines = linesCleared < 1 ? 1 : (linesCleared > 4 ? 4 : linesCleared);
+	return kBaseSeconds + kPerLine * static_cast<float>(lines - 1);
+}
+
 }  // namespace Tetris

@@ -84,8 +84,16 @@ public:
 	// level and combo. Safe to call at any time.
 	void ClearLines();
 
-	// Score for clearing `lines` at `level` with `combo` consecutive clears.
-	static int32_t GetLineScore(uint32_t lines, uint32_t level, uint32_t combo);
+	// Score for clearing `lines` at `level`, scaled by the live `multiplier`
+	// and the `comboMultiplier` for consecutive clears.
+	static int32_t GetLineScore(uint32_t lines, uint32_t level, uint32_t multiplier, uint32_t comboMultiplier);
+
+	// The reward label shown for clearing 1-4 lines.
+	static const char* RewardLabelForLines(int32_t lines);
+
+	// The multiplier tier a clear of `lines` lines adds to the stack:
+	// 1 -> x2, 2 -> x3, 3 -> x4, 4 -> x4.
+	static uint32_t MultiplierTierForLines(uint32_t lines);
 
 	// Seconds between auto-drops at the current level.
 	float GetDropInterval() const;
@@ -146,6 +154,13 @@ private:
 	static constexpr float kFireBaseChance = 0.0f;
 	static constexpr float kFireChanceStep = 0.02f;
 	static constexpr float kFireMaxChance = 1.0f;
+
+	// A clear's tier stacks onto the live multiplier and stays live for this
+	// many turns; the combo doubles per consecutive clear. Both are capped so a
+	// long streak cannot overflow the score.
+	static constexpr int32_t kMultiplierTurns = 10;
+	static constexpr uint32_t kMaxMultiplier = 256u;
+	static constexpr uint32_t kMaxComboMultiplier = 64u;
 
 	// Offsets tried in order when a rotation does not fit in place.
 	static constexpr int32_t kWallKickOffsets[][2] = {

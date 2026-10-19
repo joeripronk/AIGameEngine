@@ -1,11 +1,13 @@
 #include "fgpch.h"
 
 #include "TetrisOverlay.h"
+#include "TetrisAnimation.h"
 
 #include "Forge/UI/UI.h"
 
 #include <vendor/imgui/imgui.h>
 
+#include <cmath>
 #include <sstream>
 #include <cstdio>
 
@@ -130,6 +132,21 @@ void OverlayLayer::OnImGuiRender()
 		ImGui::PopStyleColor();
 	}
 
+	// Active score multiplier and combo. The multiplier is the stacked tier
+	// from recent clears (x2/x3/x4) with the turns left in its window; the
+	// combo doubles per consecutive clear. Shown only when something is live,
+	// so the panel does not advertise two x1 counters.
+	if (m_Manager)
+	{
+		const auto& gstate = m_Manager->GetState();
+		if (gstate.Multiplier > 1)
+			ImGui::TextColored({1.00f, 0.85f, 0.30f, 1.00f}, "MULTIPLIER: x%d  (%d)",
+				gstate.Multiplier, gstate.MultiplierTurns);
+		if (gstate.ComboMultiplier > 1)
+			ImGui::TextColored({1.00f, 0.55f, 0.85f, 1.00f}, "COMBO: x%d",
+				gstate.ComboMultiplier);
+	}
+
 	ImGui::End();
 
 	// Bottom-left: game state or instructions
@@ -169,9 +186,62 @@ void OverlayLayer::OnImGuiRender()
 	}
 
 	ImGui::End();
+
+	// Reward toast: "Nice".."Epic" at the cleared rows, flashing and shaking,
+	// the effect stronger the more lines were cleared. It fades out over a
+	// line-count-dependent duration so a Tetris lingers longer than a single.
+	if (m_RewardTimer > 0.0f && m_RewardLines > 0)
+	{
+		const int lines = m_RewardLines;
+		const float duration = RewardDuration(lines);
+		const float life = duration > 0.0f ? m_RewardTimer / duration : 0.0f;
+
+		// Flash pulse plus a fade-out over the last third of its life.
+		const float flash = RewardFlashPulse(m_RewardElapsed);
+		const float fade = life < 0.34f ? (life / 0.34f) : 1.0f;
+		const float alpha = (0.45f + 0.55f * flash) * fade;
+
+		// Shake offset, amplitude scaled by lines so more lines shake harder.
+		constexpr float kPi = 3.14159265358979323846f;
+		const float amp = RewardShakeAmplitude(lines, 26.0f);
+		const float phase = 2.0f * kPi * m_RewardElapsed;
+		const float offX = amp * std::sin(4.3f * phase);
+		const float offY = amp * std::sin(7.0f * phase);
+
+		const float scale = RewardFontScale(lines);
+		const char* label = TetrisManager::RewardLabelForLines(lines);
+
+		char toast[32];
+		std::snprintf(toast, sizeof(toast), "%s!", label);
+
+		const ImVec2 center = { ImGui::GetIO().DisplaySize.x * 0.5f + offX,
+			ImGui::GetIO().DisplaySize.y * 0.40f + offY };
+
+		ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+		ImGui::SetNextWindowBgAlpha(0.0f);
+		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+		ImGui::Begin("##RewardToast",
+			nullptr,
+			ImGuiWindowFlags_NoDecoration |
+			ImGuiWindowFlags_NoInputs |
+			ImGuiWindowFlags_NoMove |
+			ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoSavedSettings);
+
+		// Brighter and more saturated with more lines cleared.
+		const float heat = 0.25f * static_cast<float>(lines > 4 ? 4 : lines);
+		const ImVec4 color { 1.0f, 0.92f - 0.25f * heat, 0.45f - 0.35f * heat, alpha };
+
+		ImGui::SetWindowFontScale(scale);
+		ImGui::TextColored(color, "%s", toast);
+		ImGui::SetWindowFontScale(1.0f);
+
+		ImGui::End();
+		ImGui::PopStyleColor();
+	}
 }
 
-void OverlayLayer::OnUpdate(Forge::Timestep /*ts*/)
+void OverlayLayer::OnUpdate(Forge::Timestep ts)
 {
 	// Update cached state from the manager each frame.
 	if (m_Manager)
@@ -187,6 +257,27 @@ void OverlayLayer::OnUpdate(Forge::Timestep /*ts*/)
 			m_LastLines = state.LinesCleared;
 			m_LastLevel = state.Level;
 		}
+
+		// A new clear raises the reward toast; the timer counts it down so the
+		// label fades out after a line-count-dependent duration.
+		if (state.LastRewardLines != m_LastRewardLines)
+		{
+			m_LastRewardLines = state.LastRewardLines;
+			if (m_LastRewardLines > 0)
+			{
+				m_RewardLines = m_LastRewardLines;
+				m_RewardTimer = RewardDuration(m_RewardLines);
+				m_RewardElapsed = 0.0f;
+			}
+		}
+	}
+
+	if (m_RewardTimer > 0.0f)
+	{
+		m_RewardTimer -= ts;
+		m_RewardElapsed += ts;
+		if (m_RewardTimer < 0.0f)
+			m_RewardTimer = 0.0f;
 	}
 }
 

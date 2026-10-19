@@ -554,6 +554,17 @@ void TetrisManager::LockPiece()
 	}
 
 	ClearLines();
+
+	// Each lock is a turn. The multiplier's window ticks down with it; when the
+	// 10 turns run out the stacked multiplier is spent and scoring returns to
+	// x1. A clear refreshed the window in ClearLines, so it survives this tick.
+	if (m_State.MultiplierTurns > 0)
+	{
+		--m_State.MultiplierTurns;
+		if (m_State.MultiplierTurns == 0)
+			m_State.Multiplier = 1;
+	}
+
 	SpawnNextPiece();
 	CheckGameOver();
 }
@@ -623,30 +634,74 @@ void TetrisManager::ClearLines()
 	if (linesCleared == 0)
 	{
 		m_State.Combo = 0;
+		m_State.ComboMultiplier = 1;
 		return;
 	}
 
-	m_State.Score += GetLineScore(linesCleared, static_cast<uint32_t>(m_State.Level), static_cast<uint32_t>(m_State.Combo));
+	// The tier this clear adds stacks onto the live multiplier and refreshes its
+	// 10-turn window. Consecutive clears also double a combo multiplier: the
+	// first clear of a chain is 1x, the second 2x, the third 4x.
+	const uint32_t tier = MultiplierTierForLines(linesCleared);
+	const uint64_t stacked =
+		static_cast<uint64_t>(m_State.Multiplier) * tier;
+	m_State.Multiplier = static_cast<int32_t>(
+		stacked > kMaxMultiplier ? kMaxMultiplier : stacked);
+	m_State.MultiplierTurns = kMultiplierTurns;
+
+	const uint32_t comboMultiplier = m_State.Combo > 0
+		? (1u << m_State.Combo)
+		: 1u;
+	m_State.ComboMultiplier = static_cast<int32_t>(
+		comboMultiplier > kMaxComboMultiplier ? kMaxComboMultiplier : comboMultiplier);
+
+	m_State.Score += GetLineScore(
+		linesCleared, static_cast<uint32_t>(m_State.Level),
+		static_cast<uint32_t>(m_State.Multiplier), m_State.ComboMultiplier);
 	++m_State.Combo;
+
+	m_State.LastRewardLines = static_cast<int32_t>(linesCleared);
 
 	m_State.LinesCleared += static_cast<int32_t>(linesCleared);
 	m_State.Level = m_State.LinesCleared / 10 + 1;
 	m_State.PieceDropInterval = GetDropInterval();
 }
 
-int32_t TetrisManager::GetLineScore(uint32_t lines, uint32_t level, uint32_t combo)
+const char* TetrisManager::RewardLabelForLines(int32_t lines)
 {
-	// Classic scoring: 40 / 100 / 300 / 1200, scaled by level, plus a flat
-	// bonus for consecutive clears.
+	switch (lines)
+	{
+		case 1: return "Nice";
+		case 2: return "Great";
+		case 3: return "Amazing";
+		default: return "Epic";
+	}
+}
+
+uint32_t TetrisManager::MultiplierTierForLines(uint32_t lines)
+{
+	if (lines == 0)
+		return 1u;
+	if (lines == 1)
+		return 2u;
+	if (lines == 2)
+		return 3u;
+	return 4u;  // 3 and 4 lines both apply x4
+}
+
+int32_t TetrisManager::GetLineScore(uint32_t lines, uint32_t level, uint32_t multiplier, uint32_t comboMultiplier)
+{
+	// Classic scoring: 40 / 100 / 300 / 1200, scaled by level, then by the
+	// stacked multiplier and the combo multiplier.
 	static const uint32_t kScoreTable[] = { 0, 40, 100, 300, 1200 };
 
 	if (lines > 4)
 		lines = 4;
 
-	const int32_t baseScore = static_cast<int32_t>(kScoreTable[lines]) * static_cast<int32_t>(level);
-	const int32_t comboBonus = static_cast<int32_t>(combo * 50);
+	const int64_t baseScore =
+		static_cast<int64_t>(kScoreTable[lines]) * static_cast<int64_t>(level);
+	const int64_t total = baseScore * static_cast<int64_t>(multiplier) * static_cast<int64_t>(comboMultiplier);
 
-	return baseScore + comboBonus;
+	return total > INT32_MAX ? INT32_MAX : static_cast<int32_t>(total);
 }
 
 float TetrisManager::GetDropInterval() const
