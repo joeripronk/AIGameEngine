@@ -17,6 +17,10 @@
 
 #include <vk_mem_alloc.h>
 
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
+
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstring>
@@ -111,8 +115,40 @@ namespace {
 	static_assert(sizeof(GpuIrradianceParams) == 16, "IrradianceParams must match IrradianceParams in irradiance.frag (vec3 + float)");
 	static_assert(sizeof(GpuPrefilterParams) == 16, "PrefilterParams must match PrefilterParams in prefilter.frag (vec3 + float)");
 
-	// IEEE binary16: the HDR upload converts CPU float radiance to RGBA16F.
+
+	[[nodiscard]] float HalfToFloat(uint16_t h)
+	{
+		const uint32_t sign = (h & 0x8000U) << 16U;
+		const uint32_t exponent = (h >> 10U) & 0x1FU;
+		const uint32_t mantissa = h & 0x3FFU;
+		uint32_t bits = 0;
+		if (exponent == 0)
+		{
+			if (mantissa == 0)
+				bits = sign;
+			else
+			{
+				// subnormal: normalize
+				uint32_t m = mantissa;
+				int32_t e = -126;
+				while ((m & 0x400U) == 0) { m <<= 1; --e; }
+				m &= 0x3FFU;
+				bits = sign | (static_cast<uint32_t>(e + 127) << 23) | (m << 13);
+			}
+		}
+		else if (exponent == 0x1F)
+			bits = sign | 0x7F800000U | (mantissa << 13);
+		else
+			bits = sign | ((exponent + 127 - 15) << 23) | (mantissa << 13);
+		float f;
+		std::memcpy(&f, &bits, sizeof(f));
+		return f;
+	}
+
+		// IEEE binary16: the HDR upload converts CPU float radiance to RGBA16F.
 	// Round-to-nearest-even; saturates to infinity past half's exponent range.
+	[[nodiscard]] float HalfToFloat(uint16_t h);
+
 	[[nodiscard]] uint16_t FloatToHalf(float value)
 	{
 		const uint32_t bits = std::bit_cast<uint32_t>(value);
@@ -145,6 +181,22 @@ namespace {
 
 	constexpr glm::vec4 kClearColor{ 0.05f, 0.06f, 0.09f, 1.0f };
 
+	// GL -> Vulkan clip space: the engine's matrices come from
+	// glm::perspective (OpenGL NDC, +Y up, depth [-1,1]) and the shaders
+	// write gl_Position through them unchanged. The nvrhi renderer it
+	// replaces flipped Y in the viewport automatically; raw Vulkan does
+	// not, so the uploaded projections carry the flip themselves. It is a
+	// clip-space flip - the projection's y row negated - so it multiplies
+	// the matrix from the left: applied on the right it would mirror the
+	// world around y = 0 instead, moving the geometry where no camera
+	// looks at it. The shadow side (which samples with the same matrix)
+	// and SSAO (which inverts it) stay consistent with the rasterizer.
+	[[nodiscard]] const glm::mat4& FlipY()
+	{
+		static const glm::mat4 flip = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, 1.0f));
+		return flip;
+	}
+
 	void SetViewportScissor(const Device& device, ::VkCommandBuffer cmd, uint32_t width, uint32_t height)
 	{
 		const VkViewport viewport{ 0.0f, 0.0f, static_cast<float>(width), static_cast<float>(height), 0.0f, 1.0f };
@@ -170,13 +222,20 @@ namespace {
 	}
 
 	// The 4-vertex fullscreen quad, drawn as a triangle strip, unindexed.
+	// The 4-vertex fullscreen quad, drawn indexed as two triangles from the
+	// renderer's quad buffers (the pipeline bakes the quad vertex layout, so
+	// the buffers must be bound for aPosition/aUV to exist).
 	void DrawFullscreenQuad(const Device& device, ::VkCommandBuffer cmd, ::VkPipeline pipeline,
-		::VkPipelineLayout layout, ::VkDescriptorSet set, uint32_t width, uint32_t height)
+		::VkPipelineLayout layout, ::VkDescriptorSet set,
+		::VkBuffer vertexBuffer, ::VkBuffer indexBuffer, uint32_t width, uint32_t height)
 	{
 		device.GetFunctions().CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 		device.GetFunctions().CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &set, 0, nullptr);
+		const ::VkDeviceSize offset = 0;
+		device.GetFunctions().CmdBindVertexBuffers(cmd, 0, 1, &vertexBuffer, &offset);
+		device.GetFunctions().CmdBindIndexBuffer(cmd, indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 		SetViewportScissor(device, cmd, width, height);
-		device.GetFunctions().CmdDraw(cmd, 4, 1, 0, 0);
+		device.GetFunctions().CmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
 	}
 
 	[[nodiscard]] VkDescriptorBufferInfo BufferRange(::VkBuffer buffer, size_t offset, size_t size)
@@ -200,8 +259,8 @@ void VkRenderer::WriteCameraUniforms(const CameraParams& camera)
 	if (!m_CameraUboData)
 		return;
 	CameraData data{};
-	data.ViewProjection = camera.ViewProjection;
-	data.ShadowViewProjection = camera.ShadowViewProjection;
+	data.ViewProjection = FlipY() * camera.ViewProjection;
+	data.ShadowViewProjection = FlipY() * camera.ShadowViewProjection;
 	data.LightDirection = glm::vec4(camera.LightDirection, 0.0f);
 	data.LightColor = glm::vec4(camera.LightColor, camera.LightIntensity);
 	data.CameraPosition = glm::vec4(camera.CameraPosition, 0.0f);
@@ -275,7 +334,7 @@ void VkRenderer::DrawObject(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTex
 
 	// One ring slot per draw: the descriptor's range points the shader's
 	// ObjectData at this draw's copy.
-	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * sizeof(ObjectData);
+	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * ObjectSlotBytes;
 	m_ObjectSlot = (m_ObjectSlot + 1U) % ObjectRingSize;
 	ObjectData data{};
 	data.Transform = object.Model;
@@ -311,7 +370,10 @@ void VkRenderer::BeginShadowScene(const glm::mat4& shadowViewProjection)
 		return;
 
 	if (m_ShadowCameraUboData)
-		std::memcpy(m_ShadowCameraUboData, &shadowViewProjection, sizeof(glm::mat4));
+	{
+		const glm::mat4 flipped = FlipY() * shadowViewProjection;
+		std::memcpy(m_ShadowCameraUboData, &flipped, sizeof(glm::mat4));
+	}
 
 	m_CurrentTargetWidth = m_ShadowMapSize;
 	m_CurrentTargetHeight = m_ShadowMapSize;
@@ -338,7 +400,7 @@ void VkRenderer::DrawShadowObject(const Ref<Mesh>& mesh, const glm::mat4& model)
 	if (cmd == VK_NULL_HANDLE)
 		return;
 
-	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * sizeof(ObjectData);
+	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * ObjectSlotBytes;
 	m_ObjectSlot = (m_ObjectSlot + 1U) % ObjectRingSize;
 	ObjectData data{};
 	data.Transform = model;
@@ -373,7 +435,7 @@ void VkRenderer::RenderSSAOPass(const glm::mat4& viewProjection)
 		return;
 
 	SsaoParams params{};
-	params.InvViewProjection = glm::inverse(viewProjection);
+	params.InvViewProjection = glm::inverse(FlipY() * viewProjection);
 	params.Intensity = 1.0f;
 	params.Radius = 0.5f;
 	params.Bias = 0.002f;
@@ -391,8 +453,94 @@ void VkRenderer::RenderSSAOPass(const glm::mat4& viewProjection)
 	::VkCommandBuffer cmd = CurrentCommandBuffer();
 	const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
 	BeginRenderPass(m_Device, cmd, m_RenderPassR8, m_FbSsao, m_RenderWidth, m_RenderHeight, clears);
-	DrawFullscreenQuad(m_Device, cmd, m_PipelineSsao, m_LayoutSsao, set, m_RenderWidth, m_RenderHeight);
+	DrawFullscreenQuad(m_Device, cmd, m_PipelineSsao, m_LayoutSsao, set, m_QuadVertexBuffer, m_QuadIndexBuffer, m_RenderWidth, m_RenderHeight);
 	m_Device.GetFunctions().CmdEndRenderPass(cmd);
+}
+
+void VkRenderer::ClearHdrTarget()
+{
+	EndActiveRenderPass();
+	if (!HasTargets())
+		return;
+	const std::array<VkClearValue, 2> clears{
+		VkClearValue{ .color = { kClearColor[0], kClearColor[1], kClearColor[2], kClearColor[3] } },
+		VkClearValue{ .depthStencil = { 1.0f, 0 } },
+	};
+	BeginRenderPass(m_Device, CurrentCommandBuffer(), m_RenderPassHdr, m_FbHdr,
+		m_RenderWidth, m_RenderHeight, clears);
+	m_Device.GetFunctions().CmdEndRenderPass(CurrentCommandBuffer());
+}
+
+void VkRenderer::SubmitFrameOnly()
+{
+	EndActiveRenderPass();
+	if (!m_DeviceReady || !m_FrameLoop)
+		return;
+	(void)m_Staging->Submit();
+	(void)m_Staging->Wait();
+	const PresentOutcome outcome = m_FrameLoop->EndFrame(m_CurrentImageIndex);
+	FG_CORE_INFO("VkRenderer diag: SubmitFrameOnly image {0} outcome {1}", m_CurrentImageIndex, static_cast<int>(outcome));
+}
+
+void VkRenderer::DiagDrawSsaoIntoTonemap()
+{
+	EndActiveRenderPass();
+	if (!HasTargets() || m_PipelineSsao == VK_NULL_HANDLE)
+		return;
+
+	VkRenderingInfo rendering{};
+	rendering.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
+	rendering.renderArea = VkRect2D{ {0, 0}, {m_PresentWidth, m_PresentHeight} };
+	rendering.layerCount = 1;
+	rendering.colorAttachmentCount = 1;
+	VkRenderingAttachmentInfo attachment{};
+	attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
+	attachment.imageView = m_TonemapView;
+	attachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+	attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+	attachment.clearValue = VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } };
+	rendering.pColorAttachments = &attachment;
+
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	vkCmdBeginRendering(cmd, &rendering);
+
+	const std::array<::VkImageView, 1> views{ m_DepthView };
+	const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
+	const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_SsaoUbo, 0, sizeof(SsaoParams)) };
+	::VkDescriptorSet set = BuildPostSet(m_SetLayoutSsao, views, samplers, buffers);
+	if (set != VK_NULL_HANDLE)
+		DrawFullscreenQuad(m_Device, cmd, m_PipelineSsao, m_LayoutSsao, set,
+			m_QuadVertexBuffer, m_QuadIndexBuffer, m_PresentWidth, m_PresentHeight);
+
+	vkCmdEndRendering(cmd);
+	// Leave the tonemap target in the layout the capture expects.
+	ImageBarrierBuilder toShader{};
+	toShader.SubresourceRange = Subresources::Full(VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
+	toShader.OldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	toShader.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	toShader.SrcAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+	toShader.DstAccess = VK_ACCESS_SHADER_READ_BIT;
+	toShader.SrcStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	toShader.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	RecordImageBarrier(m_Device, cmd, toShader, m_TonemapImage);
+}
+
+void VkRenderer::ClearHdrTargetRed()
+{
+	EndActiveRenderPass();
+	if (!HasTargets())
+		return;
+	const std::array<VkClearValue, 2> clears{
+		VkClearValue{ .color = { 1.0f, 0.0f, 0.0f, 1.0f } },
+		VkClearValue{ .depthStencil = { 1.0f, 0 } },
+	};
+	BeginRenderPass(m_Device, CurrentCommandBuffer(), m_RenderPassHdr, m_FbHdr,
+		m_RenderWidth, m_RenderHeight, clears);
+	m_Device.GetFunctions().CmdEndRenderPass(CurrentCommandBuffer());
+	(void)m_Staging->Submit();
+	(void)m_Staging->Wait();
+	(void)m_GraphicsQueue->WaitIdle();
 }
 
 void VkRenderer::RenderBloomPass()
@@ -407,7 +555,7 @@ void VkRenderer::RenderBloomPass()
 	const BloomParams defaults{};
 	GpuBloomParams bloomParams{};
 	bloomParams.TexelSize = glm::vec2(1.0f / static_cast<float>(halfWidth), 1.0f / static_cast<float>(halfHeight));
-	bloomParams.Threshold = defaults.Threshold;
+	bloomParams.Threshold = std::getenv("FG_DIAG_BLOOM_FORCE") ? 0.0f : defaults.Threshold;
 	bloomParams.Knee = defaults.Knee;
 	bloomParams.Scale = defaults.Scale;
 	std::memcpy(m_BloomUboData, &bloomParams, sizeof(bloomParams));
@@ -426,7 +574,7 @@ void VkRenderer::RenderBloomPass()
 			return;
 		const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
 		BeginRenderPass(m_Device, cmd, m_RenderPassColor16, m_FbBloomHalf, halfWidth, halfHeight, clears);
-		DrawFullscreenQuad(m_Device, cmd, m_PipelineBloom, m_LayoutBloom, set, halfWidth, halfHeight);
+		DrawFullscreenQuad(m_Device, cmd, m_PipelineBloom, m_LayoutBloom, set, m_QuadVertexBuffer, m_QuadIndexBuffer, halfWidth, halfHeight);
 		m_Device.GetFunctions().CmdEndRenderPass(cmd);
 	}
 
@@ -452,7 +600,7 @@ void VkRenderer::RenderBloomPass()
 
 		const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
 		BeginRenderPass(m_Device, cmd, m_RenderPassColor16, targets[iteration], halfWidth, halfHeight, clears);
-		DrawFullscreenQuad(m_Device, cmd, m_PipelineBlur, m_LayoutBloom, set, halfWidth, halfHeight);
+		DrawFullscreenQuad(m_Device, cmd, m_PipelineBlur, m_LayoutBloom, set, m_QuadVertexBuffer, m_QuadIndexBuffer, halfWidth, halfHeight);
 		m_Device.GetFunctions().CmdEndRenderPass(cmd);
 	}
 }
@@ -467,7 +615,8 @@ void VkRenderer::RenderTonemapPass()
 	GpuHdrParams hdrParams{ 1.0f, s_BloomIntensity };
 	std::memcpy(m_HdrUboData, &hdrParams, sizeof(hdrParams));
 
-	const std::array<::VkImageView, 2> views{ m_HdrView, m_BloomAView };
+	const bool diagWhite = std::getenv("FG_DIAG_TONEMAP_WHITE") != nullptr;
+	const std::array<::VkImageView, 2> views{ diagWhite ? m_WhiteView : m_HdrView, m_BloomAView };
 	const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 	const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_HdrUbo, 0, sizeof(GpuHdrParams)) };
 	::VkDescriptorSet set = BuildPostSet(m_SetLayoutTonemap, views, samplers, buffers);
@@ -480,7 +629,7 @@ void VkRenderer::RenderTonemapPass()
 
 	const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
 	BeginRenderPass(m_Device, cmd, m_RenderPassColor16, m_FbTonemap, m_PresentWidth, m_PresentHeight, clears);
-	DrawFullscreenQuad(m_Device, cmd, m_PipelineTonemap, m_LayoutTonemap, set, m_PresentWidth, m_PresentHeight);
+	DrawFullscreenQuad(m_Device, cmd, m_PipelineTonemap, m_LayoutTonemap, set, m_QuadVertexBuffer, m_QuadIndexBuffer, m_PresentWidth, m_PresentHeight);
 	m_Device.GetFunctions().CmdEndRenderPass(cmd);
 }
 
@@ -509,7 +658,7 @@ void VkRenderer::RenderFinalPass()
 	// The present render pass has DONT_CARE load: the whole quad covers it.
 	BeginRenderPass(m_Device, cmd, m_RenderPassPresent, m_SwapchainFramebuffers[m_CurrentImageIndex],
 		m_PresentWidth, m_PresentHeight, {});
-	DrawFullscreenQuad(m_Device, cmd, m_PipelineFinal, m_LayoutFinal, set, m_PresentWidth, m_PresentHeight);
+	DrawFullscreenQuad(m_Device, cmd, m_PipelineFinal, m_LayoutFinal, set, m_QuadVertexBuffer, m_QuadIndexBuffer, m_PresentWidth, m_PresentHeight);
 	m_Device.GetFunctions().CmdEndRenderPass(cmd);
 }
 
@@ -522,7 +671,7 @@ void VkRenderer::RenderFinalPass()
 {
 	std::vector<::VkDescriptorSet> sets;
 	std::string reason;
-	if (!m_DescriptorPool.AllocateSets(m_SetLayoutPbr, 1, sets, reason))
+	if (!CurrentDescriptorPool().AllocateSets(m_SetLayoutPbr, 1, sets, reason))
 	{
 		FG_CORE_ERROR("VkRenderer: PBR descriptor set unavailable ({0})", reason);
 		return VK_NULL_HANDLE;
@@ -555,18 +704,18 @@ void VkRenderer::RenderFinalPass()
 	(void)images[5];
 
 	const std::array<VkWriteDescriptorSet, 12> writes{
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 0, 1, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[0], nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 1, 1, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[1], nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 2, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[0], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 3, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[0], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 4, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[1], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 5, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[1], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 6, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[2], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 7, 1, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[2], nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 8, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[3], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 9, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[3], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 10, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[4], nullptr, nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 11, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[4], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 0, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[0], nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 1, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[1], nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 2, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[0], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 3, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[0], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 4, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[1], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 5, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[1], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 6, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[2], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 7, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[2], nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 8, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[3], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 9, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[3], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 10, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &images[4], nullptr, nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 11, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &images[4], nullptr, nullptr },
 	};
 	m_Device.GetFunctions().UpdateDescriptorSets(m_Device.Handle(),
 		static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -577,7 +726,7 @@ void VkRenderer::RenderFinalPass()
 {
 	std::vector<::VkDescriptorSet> sets;
 	std::string reason;
-	if (!m_DescriptorPool.AllocateSets(m_SetLayoutShadow, 1, sets, reason))
+	if (!CurrentDescriptorPool().AllocateSets(m_SetLayoutShadow, 1, sets, reason))
 	{
 		FG_CORE_ERROR("VkRenderer: shadow descriptor set unavailable ({0})", reason);
 		return VK_NULL_HANDLE;
@@ -589,8 +738,8 @@ void VkRenderer::RenderFinalPass()
 		BufferRange(m_ShadowCameraUbo, 0, sizeof(glm::mat4)),
 	};
 	const std::array<VkWriteDescriptorSet, 2> writes{
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 1, 1, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[0], nullptr },
-		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 4, 1, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[1], nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 1, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[0], nullptr },
+		VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 4, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffers[1], nullptr },
 	};
 	m_Device.GetFunctions().UpdateDescriptorSets(m_Device.Handle(),
 		static_cast<uint32_t>(writes.size()), writes.data(), 0, nullptr);
@@ -604,7 +753,7 @@ void VkRenderer::RenderFinalPass()
 {
 	std::vector<::VkDescriptorSet> sets;
 	std::string reason;
-	if (!m_DescriptorPool.AllocateSets(layout, 1, sets, reason))
+	if (!CurrentDescriptorPool().AllocateSets(layout, 1, sets, reason))
 	{
 		FG_CORE_ERROR("VkRenderer: post descriptor set unavailable ({0})", reason);
 		return VK_NULL_HANDLE;
@@ -635,7 +784,7 @@ void VkRenderer::RenderFinalPass()
 			++viewIndex;
 			imageInfos.push_back(VkDescriptorImageInfo{ VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
 			writes.push_back(VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set,
-				binding.binding, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &imageInfos.back(), nullptr, nullptr });
+				binding.binding, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &imageInfos.back(), nullptr, nullptr });
 			break;
 		}
 		case VK_DESCRIPTOR_TYPE_SAMPLER:
@@ -644,7 +793,7 @@ void VkRenderer::RenderFinalPass()
 			++samplerIndex;
 			imageInfos.push_back(VkDescriptorImageInfo{ sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED });
 			writes.push_back(VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set,
-				binding.binding, 1, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &imageInfos.back(), nullptr, nullptr });
+				binding.binding, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLER, &imageInfos.back(), nullptr, nullptr });
 			break;
 		}
 		case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
@@ -653,7 +802,7 @@ void VkRenderer::RenderFinalPass()
 				: VkDescriptorBufferInfo{ VK_NULL_HANDLE, 0, 0 };
 			++bufferIndex;
 			writes.push_back(VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set,
-				binding.binding, 1, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffer, nullptr });
+				binding.binding, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr, &buffer, nullptr });
 			break;
 		}
 		default:
@@ -899,7 +1048,7 @@ bool VkRenderer::LoadEnvironmentMap(const Ref<CpuTexture>& envMap)
 			BeginRenderPass(m_Device, cmd, m_RenderPassCubeFace, m_IrradianceFaceFramebuffers[face],
 				m_IrradianceSize, m_IrradianceSize, clears);
 			DrawFullscreenQuad(m_Device, cmd, m_PipelineIrradiance, m_LayoutIrradiance, set,
-				m_IrradianceSize, m_IrradianceSize);
+				m_QuadVertexBuffer, m_QuadIndexBuffer, m_IrradianceSize, m_IrradianceSize);
 			m_Device.GetFunctions().CmdEndRenderPass(cmd);
 		}
 	}
@@ -930,7 +1079,7 @@ bool VkRenderer::LoadEnvironmentMap(const Ref<CpuTexture>& envMap)
 				const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
 				BeginRenderPass(m_Device, cmd, m_RenderPassCubeFace,
 					m_PrefilterFaceFramebuffers[mip * 6 + face], mipSize, mipSize, clears);
-				DrawFullscreenQuad(m_Device, cmd, m_PipelinePrefilter, m_LayoutPrefilter, set, mipSize, mipSize);
+				DrawFullscreenQuad(m_Device, cmd, m_PipelinePrefilter, m_LayoutPrefilter, set, m_QuadVertexBuffer, m_QuadIndexBuffer, mipSize, mipSize);
 				m_Device.GetFunctions().CmdEndRenderPass(cmd);
 			}
 		}
@@ -1052,7 +1201,10 @@ bool VkRenderer::UploadMesh(const Ref<Mesh>& mesh)
 	Ref<Buffer> vertexStaging = m_Staging->AddStagingBuffer(vertices.data(), vertexBytes);
 	Ref<Buffer> indexStaging = m_Staging->AddStagingBuffer(indices.data(), indexBytes);
 	if (!vertexStaging || !indexStaging)
+	{
+		FG_CORE_ERROR("VkRenderer: mesh upload: staging buffer failed ({0} vertices, {1} indices)", vertices.size(), indices.size());
 		return false;
+	}
 
 	VkBufferCreateInfo vertexInfo{};
 	vertexInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1076,7 +1228,10 @@ bool VkRenderer::UploadMesh(const Ref<Mesh>& mesh)
 
 	::VkCommandBuffer cmd = m_Staging->NextCommandBuffer();
 	if (cmd == VK_NULL_HANDLE)
+	{
+		FG_CORE_ERROR("VkRenderer: mesh upload: staging command buffer failed");
 		return false;
+	}
 	VkCommandBufferBeginInfo begin{};
 	begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1097,10 +1252,17 @@ bool VkRenderer::UploadMesh(const Ref<Mesh>& mesh)
 
 	m_Device.GetFunctions().EndCommandBuffer(cmd);
 
-	// Synchronous: the first frame's draw reads this geometry, so the upload
-	// must finish before the frame's command buffer submits.
+	// Synchronous upload: the staging pool's command buffers are
+	// one-time-submit, so the copy must complete before the next
+	// NextCommandBuffer() records into a fresh one - and the draw that
+	// reads this geometry sits in the frame's own command buffer,
+	// submitted after this copy, so the data is on the GPU before the
+	// first read by construction.
 	if (!m_Staging->Submit() || !m_Staging->Wait())
+	{
+		FG_CORE_ERROR("VkRenderer: mesh upload: staging submit/wait failed");
 		return false;
+	}
 
 	MeshGpu gpu{};
 	gpu.VertexBuffer = vertexAlloc.Buffer;
@@ -1109,6 +1271,49 @@ bool VkRenderer::UploadMesh(const Ref<Mesh>& mesh)
 	gpu.IndexAlloc = static_cast<VmaAllocation>(indexAlloc.Allocation.Handle);
 	gpu.IndexCount = static_cast<uint32_t>(indices.size());
 	m_MeshCache.emplace(mesh.get(), gpu);
+
+	// Diagnostic: read the first uploaded vertex back and report it.
+	if (std::getenv("FG_DIAG_VBO_READBACK"))
+	{
+		VkBufferCreateInfo rbInfo{};
+		rbInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		rbInfo.size = sizeof(Vertex);
+		rbInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		AllocationCreateInfo rbAlloc{};
+		rbAlloc.Preference = MemoryPreference::PreferCpu;
+		rbAlloc.RequiredProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+		BufferAllocationInfo rbOut{};
+		if (m_Allocator->AllocateBuffer("Diag.VboReadback", rbInfo, rbAlloc, rbOut))
+		{
+			::VkCommandBuffer dcmd = m_Staging->NextCommandBuffer();
+			if (dcmd != VK_NULL_HANDLE)
+			{
+				VkCommandBufferBeginInfo dbegin{};
+				dbegin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+				dbegin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+				m_Device.GetFunctions().BeginCommandBuffer(dcmd, &dbegin);
+				const VkBufferCopy copy{ 0, 0, sizeof(Vertex) };
+				m_Device.GetFunctions().CmdCopyBuffer(dcmd, gpu.VertexBuffer, rbOut.Buffer, 1, &copy);
+				m_Device.GetFunctions().EndCommandBuffer(dcmd);
+				if (m_Staging->Submit() && m_Staging->Wait())
+				{
+					MappedMemory mapped = MappedMemory::Map(AllocationMapInfo{ rbOut.Allocation, MapRegion{ 0, WholeSize } });
+					if (mapped.IsValid())
+					{
+						mapped.Invalidate();
+						Vertex v{};
+						std::memcpy(&v, mapped.Data(), sizeof(Vertex));
+						FG_CORE_INFO("VkRenderer diag: VBO vertex0 pos ({0}, {1}, {2}) stride {3} nverts {4}",
+							v.Position.x, v.Position.y, v.Position.z, m_VertexLayoutMesh.Stride, vertices.size());
+					}
+				}
+			}
+			BufferAllocationInfo freeInfo{};
+			freeInfo.Buffer = rbOut.Buffer;
+			freeInfo.Allocation = rbOut.Allocation;
+			(void)m_Allocator->FreeAllocation(freeInfo);
+		}
+	}
 
 #if defined(FG_DEBUG)
 	SetDebugName(m_Device, VK_OBJECT_TYPE_BUFFER, reinterpret_cast<uint64_t>(gpu.VertexBuffer), "Mesh.VBO");
@@ -1290,7 +1495,10 @@ VkRenderer::MeshGpu* VkRenderer::GetMeshGpu(const Ref<Mesh>& mesh)
 	if (cached != m_MeshCache.end())
 		return &cached->second;
 	if (!UploadMesh(mesh))
+	{
+		FG_CORE_ERROR("VkRenderer: mesh upload failed; the entity is not drawn");
 		return nullptr;
+	}
 	cached = m_MeshCache.find(mesh.get());
 	return cached != m_MeshCache.end() ? &cached->second : nullptr;
 }
@@ -1485,6 +1693,156 @@ bool VkRenderer::CaptureSwapchainImage(uint32_t imageIndex, const std::string& p
 
 	if (!ok)
 		FG_CORE_ERROR("VkRenderer: swapchain capture to '{0}' failed", path);
+	return ok;
+}
+
+
+// ---------------------------------------------------------------------------
+// Diagnostic target capture
+// ---------------------------------------------------------------------------
+
+bool VkRenderer::CaptureTargetImage(const ::VkImage image, uint32_t width, uint32_t height,
+	bool isFloat, const std::string& path)
+{
+	if (!m_DeviceReady || image == VK_NULL_HANDLE || width == 0 || height == 0)
+		return false;
+
+	const uint32_t bytesPerTexel = isFloat ? 8 : 4;
+	const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(width) * height * bytesPerTexel;
+
+	// The staging pool's command buffers are one-time-submit: a capture
+	// recorded into them while the frame's mesh uploads are pending would
+	// die at Submit with VK_ERROR_NOT_READY. A dedicated pool keeps the
+	// capture independent.
+	(void)0;
+
+	VkBufferCreateInfo bufferInfo{};
+	bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferInfo.size = bufferSize;
+	bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+	BufferAllocationInfo readback{};
+	AllocationCreateInfo alloc{};
+	alloc.Preference = MemoryPreference::PreferCpu;
+	alloc.RequiredProperties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+	if (!m_Allocator->AllocateBuffer("Capture.Readback", bufferInfo, alloc, readback))
+		return false;
+
+	WaitForGpuIdle();
+
+	::VkCommandPool pool = VK_NULL_HANDLE;
+	VkCommandPoolCreateInfo poolInfo{};
+	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	poolInfo.queueFamilyIndex = m_GraphicsFamily;
+	if (m_Device.GetFunctions().CreateCommandPool(m_Device.Handle(), &poolInfo, nullptr, &pool) != VK_SUCCESS)
+		return false;
+
+	::VkCommandBuffer cmd = VK_NULL_HANDLE;
+	VkCommandBufferAllocateInfo commandInfo{};
+	commandInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandInfo.commandPool = pool;
+	commandInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandInfo.commandBufferCount = 1;
+	const bool allocated = m_Device.GetFunctions().AllocateCommandBuffers(m_Device.Handle(), &commandInfo, &cmd) == VK_SUCCESS;
+
+	bool ok = false;
+	if (allocated)
+	{
+		VkCommandBufferBeginInfo begin{};
+		begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		m_Device.GetFunctions().BeginCommandBuffer(cmd, &begin);
+
+		ImageBarrierBuilder toSource{};
+		toSource.SubresourceRange = Subresources::Full(VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
+		toSource.OldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toSource.NewLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		toSource.SrcAccess = VK_ACCESS_SHADER_READ_BIT;
+		toSource.DstAccess = VK_ACCESS_TRANSFER_READ_BIT;
+		toSource.SrcStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		toSource.DstStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		RecordImageBarrier(m_Device, cmd, toSource, image);
+
+		VkBufferImageCopy region{};
+		region.imageSubresource = Subresources::FullLayers(VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1);
+		region.imageExtent = VkExtent3D{ width, height, 1 };
+		m_Device.GetFunctions().CmdCopyImageToBuffer(cmd, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			readback.Buffer, 1, &region);
+
+		ImageBarrierBuilder back{};
+		back.SubresourceRange = toSource.SubresourceRange;
+		back.OldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		back.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		back.SrcAccess = VK_ACCESS_TRANSFER_READ_BIT;
+		back.DstAccess = VK_ACCESS_SHADER_READ_BIT;
+		back.SrcStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		back.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		RecordImageBarrier(m_Device, cmd, back, image);
+
+		m_Device.GetFunctions().EndCommandBuffer(cmd);
+
+		VkSubmitInfo submitInfo{};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &cmd;
+		if (m_GraphicsQueue->Submit(std::span<const VkSubmitInfo>(&submitInfo, 1)))
+		{
+			(void)m_GraphicsQueue->WaitIdle();
+
+			MappedMemory mapped = MappedMemory::Map(AllocationMapInfo{ readback.Allocation, MapRegion{ 0, WholeSize } });
+			if (mapped.IsValid())
+			{
+				mapped.Invalidate();
+				const uint8_t* src = static_cast<const uint8_t*>(mapped.Data());
+				std::ofstream out(path, std::ios::binary);
+				if (out.is_open())
+				{
+					out << "P6\n" << width << " " << height << "\n255\n";
+					for (uint32_t y = 0; y < height; ++y)
+					{
+						const uint8_t* row = src + static_cast<size_t>(y) * width * bytesPerTexel;
+						for (uint32_t x = 0; x < width; ++x)
+						{
+							uint8_t rgb[3];
+							if (isFloat)
+							{
+								const uint16_t* texel = reinterpret_cast<const uint16_t*>(row + x * 8);
+								// PPM carries gamma-encoded bytes; the target is
+								// linear, so a quick approximation is fine for
+								// eyeballing "is anything there at all".
+								for (int c = 0; c < 3; ++c)
+								{
+									const float v = HalfToFloat(texel[c]);
+									const float g = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
+									rgb[c] = static_cast<uint8_t>(std::clamp(g, 0.0f, 1.0f) * 255.0f);
+								}
+							}
+							else
+							{
+								const uint8_t* texel = row + x * 4;
+								rgb[0] = texel[0]; rgb[1] = texel[1]; rgb[2] = texel[2];
+							}
+							out.write(reinterpret_cast<const char*>(rgb), 3);
+						}
+					}
+					ok = out.good();
+				}
+			}
+		}
+	}
+
+	{
+		BufferAllocationInfo info{};
+		info.Buffer = readback.Buffer;
+		info.Allocation = readback.Allocation;
+		(void)m_Allocator->FreeAllocation(info);
+	}
+	if (pool != VK_NULL_HANDLE)
+		m_Device.GetFunctions().DestroyCommandPool(m_Device.Handle(), pool, nullptr);
+
+	if (!ok)
+		FG_CORE_ERROR("VkRenderer: target capture to '{0}' failed", path);
 	return ok;
 }
 

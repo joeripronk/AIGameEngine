@@ -16,7 +16,9 @@ target_include_directories(ForgeCore
         ${CMAKE_BINARY_DIR}/vendor/assimp/include
         ${CMAKE_SOURCE_DIR}/vendor/glfw/include
         ${CMAKE_SOURCE_DIR}/vendor/yaml-cpp/include
-)
+
+        ${CMAKE_SOURCE_DIR}/vendor/VulkanMemoryAllocator/include
+    )
 
 target_sources(ForgeCore
     PRIVATE
@@ -281,15 +283,6 @@ target_compile_definitions(ForgeCore PRIVATE LUA_USE_C89 FG_NO_VULKAN_RUNTIME)
 # Vulkan platform implementation (separate from core for testability)
 add_library(vulkan STATIC)
 target_sources(vulkan PRIVATE
-    Platform/Vulkan/VulkanRendererAPI.cpp
-    Platform/Vulkan/VulkanMesh.cpp
-    Platform/Vulkan/VulkanTexture.cpp
-    Platform/Vulkan/VulkanShader.cpp
-    Platform/Vulkan/VulkanVertexArray.cpp
-    Platform/Vulkan/VulkanVertexBuffer.cpp
-    Platform/Vulkan/VulkanIndexBuffer.cpp
-    Platform/Vulkan/VulkanSwapchain.cpp
-    Platform/Vulkan/PbrRenderer.cpp
     Platform/Vulkan/VulkanWindow.cpp
     Platform/Vulkan/ImGuiLayer.cpp
     Platform/Vulkan/ImGuiLayer.h

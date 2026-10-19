@@ -22,12 +22,14 @@ bool ShaderModule::FromSpirv(const Device& device, std::span<const uint32_t> spi
 		FG_CORE_ERROR("ShaderModule: empty SPIR-V module ('{0}')", name ? name : "(unnamed)");
 		return false;
 	}
-	if ((spirv.size() % 4) != 0)
+	// The span is a word stream (4 bytes per element), so the byte size the
+	// driver receives is always a multiple of 4. What identifies SPIR-V is
+	// the magic word - the same check the startup integrity tests make on
+	// the files on disk.
+	if (spirv[0] != 0x07230203u)
 	{
-		// SPIR-V words are 4 bytes; the entry point takes a word count. A
-		// length that is not a multiple of 4 is a truncated file, not a
-		// shader.
-		FG_CORE_ERROR("ShaderModule: SPIR-V length {0} is not a multiple of 4 ('{1}')", spirv.size(), name ? name : "(unnamed)");
+		FG_CORE_ERROR("ShaderModule: '{0}' is not a SPIR-V module (magic {1:#08x})",
+			name ? name : "(unnamed)", spirv[0]);
 		return false;
 	}
 

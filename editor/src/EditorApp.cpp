@@ -19,12 +19,7 @@
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
 
-#include "Platform/Vulkan/VulkanRendererAPI.h"
-#include "Platform/Vulkan/VulkanSwapchain.h"
-#include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/ImGuiLayer.h"
-
-#include <nvrhi/common/resource.h>
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -98,24 +93,26 @@ namespace Forge {
 		ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetWindow().GetNativeWindow()), true);
 		m_GlfwBackendLive = true;
 
-		// Initialise the ImGui Vulkan backend with dynamic rendering (the engine
-		// uses nvrhi's vk::RenderingInfo / beginRendering, not VkRenderPass).
+		// Initialise the ImGui Vulkan backend with dynamic rendering: the
+		// backend begins its own rendering on the frame's command buffer after
+		// the Final pass, which leaves the backbuffer in COLOR_ATTACHMENT so
+		// the overlay's color attachment layout is the one the image is in.
 		//
 		// The internal descriptor pool is large enough for the font atlas + one
 		// descriptor set per ImGui texture (viewport image).
 		m_ImGuiVulkanInitInfo = {};
 		m_ImGuiVulkanInitInfo.ApiVersion = VK_API_VERSION_1_3;
-		m_ImGuiVulkanInitInfo.Instance = VulkanRendererAPI::GetInstance();
-		m_ImGuiVulkanInitInfo.PhysicalDevice = VulkanRendererAPI::GetPhysicalDevice();
-		m_ImGuiVulkanInitInfo.Device = VulkanRendererAPI::GetLogicalDevice();
-		m_ImGuiVulkanInitInfo.QueueFamily = VulkanRendererAPI::GetGraphicsQueueIndex();
-		m_ImGuiVulkanInitInfo.Queue = VulkanRendererAPI::GetGraphicsQueue();
+		m_ImGuiVulkanInitInfo.Instance = static_cast<VkInstance>(Renderer::GetVulkanInstanceHandle());
+		m_ImGuiVulkanInitInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(Renderer::GetVulkanPhysicalDeviceHandle());
+		m_ImGuiVulkanInitInfo.Device = static_cast<VkDevice>(Renderer::GetVulkanDeviceHandle());
+		m_ImGuiVulkanInitInfo.QueueFamily = Renderer::GetVulkanGraphicsQueueIndex();
+		m_ImGuiVulkanInitInfo.Queue = static_cast<VkQueue>(Renderer::GetVulkanGraphicsQueueHandle());
 		m_ImGuiVulkanInitInfo.PipelineCache = VK_NULL_HANDLE;
 		m_ImGuiVulkanInitInfo.DescriptorPool = VK_NULL_HANDLE;
 		m_ImGuiVulkanInitInfo.DescriptorPoolSize = 256;
 		m_ImGuiVulkanInitInfo.Allocator = nullptr;
-		m_ImGuiVulkanInitInfo.MinImageCount = VulkanRendererAPI::GetSwapchain().GetImageCount();
-		m_ImGuiVulkanInitInfo.ImageCount = VulkanRendererAPI::GetSwapchain().GetImageCount();
+		m_ImGuiVulkanInitInfo.MinImageCount = Renderer::GetSwapchainImageCount();
+		m_ImGuiVulkanInitInfo.ImageCount = Renderer::GetSwapchainImageCount();
 		m_ImGuiVulkanInitInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 		m_ImGuiVulkanInitInfo.UseDynamicRendering = true;
 		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo = {};
@@ -124,7 +121,7 @@ namespace Forge {
 		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.viewMask = 0;
 		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
 		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_ImGuiRenderFormat;
-		m_ImGuiRenderFormat = VulkanRendererAPI::GetSwapchain().GetVkFormat();
+		m_ImGuiRenderFormat = static_cast<VkFormat>(Renderer::GetSwapchainVkFormat());
 
 		// A checked call, not an assertion. IM_ASSERT() discards its expression
 		// when NDEBUG is defined, so every build without asserts never called
@@ -132,7 +129,7 @@ namespace Forge {
 		// first ImGui_ImplVulkan_NewFrame() dereferenced it. The shipping
 		// builds had no UI for the same reason the Debug build crashed - with
 		// no log line to say so.
-		if (!VulkanRendererAPI::GetSwapchain().IsValid())
+		if (!Renderer::HasSwapchain())
 		{
 			FG_CORE_ERROR("Editor: no swapchain; the editor UI is disabled");
 		}
@@ -172,7 +169,7 @@ namespace Forge {
 		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = 0.0f;
-		VkDevice device = VulkanRendererAPI::GetLogicalDevice();
+		VkDevice device = static_cast<VkDevice>(Renderer::GetVulkanDeviceHandle());
 		if (device)
 			vkCreateSampler(device, &samplerInfo, nullptr, &m_ViewportSampler);
 
@@ -196,7 +193,7 @@ namespace Forge {
 
 		if (m_ViewportSampler != VK_NULL_HANDLE)
 		{
-			VkDevice device = VulkanRendererAPI::GetLogicalDevice();
+			VkDevice device = static_cast<VkDevice>(Renderer::GetVulkanDeviceHandle());
 			if (device)
 				vkDestroySampler(device, m_ViewportSampler, nullptr);
 			m_ViewportSampler = VK_NULL_HANDLE;
@@ -286,6 +283,12 @@ namespace Forge {
 				// → final composite).
 				Renderer::BeginScene();
 				Renderer::RenderScene(m_Editor.GetScene().get(), swapchainImage);
+
+				// The author's view replaces the scene camera's draw in the
+				// HDR target *before* the post chain composites it; recorded
+				// after BeginSSAOPass it would never reach the screen.
+				m_Viewport.Render(m_Editor.GetScene().get(), m_Editor.GetViewProjection());
+
 				Renderer::BeginSSAOPass();
 				Renderer::BeginBloomPass();
 				Renderer::BeginHDRPass();
@@ -323,7 +326,7 @@ namespace Forge {
 					DrawNotification();
 
 					ImGui::Render();
-					VkCommandBuffer cmdBuf = VulkanRendererAPI::GetCurrentCommandBuffer();
+					VkCommandBuffer cmdBuf = static_cast<VkCommandBuffer>(Renderer::GetCurrentCommandBuffer());
 					if (cmdBuf != VK_NULL_HANDLE)
 						ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmdBuf);
 				}
@@ -968,9 +971,7 @@ namespace Forge {
 		if (panelSize.x > 0.0f && panelSize.y > 0.0f)
 			m_Editor.GetScene()->OnViewportResize((uint32_t)panelSize.x, (uint32_t)panelSize.y);
 
-		m_Viewport.Render(m_Editor.GetScene().get(), m_Editor.GetViewProjection());
-
-		if (m_Viewport.GetRenderTexture())
+		if (void* textureView = Renderer::GetCompositedTextureView())
 		{
 			ImVec2 size = ImGui::GetContentRegionAvail();
 			if (size.x > 0.0f && size.y > 0.0f)
@@ -978,22 +979,19 @@ namespace Forge {
 				if ((uint32_t)size.x != m_Viewport.GetWidth() || (uint32_t)size.y != m_Viewport.GetHeight())
 					m_Viewport.Resize((uint32_t)size.x, (uint32_t)size.y);
 
-				// Register the viewport texture with ImGui if we haven't yet.
-				// The VulkanTexture's native handles are used because the
-				// ImGui Vulkan backend requires a VkDescriptorSet (not a raw
-				// object pointer) as ImTextureID.
-				if (!m_ViewportTextureId)
+				// Register the composited frame with ImGui. The ImGui Vulkan
+				// backend requires a VkDescriptorSet (not a raw object pointer)
+				// as ImTextureID. The tonemap view is recreated with the
+				// targets (resize, render scale), so a view that changed gets
+				// re-registered rather than sampled as a freed handle.
+				const VkImageView view = static_cast<VkImageView>(textureView);
+				if (view != m_ViewportTextureView)
 				{
-					auto vulkanTex = std::dynamic_pointer_cast<VulkanTexture>(m_Viewport.GetRenderTexture());
-					if (vulkanTex)
-					{
-						VkImageView view = vulkanTex->GetVkImageView();
-						if (view != VK_NULL_HANDLE)
-						{
-							m_ViewportTextureId = ImTextureID(
-								(void*)ImGui_ImplVulkan_AddTexture(m_ViewportSampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
-						}
-					}
+					if (m_ViewportTextureId)
+						ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(m_ViewportTextureId));
+					m_ViewportTextureView = view;
+					m_ViewportTextureId = ImTextureID(
+						(void*)ImGui_ImplVulkan_AddTexture(m_ViewportSampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
 				}
 
 				ImGui::Image(m_ViewportTextureId, size);

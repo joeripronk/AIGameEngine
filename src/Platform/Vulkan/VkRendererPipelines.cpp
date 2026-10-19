@@ -30,16 +30,31 @@ namespace {
 
 	[[nodiscard]] ::VkPipeline MakeFullscreenPipeline(const Device& device, const DeviceFunctions& functions,
 		::VkShaderModule vert, ::VkShaderModule frag, ::VkRenderPass renderPass, ::VkPipelineLayout layout,
-		VkPrimitiveTopology topology)
+		const VertexLayout& quadLayout)
 	{
 		const std::array<VkPipelineShaderStageCreateInfo, 2> stages{
 			VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vert, "main", nullptr },
 			VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr },
 		};
 
+		// fullscreen.vert declares aPosition/aUV as vertex attributes, so the
+		// pipeline bakes the quad layout in. NoVertexInput leaves the shader
+		// reading attributes nothing supplies: gl_Position is undefined and
+		// every fullscreen draw lands off-screen.
+		VkPipelineVertexInputStateCreateInfo vertexInput{};
+		vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		VkVertexInputBindingDescription binding = quadLayout.Binding;
+		std::array<VkVertexInputAttributeDescription, 16> attributes{};
+		for (uint32_t i = 0; i < quadLayout.AttributeCount; ++i)
+			attributes[i] = quadLayout.Attributes[i];
+		vertexInput.vertexBindingDescriptionCount = 1;
+		vertexInput.pVertexBindingDescriptions = &binding;
+		vertexInput.vertexAttributeDescriptionCount = quadLayout.AttributeCount;
+		vertexInput.pVertexAttributeDescriptions = attributes.data();
+
 		VkPipelineInputAssemblyStateCreateInfo assembly{};
 		assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-		assembly.topology = topology;
+		assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
 
 		VkPipelineViewportStateCreateInfo viewportState{};
 		viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -60,7 +75,7 @@ namespace {
 		info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
 		info.stageCount = static_cast<uint32_t>(stages.size());
 		info.pStages = stages.data();
-		info.pVertexInputState = &Presets::NoVertexInput;
+		info.pVertexInputState = &vertexInput;
 		info.pInputAssemblyState = &assembly;
 		info.pViewportState = &viewportState;
 		info.pRasterizationState = &Presets::Rasterizer::FillNoCull;
@@ -135,7 +150,7 @@ bool VkRenderer::CreatePipelines()
 			return VK_NULL_HANDLE;
 		return MakeFullscreenPipeline(device, functions,
 			m_VertexShaderFullscreen.Handle(), frag.Handle(), renderPass, layout,
-			VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
+			m_VertexLayoutQuad);
 	};
 
 	m_PipelineSsao = makePost(m_FragmentShaderSsao, m_RenderPassR8, m_LayoutSsao);

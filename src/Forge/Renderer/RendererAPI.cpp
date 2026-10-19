@@ -4,7 +4,7 @@
 #include "Forge/Renderer/EditorCamera.h"
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
-#include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "Platform/Vulkan/VkRenderer.h"
 #endif
 
 namespace Forge {
@@ -118,6 +118,37 @@ namespace Forge {
 
 #endif // FG_NO_VULKAN_RUNTIME
 
+#if !defined(FG_NO_VULKAN_RUNTIME)
+
+namespace Vulkan {
+
+	// The RenderCommand surface over the raw-Vulkan renderer (Phase 5). The
+	// engine's immediate-mode draws are recorded by Renderer through VkRenderer,
+	// not through this shim: the renderer owns the frame's one-shot command
+	// buffer, so there is no open command stream for a bare DrawIndexed to
+	// append to. The interface stays so RenderCommand call sites keep
+	// compiling; a call here does nothing, and says nothing, silently.
+	class VkRendererAPI final : public RendererAPI
+	{
+	public:
+		void Init() override {}
+		void SetViewport(uint32_t x, uint32_t y, uint32_t width, uint32_t height) override
+		{
+			(void)x; (void)y; (void)width; (void)height;
+		}
+		void SetClearColor(const glm::vec4& color) override { (void)color; }
+		void Clear() override {}
+		void DrawIndexed(const Ref<class VertexArray>& vertexArray, uint32_t indexCount) override
+		{
+			(void)vertexArray; (void)indexCount;
+		}
+		void SetLineWidth(float width) override { (void)width; }
+	};
+
+}
+
+#endif
+
 	Scope<RendererAPI> RendererAPI::Create()
 	{
 #if defined(FG_NO_VULKAN_RUNTIME)
@@ -126,7 +157,7 @@ namespace Forge {
 		switch (s_API)
 		{
 			case RendererAPI::API::None:    FG_CORE_ASSERT_MSG(false, "RendererAPI::None is currently not supported!"); return nullptr;
-			case RendererAPI::API::Vulkan:  return CreateScope<VulkanRendererAPI>();
+			case RendererAPI::API::Vulkan:  return CreateScope<Vulkan::VkRendererAPI>();
 		}
 
 		FG_CORE_ASSERT_MSG(false, "Unknown RendererAPI!");

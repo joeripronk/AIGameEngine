@@ -113,13 +113,15 @@ bool VkRenderer::CreateRenderPasses()
 			return false;
 	}
 
-	// Final composite: the swapchain format, ending in PRESENT_SRC.
+	// Final composite: the swapchain format. The pass leaves the image in
+	// COLOR_ATTACHMENT_OPTIMAL - the ImGui backend draws next through dynamic
+	// rendering, and EndFrame is what takes the image to PRESENT_SRC.
 	{
 		const std::array<VkAttachmentDescription, 1> attachments{
 			VkAttachmentDescription{ 0, m_Swapchain.GetFormat().format, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL },
 		};
 		const std::array<VkAttachmentReference, 1> colorRefs{ VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
 		m_RenderPassPresent = CreateRenderPassImpl(device, attachments, colorRefs, nullptr, m_Swapchain.GetFormat().format);
@@ -436,7 +438,7 @@ bool VkRenderer::CreateTargets(uint32_t presentWidth, uint32_t presentHeight, ui
 	m_ShadowView = CreateViewImpl(m_Device, m_ShadowImage, VK_FORMAT_D32_SFLOAT, VK_IMAGE_ASPECT_DEPTH_BIT, 1, VK_IMAGE_VIEW_TYPE_2D);
 
 	// Uniform buffers (host-visible, mapped for life).
-	const size_t objectBytes = sizeof(ObjectData) * ObjectRingSize;
+	const size_t objectBytes = ObjectSlotBytes * ObjectRingSize;
 	m_CameraUbo = CreateHostBuffer(*m_Allocator, sizeof(CameraData), "Ubo.Camera", m_CameraUboAlloc, &m_CameraUboData);
 	m_ShadowParamsUbo = CreateHostBuffer(*m_Allocator, 2 * sizeof(glm::vec2), "Ubo.ShadowParams", m_ShadowParamsUboAlloc, &m_ShadowParamsUboData);
 	m_ShadowCameraUbo = CreateHostBuffer(*m_Allocator, sizeof(glm::mat4), "Ubo.ShadowCamera", m_ShadowCameraUboAlloc, &m_ShadowCameraUboData);
@@ -807,8 +809,11 @@ bool VkRenderer::CreateDescriptorLayouts()
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, 800 },
 		VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1024 },
 	};
-	if (!m_DescriptorPool.Create(m_Device, poolSizes, 512, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT))
-		return false;
+	for (DescriptorPool& pool : m_DescriptorPools)
+	{
+		if (!pool.Create(m_Device, poolSizes, 512, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT))
+			return false;
+	}
 
 	return true;
 }
@@ -823,7 +828,8 @@ void VkRenderer::DestroyDescriptorLayouts()
 	m_SetLayoutFinal.Destroy();
 	m_SetLayoutIrradiance.Destroy();
 	m_SetLayoutPrefilter.Destroy();
-	m_DescriptorPool.Destroy();
+	for (DescriptorPool& pool : m_DescriptorPools)
+		pool.Destroy();
 }
 
 }}

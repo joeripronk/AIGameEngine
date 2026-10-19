@@ -62,6 +62,13 @@ namespace Forge {
 			void ShutdownDevice();
 			[[nodiscard]] bool IsReady() const { return m_DeviceReady; }
 
+			// The full startup the Renderer facade drives: device, render
+			// passes, samplers and fallbacks, the fullscreen quad, descriptor
+			// layouts, pipelines and the size-dependent targets - in dependency
+			// order, reporting the first failure.
+			[[nodiscard]] bool Initialize(void* glfwWindow, uint32_t presentWidth, uint32_t presentHeight,
+				uint32_t renderWidth, uint32_t renderHeight);
+
 			// Presentation size (window) and offscreen size (presentation x
 			// render scale). Recreating targets is the resize path.
 			[[nodiscard]] bool CreateTargets(uint32_t presentWidth, uint32_t presentHeight, uint32_t renderWidth, uint32_t renderHeight);
@@ -72,6 +79,11 @@ namespace Forge {
 			// per-image fence, resets the command pool and begins the frame's
 			// one-shot command buffer. UINT32_MAX means "no frame this time".
 			[[nodiscard]] uint32_t BeginFrame();
+
+			// Close the frame's render pass (whatever is open), end the
+			// command buffer, submit and present.
+			void EndScene();
+			void SubmitFrameOnly();
 			void EndFrame(uint32_t imageIndex);
 			[[nodiscard]] ::VkCommandBuffer CurrentCommandBuffer() const;
 
@@ -165,6 +177,11 @@ namespace Forge {
 
 			[[nodiscard]] bool CaptureSwapchainImage(uint32_t imageIndex, const std::string& path);
 
+			// Diagnostic: copy an offscreen target (SHADER_READ layout) back
+			// to the CPU as a PPM. Used to bisect the pass chain headlessly.
+			[[nodiscard]] bool CaptureTargetImage(const ::VkImage image, uint32_t width, uint32_t height,
+				bool isFloat, const std::string& path);
+
 			// ImGui backend accessors (the same handles ImGuiLayer feeds the
 			// vendor backend today).
 			[[nodiscard]] ::VkInstance GetInstanceHandle() const { return m_Instance.Handle(); }
@@ -179,6 +196,20 @@ namespace Forge {
 			[[nodiscard]] uint32_t GetRenderWidth() const { return m_RenderWidth; }
 			[[nodiscard]] uint32_t GetRenderHeight() const { return m_RenderHeight; }
 			[[nodiscard]] uint32_t GetShadowMapSizeValue() const { return m_ShadowMapSize; }
+
+			// The tonemapped target as an ImGui-sampleable view: the editor's
+			// viewport panel displays what the Final pass composites.
+			[[nodiscard]] ::VkImageView GetTonemapView() const { return m_TonemapView; }
+			[[nodiscard]] ::VkImage GetTonemapImage() const { return m_TonemapImage; }
+			[[nodiscard]] ::VkImage GetHdrImage() const { return m_HdrImage; }
+			[[nodiscard]] ::VkImage GetSsaoImage() const { return m_SsaoImage; }
+			[[nodiscard]] ::VkImage GetBloomHalfImage() const { return m_BloomHalfImage; }
+			[[nodiscard]] ::VkImage GetDepthImage() const { return m_DepthImage; }
+
+			// Diagnostic: re-open the HDR pass with its clear and close it.
+			void ClearHdrTarget();
+			void DiagDrawSsaoIntoTonemap();
+			void ClearHdrTargetRed();
 
 			// Recreates the swapchain for a new window size (the resize path:
 			// targets follow the extent the swapchain reports).
@@ -406,6 +437,14 @@ namespace Forge {
 			void* m_PrefilterUboData = nullptr;
 
 			// Per-object uniform ring (host-visible, one slot per draw).
+			//
+			// The slot stride is padded from the 176-byte payload to 256: a
+			// descriptor's buffer offset must be a multiple of
+			// minUniformBufferOffsetAlignment, and Mesa's is 256. 176-byte slots
+			// are an invalid offset from slot 2 onward - the write is refused
+			// and the shader reads garbage matrices, which is every draw
+			// discarded.
+			static constexpr size_t ObjectSlotBytes = 256;
 			static constexpr uint32_t ObjectRingSize = 256;
 			::VkBuffer m_ObjectUbo = VK_NULL_HANDLE;
 			VmaAllocation m_ObjectUboAlloc = nullptr;
@@ -448,7 +487,16 @@ namespace Forge {
 			::VkPipelineLayout m_LayoutIrradiance = VK_NULL_HANDLE;
 			::VkPipelineLayout m_LayoutPrefilter = VK_NULL_HANDLE;
 
-			// Descriptor layouts + per-frame pool (Phase 4 accounting).
+			// Descriptor layouts + a pool per frame slot (Phase 4 accounting).
+			//
+			// A pool reset frees its sets, so it may only run once the frame
+			// that allocated them has finished on the GPU. BeginFrame has just
+			// waited the fence of the image it acquired - the frame that drew
+			// that image four frames ago - so the pool *that frame* used is the
+			// safe one to reset and reuse. One pool is one frame in flight
+			// waiting to be corrupted.
+			static constexpr uint32_t PoolRingSize = 4;   // >= swapchain images
+			[[nodiscard]] DescriptorPool& CurrentDescriptorPool() { return m_DescriptorPools[m_FrameCounter % PoolRingSize]; }
 			DescriptorSetLayout m_SetLayoutPbr;
 			DescriptorSetLayout m_SetLayoutShadow;
 			DescriptorSetLayout m_SetLayoutSsao;
@@ -457,7 +505,8 @@ namespace Forge {
 			DescriptorSetLayout m_SetLayoutFinal;
 			DescriptorSetLayout m_SetLayoutIrradiance;
 			DescriptorSetLayout m_SetLayoutPrefilter;
-			DescriptorPool m_DescriptorPool;
+			std::array<DescriptorPool, PoolRingSize> m_DescriptorPools;
+			uint32_t m_FrameCounter = 0;
 
 			// Vertex layouts (Phase 4, from the CPU struct).
 			VertexLayout m_VertexLayoutMesh;

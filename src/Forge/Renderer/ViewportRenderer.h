@@ -1,12 +1,16 @@
 #pragma once
 
 #include "Forge/Core/Base.h"
-#include "Forge/Renderer/Texture.h"
 
 namespace Forge {
 
 	class Scene;
 
+	// Draws the scene from the editor camera into the renderer's HDR target.
+	// The panel displays the composited frame through Renderer::
+	// GetCompositedTextureView(); this class owns no GPU resources (Phase 5:
+	// the renderer owns the targets, and a second set would be a second
+	// pipeline contract to keep in sync).
 	class ViewportRenderer
 	{
 	public:
@@ -19,15 +23,10 @@ namespace Forge {
 
 		void Render(Scene* scene, const glm::mat4& viewProjectionMatrix);
 
-		Ref<Texture> GetRenderTexture() const { return m_RenderTexture; }
 		uint32_t GetWidth() const { return m_Width; }
 		uint32_t GetHeight() const { return m_Height; }
 
 	private:
-		void CreateRenderTargets();
-		void DestroyRenderTargets();
-
-		Ref<Texture> m_RenderTexture;
 		uint32_t m_Width;
 		uint32_t m_Height;
 	};

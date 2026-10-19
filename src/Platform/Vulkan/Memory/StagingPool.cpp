@@ -155,10 +155,6 @@ bool StagingPool::Submit(std::span<const ::VkSemaphore> waitSemaphores,
 			return false;
 		}
 	}
-	{
-		FG_CORE_ERROR("StagingPool: vkCreateFence failed");
-		return false;
-	}
 
 	VkSubmitInfo submitInfo{};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

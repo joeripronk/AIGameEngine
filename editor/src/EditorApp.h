@@ -111,6 +111,7 @@ namespace Forge {
 		// Descriptor set for the viewport render texture (registered once with
 		// ImGui_ImplVulkan_AddTexture after the texture is created).
 		ImTextureID m_ViewportTextureId = 0;
+		VkImageView m_ViewportTextureView = VK_NULL_HANDLE;  // the view m_ViewportTextureId samples
 
 		VkFormat m_ImGuiRenderFormat = VK_FORMAT_UNDEFINED;
 

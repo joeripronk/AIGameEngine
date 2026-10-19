@@ -4,21 +4,12 @@
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Renderer/Renderer.h"
-#include "Forge/Renderer/Shader.h"
-#include "Forge/Renderer/ShaderLibrary.h"
-#include "Forge/Renderer/VertexArray.h"
-#include "Forge/Renderer/VertexBuffer.h"
-#include "Forge/Renderer/IndexBuffer.h"
 #include "Forge/Renderer/Camera.h"
 #include "Forge/Renderer/Mesh.h"
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scene/Components.h"
 
-#include "Platform/Vulkan/VulkanRendererAPI.h"
-#include "Platform/Vulkan/PbrRenderer.h"
-
-#include <nvrhi/vulkan.h>
-#include <nvrhi/nvrhi.h>
+#include "Platform/Vulkan/VkRenderer.h"
 
 namespace Forge {
 
@@ -35,49 +26,33 @@ namespace Forge {
 	{
 		m_Width = width;
 		m_Height = height;
-		CreateRenderTargets();
 	}
 
 	void ViewportRenderer::Shutdown()
 	{
-		DestroyRenderTargets();
 	}
 
 	void ViewportRenderer::Resize(uint32_t width, uint32_t height)
 	{
 		m_Width = width;
 		m_Height = height;
-		DestroyRenderTargets();
-		CreateRenderTargets();
 	}
 
 	void ViewportRenderer::Render(Scene* scene, const glm::mat4& viewProjectionMatrix)
 	{
-		if (!scene)
+		Vulkan::VkRenderer& renderer = Vulkan::VkRenderer::Get();
+		if (!scene || !renderer.IsReady() || !renderer.HasTargets())
 			return;
 
-		// Get primary camera
+		// The viewport panel's camera is the editor camera (or, while
+		// simulating, the scene camera the panel renders through); the scene's
+		// primary camera supplies the transform the gizmos and audio share.
 		auto cameraEntity = scene->GetPrimaryCameraEntity();
 		if (!cameraEntity)
 			return;
 
-		auto& camera = cameraEntity.GetComponent<CameraComponent>();
 		auto& transform = cameraEntity.GetComponent<TransformComponent>();
 
-		// Update camera matrices
-		glm::mat4 rotation = glm::toMat4(glm::quat(glm::radians(transform.Rotation)));
-		glm::mat4 translation = glm::translate(glm::mat4(1.0f), transform.Translation);
-		camera.ViewMatrix = glm::inverse(translation * rotation);
-		camera.ViewProjectionMatrix = camera.ProjectionMatrix * camera.ViewMatrix;
-
-		// Set view projection matrix in shader
-		auto pbrShader = Renderer::GetShaderLibrary().Get("PBR");
-		if (pbrShader)
-		{
-			pbrShader->SetMat4("u_ViewProjection", camera.ViewProjectionMatrix);
-		}
-
-		// Draw into the HDR framebuffer using the PBR renderer.
 		Ref<Mesh> defaultCube;
 		auto getMesh = [&defaultCube](const Ref<Mesh>& mesh) -> Ref<Mesh>
 		{
@@ -91,15 +66,6 @@ namespace Forge {
 			}
 			return defaultCube;
 		};
-
-		auto pbr = Renderer::GetPbrRenderer();
-		if (!pbr || !pbr->IsValid())
-			return;
-
-		nvrhi::CommandListHandle cmdList = VulkanRendererAPI::GetStaticCommandList();
-		nvrhi::FramebufferHandle framebuffer = VulkanRendererAPI::GetHDRFramebuffer();
-		if (!cmdList || !framebuffer)
-			return;
 
 		// Light parameters (same as Renderer::RenderScene).
 		glm::vec3 lightDirection = { -0.5f, -1.0f, -0.3f };
@@ -119,13 +85,36 @@ namespace Forge {
 			break;
 		}
 
-		// Call UpdateFrame once to set up the camera uniform and clear the target.
-		pbr->UpdateFrame(cmdList.Get(), framebuffer,
-			viewProjectionMatrix,
-			glm::mat4(1.0f),  // shadowViewProjection (identity for viewport)
-			transform.Translation,
-			lightDirection, lightColor, lightIntensity,
-			glm::vec3(0.03f, 0.03f, 0.04f));
+		// BeginScene records the camera upload and re-clears the HDR target,
+		// replacing whatever RenderScene drew under the scene camera. The
+		// viewport has no shadow map of its own: the shadow binding is the
+		// identity, so nothing is shadowed and the map from RenderScene is
+		// never consulted for these draws.
+		Vulkan::VkRenderer::CameraParams cameraParams{};
+		cameraParams.ViewProjection = viewProjectionMatrix;
+		cameraParams.ShadowViewProjection = glm::mat4(1.0f);
+		cameraParams.CameraPosition = transform.Translation;
+		cameraParams.LightDirection = lightDirection;
+		cameraParams.LightColor = lightColor;
+		cameraParams.LightIntensity = lightIntensity;
+		cameraParams.AmbientLight = { 0.03f, 0.03f, 0.04f };
+		renderer.BeginScene(cameraParams);
+
+		auto drawEntity = [&](const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
+			const glm::mat4& model, const glm::vec3& albedo, float metallic, float roughness,
+			float ao, const glm::vec3& emissive, float emissiveIntensity)
+		{
+			Vulkan::VkRenderer::ObjectParams object{};
+			object.Model = model;
+			object.NormalMatrix = glm::inverseTranspose(glm::mat3(model));
+			object.Albedo = albedo;
+			object.Metallic = metallic;
+			object.Roughness = roughness;
+			object.AO = ao;
+			object.Emissive = emissive;
+			object.EmissiveIntensity = emissiveIntensity;
+			renderer.DrawObject(mesh, albedoTexture, object);
+		};
 
 		// Render all mesh entities
 		auto meshView = scene->GetAllEntitiesWith<TransformComponent, MeshComponent>();
@@ -140,8 +129,6 @@ namespace Forge {
 
 			glm::mat4 model = transformComp.GetTransform()
 				* glm::scale(glm::mat4(1.0f), meshComp.Scale);
-
-			glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(model));
 
 			glm::vec3 albedo = { 1.0f, 1.0f, 1.0f };
 			float metallic = 0.0f;
@@ -165,10 +152,7 @@ namespace Forge {
 					albedoTexture = Renderer::GetAlbedoTexture(material.AlbedoTexturePath);
 			}
 
-			pbr->DrawObject(cmdList.Get(), framebuffer,
-				mesh, albedoTexture, model, normalMatrix,
-				albedo, metallic, roughness, ao,
-				emissive, emissiveIntensity);
+			drawEntity(mesh, albedoTexture, model, albedo, metallic, roughness, ao, emissive, emissiveIntensity);
 		}
 
 		// Render entities with PBR material but no mesh (use default cube)
@@ -176,7 +160,7 @@ namespace Forge {
 		for (auto entity : materialView)
 		{
 			// Skip entities that already have a MeshComponent (they were drawn above).
-			if (materialView.contains(entity))
+			if (meshView.contains(entity))
 				continue;
 
 			auto& transformComp = materialView.get<TransformComponent>(entity);
@@ -190,24 +174,9 @@ namespace Forge {
 			glm::mat4 model = transformComp.GetTransform()
 				* glm::scale(glm::mat4(1.0f), pbrComp.Albedo);  // use albedo as scale proxy
 
-			glm::mat3 normalMatrix = glm::inverseTranspose(glm::mat3(model));
-
-			pbr->DrawObject(cmdList.Get(), framebuffer,
-				mesh, albedoTexture, model, normalMatrix,
-				pbrComp.Albedo, pbrComp.Metallic, pbrComp.Roughness,
+			drawEntity(mesh, albedoTexture, model, pbrComp.Albedo, pbrComp.Metallic, pbrComp.Roughness,
 				pbrComp.AO, pbrComp.Emissive, pbrComp.EmissiveIntensity);
 		}
-	}
-
-	void ViewportRenderer::CreateRenderTargets()
-	{
-		// Create render target texture
-		m_RenderTexture = Texture::Create(m_Width, m_Height, nullptr);
-	}
-
-	void ViewportRenderer::DestroyRenderTargets()
-	{
-		m_RenderTexture = nullptr;
 	}
 
 }

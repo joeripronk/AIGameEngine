@@ -8,8 +8,7 @@
 
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_vulkan.h"
-#include "Platform/Vulkan/VulkanRendererAPI.h"
-#include "Platform/Vulkan/VulkanSwapchain.h"
+#include "Forge/Renderer/Renderer.h"
 
 #include <vulkan/vulkan.h>
 
@@ -123,8 +122,7 @@ namespace Forge {
 
 		ImGui_ImplGlfw_InitForVulkan(window, true);
 
-		auto& swapchain = VulkanRendererAPI::GetSwapchain();
-		if (!swapchain.IsValid())
+		if (!Renderer::HasSwapchain())
 		{
 			FG_CORE_WARN("ImGuiLayer: no swapchain; overlay disabled");
 			ImGui_ImplGlfw_Shutdown();
@@ -145,22 +143,22 @@ namespace Forge {
 			return false;
 		}
 
-		state->RenderFormat = swapchain.GetVkFormat();
+		state->RenderFormat = static_cast<VkFormat>(Renderer::GetSwapchainVkFormat());
 
 		ImGui_ImplVulkan_InitInfo& initInfo = state->InitInfo;
 		initInfo = {};
 		initInfo.ApiVersion = VK_API_VERSION_1_3;
-		initInfo.Instance = VulkanRendererAPI::GetInstance();
-		initInfo.PhysicalDevice = VulkanRendererAPI::GetPhysicalDevice();
-		initInfo.Device = VulkanRendererAPI::GetLogicalDevice();
-		initInfo.QueueFamily = VulkanRendererAPI::GetGraphicsQueueIndex();
-		initInfo.Queue = VulkanRendererAPI::GetGraphicsQueue();
+		initInfo.Instance = static_cast<VkInstance>(Renderer::GetVulkanInstanceHandle());
+		initInfo.PhysicalDevice = static_cast<VkPhysicalDevice>(Renderer::GetVulkanPhysicalDeviceHandle());
+		initInfo.Device = static_cast<VkDevice>(Renderer::GetVulkanDeviceHandle());
+		initInfo.QueueFamily = Renderer::GetVulkanGraphicsQueueIndex();
+		initInfo.Queue = static_cast<VkQueue>(Renderer::GetVulkanGraphicsQueueHandle());
 		initInfo.PipelineCache = VK_NULL_HANDLE;
 		initInfo.DescriptorPool = VK_NULL_HANDLE;
 		initInfo.DescriptorPoolSize = 256;
 		initInfo.Allocator = nullptr;
-		initInfo.MinImageCount = swapchain.GetImageCount();
-		initInfo.ImageCount = swapchain.GetImageCount();
+		initInfo.MinImageCount = Renderer::GetSwapchainImageCount();
+		initInfo.ImageCount = Renderer::GetSwapchainImageCount();
 		initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 		initInfo.UseDynamicRendering = true;
 		initInfo.PipelineRenderingCreateInfo = {};
@@ -228,7 +226,7 @@ namespace Forge {
 		ImGui::Render();
 
 #ifndef FG_NO_VULKAN_RUNTIME
-		const VkCommandBuffer commandBuffer = VulkanRendererAPI::GetCurrentCommandBuffer();
+		const VkCommandBuffer commandBuffer = static_cast<VkCommandBuffer>(Renderer::GetCurrentCommandBuffer());
 		if (commandBuffer != VK_NULL_HANDLE)
 			ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
 #endif

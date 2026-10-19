@@ -240,6 +240,26 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 	return true;
 }
 
+bool VkRenderer::Initialize(void* glfwWindow, uint32_t presentWidth, uint32_t presentHeight,
+	uint32_t renderWidth, uint32_t renderHeight)
+{
+	if (!InitDevice(glfwWindow, presentWidth, presentHeight))
+		return false;
+	if (!CreateRenderPasses())
+		return false;
+	if (!CreateSamplersAndFallbacks())
+		return false;
+	if (!CreateFullscreenQuad())
+		return false;
+	if (!CreateDescriptorLayouts())
+		return false;
+	if (!CreatePipelines())
+		return false;
+	if (!CreateTargets(presentWidth, presentHeight, renderWidth, renderHeight))
+		return false;
+	return true;
+}
+
 void VkRenderer::ShutdownDevice()
 {
 	WaitForGpuIdle();
@@ -352,17 +372,45 @@ uint32_t VkRenderer::BeginFrame()
 	m_ObjectSlot = 0;
 	m_SceneBegun = false;
 
-	// The frame's descriptor sets are allocated fresh.
-	if (m_DescriptorPool.Handle() != VK_NULL_HANDLE)
-		(void)m_DescriptorPool.Reset();
+	// The frame's descriptor sets come from this slot's pool. The frame that
+	// last used it drew the image acquired above - its fence is what
+	// BeginFrame just waited - so resetting it now cannot touch a set any
+	// in-flight frame is reading.
+	DescriptorPool& pool = CurrentDescriptorPool();
+	if (pool.Handle() != VK_NULL_HANDLE)
+		(void)pool.Reset();
+	++m_FrameCounter;
 
 	return imageIndex;
+}
+
+void VkRenderer::EndScene()
+{
+	EndActiveRenderPass();
 }
 
 void VkRenderer::EndFrame(uint32_t imageIndex)
 {
 	if (!m_DeviceReady || !m_FrameLoop || imageIndex == UINT32_MAX)
 		return;
+
+	EndActiveRenderPass();
+
+	// The present render pass leaves the backbuffer in COLOR_ATTACHMENT (the
+	// ImGui overlay draws next); presentation requires PRESENT_SRC. The
+	// transition is the frame's last recorded work.
+	if (imageIndex < m_Swapchain.GetImages().size())
+	{
+		ImageBarrierBuilder toPresent{};
+		toPresent.SubresourceRange = Subresources::Full(VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
+		toPresent.OldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		toPresent.NewLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		toPresent.SrcAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		toPresent.DstAccess = 0;
+		toPresent.SrcStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		toPresent.DstStages = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+		RecordImageBarrier(m_Device, CurrentCommandBuffer(), toPresent, m_Swapchain.GetImages()[imageIndex]);
+	}
 
 	(void)m_Staging->Submit();  // flush uploads recorded this frame, before the frame's work
 

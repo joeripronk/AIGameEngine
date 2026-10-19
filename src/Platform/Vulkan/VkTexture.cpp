@@ -2,6 +2,8 @@
 #include "Platform/Vulkan/VkTexture.h"
 
 #include "Forge/Renderer/CpuTexture.h"
+#include "Forge/Renderer/Texture.h"
+#include "Forge/Core/Log.h"
 
 #include <cstring>
 
@@ -71,3 +73,32 @@ Ref<VkTexture> VkTexture::FromCpu(const CpuTexture& cpu)
 }
 
 }}
+namespace Forge {
+
+	// The Texture factories live here (Phase 5): CpuTexture decodes, the
+	// renderer uploads on first draw.
+
+	Ref<Texture> Texture::Create(const std::string& filepath)
+	{
+		Ref<CpuTexture> cpu = CpuTexture::Load(filepath);
+		if (!cpu)
+			return nullptr;
+		Ref<Vulkan::VkTexture> texture = Vulkan::VkTexture::FromCpu(*cpu);
+		if (!texture)
+			FG_CORE_ERROR("Texture::Create: '{0}' decoded to pixels the renderer cannot upload", filepath);
+		return texture;
+	}
+
+	Ref<Texture> Texture::Create(uint32_t width, uint32_t height, void* data)
+	{
+		if (width == 0 || height == 0)
+			return nullptr;
+		if (!data)
+			return nullptr;  // a texture with no pixels has nothing to upload
+		const size_t bytes = static_cast<size_t>(width) * height * 4;
+		std::vector<uint8_t> pixels(bytes);
+		std::memcpy(pixels.data(), data, bytes);
+		return CreateRef<Vulkan::VkTexture>(width, height, std::move(pixels));
+	}
+
+}

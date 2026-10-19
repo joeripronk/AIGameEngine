@@ -2,11 +2,11 @@
 
 #include "Forge/Renderer/RenderCommand.h"
 #include "Forge/Renderer/RendererStats.h"
-#include "Forge/Renderer/Shader.h"
-#include <nvrhi/vulkan.h>
-#include <nvrhi/nvrhi.h>
 
 #include <glm/glm.hpp>
+
+#include <cstdint>
+#include <string>
 
 namespace Forge {
 
@@ -47,11 +47,6 @@ namespace Forge {
 		static void BeginScene();
 		static void EndScene();
 
-		// Records any pending CPU->GPU buffer uploads for a vertex array. Must
-		// be called between BeginScene() and EndScene() (i.e. while the frame's
-		// command list is open).
-		static void FlushPendingUploads(const Ref<class VertexArray>& vertexArray);
-
 		// Presentation. AcquireSwapchainImage() must be called before BeginScene()
 		// and PresentSwapchainImage() after EndScene(). Acquire returns
 		// UINT32_MAX when presentation is unavailable, in which case rendering
@@ -77,8 +72,8 @@ namespace Forge {
 		}
 
 		// Draws every entity in `scene` that has a MeshComponent and a primary
-		// camera, using the PBR shader, into the given swapchain framebuffer.
-		// Must be called between BeginScene() and EndScene().
+		// camera, using the PBR shader, into the frame's HDR target.
+		// Must be called between AcquireSwapchainImage() and EndScene().
 		//
 		// Entities whose world bounding box lies entirely outside the camera
 		// frustum are culled and counted, and the per-frame counters below
@@ -116,36 +111,35 @@ namespace Forge {
 		static void EndShadowPass();
 
 		static RendererAPI::API GetAPI() { return RendererAPI::GetAPI(); }
-		static ShaderLibrary& GetShaderLibrary() { return s_ShaderLibrary; }
-		static Ref<class PbrRenderer> GetPbrRenderer() { return s_PbrRenderer; }
+
+		// --- Vulkan handles for the ImGui overlay backend ---
+		//
+		// The vendor ImGui backend is initialised with the device the renderer
+		// owns and draws into the frame's command buffer between BeginFinalPass
+		// and EndScene.
+		static void* GetVulkanInstanceHandle();
+		static void* GetVulkanPhysicalDeviceHandle();
+		static void* GetVulkanDeviceHandle();
+		static void* GetVulkanGraphicsQueueHandle();
+		static uint32_t GetVulkanGraphicsQueueIndex();
+		static uint32_t GetSwapchainImageCount();
+		static uint32_t GetSwapchainVkFormat();       // VkFormat, widened for the header
+		static void* GetCurrentCommandBuffer();
+
+		// The tonemapped frame as a VkImageView in SHADER_READ_ONLY layout -
+		// what the editor's viewport panel displays as an ImGui texture.
+		// VK_NULL_HANDLE when there are no targets.
+		static void* GetCompositedTextureView();
 
 	private:
-		// Rebuilds every size-dependent resource (PBR depth/viewport, post
-		// targets) for a new frame size, then resizes the swapchain.
+		// Rebuilds every size-dependent resource for a new frame size.
 		static void ApplyFrameSize(uint32_t width, uint32_t height);
 
-		struct SceneData
-		{
-			glm::mat4 ViewProjectionMatrix;
-			glm::mat4 ShadowViewProjection;
-		};
+		// Set when the next AcquireSwapchainImage() must skip BeginFrame (the
 
-		static Scope<SceneData> s_SceneData;
-		static ShaderLibrary s_ShaderLibrary;
+
 		static uint32_t s_Width;
 		static uint32_t s_Height;
-		static nvrhi::CommandListHandle s_CommandList;
-
-		// Fullscreen triangle-pair used by the post-processing passes. Retained so
-		// its GPU buffers stay alive and can be uploaded on the first frame.
-		static Ref<class VertexArray> s_FullscreenQuad;
-
-		// Fallback cube drawn for mesh entities that carry no mesh of their own.
-		// Retained for the same reason: it owns GPU vertex and index buffers,
-		// which must outlive the frame that references them. Building it per
-		// RenderScene call destroyed those buffers every frame while the GPU was
-		// still reading them.
-		static Ref<class Mesh> s_DefaultCube;
 
 		// Set when a present reports the swapchain is out of date; the next
 		// AcquireSwapchainImage() recreates it.
@@ -158,23 +152,6 @@ namespace Forge {
 		static uint32_t s_InitialWidth;
 		static uint32_t s_InitialHeight;
 
-		// Draws the scene with the PBR shader into the swapchain.
-		static Ref<class PbrRenderer> s_PbrRenderer;
-
-		// Set once RenderScene has successfully resolved a camera.
-		static bool s_RenderSceneVerified;
-
-		// Shadow map framebuffer (depth-only).
-		static nvrhi::FramebufferHandle s_ShadowFramebuffer;
-
-		// Post-processing: framebuffer for the tonemapped buffer.
-		static nvrhi::FramebufferHandle s_TonemappedFramebuffer;
-
-		// Post-processing: framebuffer for the SSAO buffer.
-		static nvrhi::FramebufferHandle s_SSAOFramebuffer;
-
-		// The current swapchain image index (set by AcquireSwapchainImage).
-		static uint32_t s_CurrentSwapchainImage;
 		static float s_RenderScale;
 	};
 

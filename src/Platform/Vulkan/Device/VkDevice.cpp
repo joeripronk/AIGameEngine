@@ -274,8 +274,21 @@ bool Device::Create(const PhysicalDevice& physicalDevice, const CreateInfo& crea
 	deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 	deviceInfo.queueCreateInfoCount = static_cast<uint32_t>(queueInfos.size());
 	deviceInfo.pQueueCreateInfos = queueInfos.data();
-	deviceInfo.enabledExtensionCount = static_cast<uint32_t>(createInfo.Extensions.size());
-	deviceInfo.ppEnabledExtensionNames = createInfo.Extensions.data();
+	// Only extensions the physical device actually reports can be enabled;
+	// one the driver does not export (VK_EXT_debug_utils on lavapipe, say)
+	// is vkCreateDevice VK_ERROR_EXTENSION_NOT_PRESENT for the whole device.
+	std::vector<const char*> supportedExtensions;
+	supportedExtensions.reserve(createInfo.Extensions.size());
+	for (const char* extension : createInfo.Extensions)
+	{
+		if (physicalDevice.SupportsExtension(extension))
+			supportedExtensions.push_back(extension);
+		else
+			FG_CORE_WARN("Device: extension '{0}' not supported by this physical device; not enabled", extension);
+	}
+
+	deviceInfo.enabledExtensionCount = static_cast<uint32_t>(supportedExtensions.size());
+	deviceInfo.ppEnabledExtensionNames = supportedExtensions.data();
 
 	const void* next = createInfo.Features;
 	if (createInfo.EnableDeviceAddress)
@@ -296,7 +309,7 @@ bool Device::Create(const PhysicalDevice& physicalDevice, const CreateInfo& crea
 	m_PhysicalDevice = &physicalDevice;
 	m_DeviceAddressEnabled = createInfo.EnableDeviceAddress;
 
-	for (const char* extension : createInfo.Extensions)
+	for (const char* extension : supportedExtensions)
 		m_EnabledExtensions.insert(extension);
 
 	const auto getDeviceProcAddr = reinterpret_cast<PFN_vkGetDeviceProcAddr>(
