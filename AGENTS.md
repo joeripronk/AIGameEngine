@@ -754,6 +754,80 @@ renderer state at all.
 - **Final Shader**: Final composite with SSAO overlay
 - **Shadow Shader**: Shadow map rendering
 
+### The Vulkan resource contract
+
+The raw-Vulkan backend has rules that the driver does not enforce and the
+validation layer does. Each one below was a bug that cost a frame, a
+pipeline, or a whole session.
+
+**A queue family's flags are read at the driver's stride.** The selection
+rules read the driver's `vkGetPhysicalDeviceQueueFamilyProperties` array
+through a plain-data mirror (`QueueFamilyDesc`), so the mirror has to match
+the driver's *element size*, not just its first fields. A shorter mirror
+gives the span the wrong stride: family 0 is read correctly and every
+family after it is read from the wrong offset. On a laptop with an Intel
+integrated GPU that made `minImageTransferGranularity.y` (the value 1,
+which is `VK_QUEUE_GRAPHICS_BIT`) look like a graphics family, so the
+frame's entire graphics work was submitted to a copy-only queue that
+cannot draw. The window stayed black and the validation layer printed an
+error per command, per frame. `DeviceSelection.h` asserts the mirror's
+size against `VkQueueFamilyProperties`, and `DeviceLayerTests` reads the
+array the way the production code does.
+
+**A varying that arrives at the wrong location is not a compile error.**
+`pbr.vert` writes location 0 = normal, 1 = UV, 2 = world position;
+`pbr.frag` has to read them at the same locations. When the two lists
+disagree, the pipeline is still created and the fragment shader reads
+another varying's values - the scene renders with the wrong lighting and
+the wrong texture coordinates, and the validation layer is the only thing
+that says so. `shadow.vert`/`shadow.frag` have the same contract, and the
+shadow pass is depth-only: its fragment shader declares no colour output,
+because a write into a pass with no colour attachment is a write nowhere.
+
+**An attachment's initial layout must match the image's current layout.**
+Every pass here clears its attachments, so every attachment's initial
+layout is `VK_IMAGE_LAYOUT_UNDEFINED`: the pass may begin from whatever
+the previous frame left behind, and "undefined" says the contents before
+the pass do not matter. Naming a real initial layout is what the renderer
+used to do, and every frame was refused - the shadow map is still in
+`READ_ONLY_OPTIMAL` from the frame before, the HDR target in
+`SHADER_READ_ONLY_OPTIMAL`, everything else in `UNDEFINED`.
+
+**A descriptor names the layout its image is in.** A colour target is
+`SHADER_READ_ONLY_OPTIMAL`; a depth target is
+`DEPTH_STENCIL_READ_ONLY_OPTIMAL`. The shadow map and the depth buffer
+are depth images, and their descriptors said "colour" - so the shadow
+lookup sampled the wrong layout, and the validation layer rejected every
+draw that used it. `BuildPostSet` takes the layouts alongside the views
+for the same reason.
+
+**A command buffer may only be recorded again from the initial state.**
+`VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT` does not reset a command
+buffer - it says the buffer is not to be submitted twice. The frame loop
+re-records one buffer per swapchain image, so it resets each buffer
+explicitly (`vkResetCommandBuffer`, which needs
+`VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT` on the pool) after the
+fence for that image has been waited. A whole-pool reset is not an
+alternative: the buffers of the frames still in flight live in that pool.
+
+**A barrier names stages its queue family supports.** The staging pool may
+run on a dedicated transfer queue family, and such a family supports no
+graphics stage at all. An upload's barrier therefore uses
+`VK_PIPELINE_STAGE_ALL_COMMANDS_BIT`, and its access mask is empty: no
+stage of a transfer-only family could carry a shader-read access, so
+"make the upload visible to the shader" cannot be expressed there at all.
+It does not have to be - every upload path submits and then waits for the
+staging fence before the frame that reads the image is submitted, and the
+host's wait is what makes the data visible.
+
+**The overlay's pipeline is the present pass's pipeline.** The overlay
+draws into the frame's command buffer while the present render pass is
+still open, so its pipeline has to be the one that pass was created with.
+A dynamic-rendering pipeline is not: it may only be used inside a
+`vkCmdBeginRendering` scope. Asking for one produced a pipeline that
+could not even be created - the device had no `dynamicRendering` feature
+enabled - and the overlay's panels did not draw.
+
 ## Build Configurations
 
 Three configurations, all of which must build and pass the full suite:
