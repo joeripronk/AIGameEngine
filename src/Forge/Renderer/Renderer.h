@@ -125,6 +125,9 @@ namespace Forge {
 		static uint32_t GetSwapchainImageCount();
 		static uint32_t GetSwapchainVkFormat();       // VkFormat, widened for the header
 		static void* GetCurrentCommandBuffer();
+		// VkRenderPass, widened for the header: the present pass the
+		// overlay's pipeline has to be built for.
+		static void* GetPresentRenderPass();
 
 		// The tonemapped frame as a VkImageView in SHADER_READ_ONLY layout -
 		// what the editor's viewport panel displays as an ImGui texture.

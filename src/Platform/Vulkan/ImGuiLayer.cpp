@@ -160,7 +160,20 @@ namespace Forge {
 		initInfo.MinImageCount = Renderer::GetSwapchainImageCount();
 		initInfo.ImageCount = Renderer::GetSwapchainImageCount();
 		initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-		initInfo.UseDynamicRendering = true;
+		// The overlay draws into the present render pass, which the engine
+		// leaves open for it: BeginFinalPass opens the pass, the overlay
+		// records its draws into the frame's command buffer, and EndScene
+		// closes it.
+		//
+		// So the overlay's pipeline has to be built for *that* pass. A
+		// dynamic-rendering pipeline is not: it may only be used inside a
+		// vkCmdBeginRendering scope, and asking for one here produced a
+		// pipeline that could not be created at all (the device did not
+		// have the dynamicRendering feature enabled, and the overlay's
+		// draws would have been invalid inside the open render pass even
+		// if it had).
+		initInfo.RenderPass = static_cast<VkRenderPass>(Renderer::GetPresentRenderPass());
+		initInfo.UseDynamicRendering = false;
 		initInfo.PipelineRenderingCreateInfo = {};
 		initInfo.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
 		initInfo.PipelineRenderingCreateInfo.pNext = nullptr;

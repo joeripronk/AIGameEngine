@@ -539,7 +539,11 @@ namespace {
 			}
 		};
 
-		if (drawn > 0)
+		// A diagnostic, off by default: at any log level this is one
+		// line per frame, and a game loop that logs every frame scrolls
+		// the console away at sixty lines a second. The same numbers are
+		// available through GetStatistics(), which the editor displays.
+		if (drawn > 0 && std::getenv("FG_DIAG_FRAME_LOG"))
 		{
 			FG_CORE_INFO("RenderScene: presenting {0}x{1}, camera at ({2}, {3}, {4}), {5} mesh entities ({6} frustum-culled)",
 				s_Width, s_Height,
@@ -977,6 +981,11 @@ namespace {
 	void* Renderer::GetCurrentCommandBuffer()
 	{
 		return reinterpret_cast<void*>(Vulkan::VkRenderer::Get().CurrentCommandBuffer());
+	}
+
+	void* Renderer::GetPresentRenderPass()
+	{
+		return reinterpret_cast<void*>(Vulkan::VkRenderer::Get().GetPresentRenderPass());
 	}
 
 	void* Renderer::GetCompositedTextureView()

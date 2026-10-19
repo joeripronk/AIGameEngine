@@ -104,10 +104,17 @@ namespace Forge {
 		ImGui_ImplGlfw_InitForVulkan(static_cast<GLFWwindow*>(GetWindow().GetNativeWindow()), true);
 		m_GlfwBackendLive = true;
 
-		// Initialise the ImGui Vulkan backend with dynamic rendering: the
-		// backend begins its own rendering on the frame's command buffer after
-		// the Final pass, which leaves the backbuffer in COLOR_ATTACHMENT so
-		// the overlay's color attachment layout is the one the image is in.
+		// Initialise the ImGui Vulkan backend against the present render
+		// pass: the overlay's draws are recorded into the frame's command
+		// buffer while that pass is still open, so the overlay's pipeline
+		// has to be the one the pass was created with.
+		//
+		// It is not a dynamic rendering pipeline: that kind may only be
+		// used inside a vkCmdBeginRendering scope, and the overlay draws
+		// inside the open render pass. Asking for one produced a pipeline
+		// that could not even be created (the device has no
+		// dynamicRendering feature enabled), which is why the editor's
+		// panels did not draw.
 		//
 		// The internal descriptor pool is large enough for the font atlas + one
 		// descriptor set per ImGui texture (viewport image).
@@ -125,13 +132,8 @@ namespace Forge {
 		m_ImGuiVulkanInitInfo.MinImageCount = Renderer::GetSwapchainImageCount();
 		m_ImGuiVulkanInitInfo.ImageCount = Renderer::GetSwapchainImageCount();
 		m_ImGuiVulkanInitInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
-		m_ImGuiVulkanInitInfo.UseDynamicRendering = true;
-		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo = {};
-		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR;
-		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.pNext = nullptr;
-		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.viewMask = 0;
-		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
-		m_ImGuiVulkanInitInfo.PipelineRenderingCreateInfo.pColorAttachmentFormats = &m_ImGuiRenderFormat;
+		m_ImGuiVulkanInitInfo.RenderPass = static_cast<VkRenderPass>(Renderer::GetPresentRenderPass());
+		m_ImGuiVulkanInitInfo.UseDynamicRendering = false;
 		m_ImGuiRenderFormat = static_cast<VkFormat>(Renderer::GetSwapchainVkFormat());
 
 		// A checked call, not an assertion. IM_ASSERT() discards its expression
