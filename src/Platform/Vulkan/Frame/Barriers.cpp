@@ -84,9 +84,22 @@ void RecordUploadPostBarrier(const Device& device, VkCommandBuffer commandBuffer
 	postBarrier.OldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	postBarrier.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	postBarrier.SrcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-	postBarrier.DstAccess = VK_ACCESS_SHADER_READ_BIT;
+	postBarrier.DstAccess = 0;
 	postBarrier.SrcStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-	postBarrier.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	// ALL_COMMANDS, not FRAGMENT_SHADER: this barrier is recorded into the
+	// staging pool's command buffer, and that pool may run on a dedicated
+	// transfer queue family - a family that supports no graphics stage at
+	// all. A barrier's stage masks must name stages the command buffer's
+	// queue family supports, and ALL_COMMANDS is the one every family
+	// supports.
+	//
+	// The access mask is empty for the same reason: a transfer-only family
+	// has no stage that could carry a shader-read access, so "make the
+	// upload visible to the shader" cannot be expressed here at all. It
+	// does not have to be: every upload path submits and then waits for
+	// the staging fence before the frame that reads the image is
+	// submitted, and the host's wait is what makes the data visible.
+	postBarrier.DstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 	VkImageMemoryBarrier i = postBarrier.Build(image);
 	device.GetFunctions().CmdPipelineBarrier(commandBuffer,
 		postBarrier.SrcStages, postBarrier.DstStages, 0,

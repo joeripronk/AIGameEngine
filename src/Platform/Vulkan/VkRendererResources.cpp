@@ -53,17 +53,30 @@ bool VkRenderer::CreateRenderPasses()
 {
 	const Device& device = m_Device;
 
+	// Every attachment below is cleared at the start of its pass, so its
+	// initial layout is UNDEFINED: the pass may begin from any layout the
+	// previous frame left behind, and UNDEFINED says "the contents before
+	// this pass are not defined" - which is true, because the pass
+	// overwrites them.
+	//
+	// Naming a real initial layout instead is what the renderer used to
+	// do, and the validation layer refused every frame: the attachment's
+	// initial layout has to equal the image's current layout, and at the
+	// start of a frame the shadow map is still in READ_ONLY_OPTIMAL from
+	// the frame before, the HDR target in SHADER_READ_ONLY_OPTIMAL, and
+	// everything else in UNDEFINED.
+
 	// HDR target: RGBA16F colour + D32 depth, both cleared, both read back.
 	{
 		const std::array<VkAttachmentDescription, 2> attachments{
 			VkAttachmentDescription{ 0, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
 			VkAttachmentDescription{ 0, VK_FORMAT_D32_SFLOAT, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL },
 		};
 		const std::array<VkAttachmentReference, 1> colorRefs{ VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
 		const VkAttachmentReference depthRef{ 1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL };
@@ -78,7 +91,7 @@ bool VkRenderer::CreateRenderPasses()
 			VkAttachmentDescription{ 0, VK_FORMAT_D32_SFLOAT, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL },
 		};
 		m_RenderPassShadow = CreateRenderPassImpl(device, attachments, {}, nullptr, VK_FORMAT_UNDEFINED);
 		if (m_RenderPassShadow == VK_NULL_HANDLE)
@@ -91,7 +104,7 @@ bool VkRenderer::CreateRenderPasses()
 			VkAttachmentDescription{ 0, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
 		};
 		const std::array<VkAttachmentReference, 1> colorRefs{ VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
 		m_RenderPassColor16 = CreateRenderPassImpl(device, attachments, colorRefs, nullptr, VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -105,7 +118,7 @@ bool VkRenderer::CreateRenderPasses()
 			VkAttachmentDescription{ 0, VK_FORMAT_R8_UNORM, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
 		};
 		const std::array<VkAttachmentReference, 1> colorRefs{ VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
 		m_RenderPassR8 = CreateRenderPassImpl(device, attachments, colorRefs, nullptr, VK_FORMAT_R8_UNORM);
@@ -135,7 +148,7 @@ bool VkRenderer::CreateRenderPasses()
 			VkAttachmentDescription{ 0, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLE_COUNT_1_BIT,
 				VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE,
 				VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
+				VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL },
 		};
 		const std::array<VkAttachmentReference, 1> colorRefs{ VkAttachmentReference{ 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL } };
 		m_RenderPassCubeFace = CreateRenderPassImpl(device, attachments, colorRefs, nullptr, VK_FORMAT_R16G16B16A16_SFLOAT);
@@ -272,9 +285,12 @@ bool VkRenderer::CreateSamplersAndFallbacks()
 		toRead.OldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		toRead.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		toRead.SrcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-		toRead.DstAccess = VK_ACCESS_SHADER_READ_BIT;
+		// A transfer-only queue family has no stage that could carry a
+		// shader-read access, so the barrier claims none: the upload's
+		// visibility comes from the fence wait that follows the submit.
+		toRead.DstAccess = 0;
 		toRead.SrcStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		toRead.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		toRead.DstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 		RecordImageBarrier(m_Device, cmd, toRead, m_WhiteImage);
 
 		m_Device.GetFunctions().EndCommandBuffer(cmd);
@@ -320,9 +336,12 @@ bool VkRenderer::CreateSamplersAndFallbacks()
 		toRead.OldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 		toRead.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		toRead.SrcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-		toRead.DstAccess = VK_ACCESS_SHADER_READ_BIT;
+		// A transfer-only queue family has no stage that could carry a
+		// shader-read access, so the barrier claims none: the upload's
+		// visibility comes from the fence wait that follows the submit.
+		toRead.DstAccess = 0;
 		toRead.SrcStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		toRead.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		toRead.DstStages = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
 		RecordImageBarrier(m_Device, cmd, toRead, image);
 
 		m_Device.GetFunctions().EndCommandBuffer(cmd);

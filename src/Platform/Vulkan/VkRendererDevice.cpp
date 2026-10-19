@@ -124,6 +124,17 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 	VkPhysicalDeviceScalarBlockLayoutFeatures scalarFeatures{};
 	scalarFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SCALAR_BLOCK_LAYOUT_FEATURES;
 	scalarFeatures.scalarBlockLayout = VK_TRUE;
+
+	// Dynamic rendering: a pipeline created for a rendering scope needs
+	// the feature enabled, and the engine's diagnostic path opens one.
+	VkPhysicalDeviceDynamicRenderingFeatures dynamicFeatures{};
+	dynamicFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES;
+	dynamicFeatures.dynamicRendering = chosen->SupportsDynamicRendering() ? VK_TRUE : VK_FALSE;
+	if (!dynamicFeatures.dynamicRendering)
+		FG_CORE_WARN("VkRenderer: the device has no dynamic rendering; the paths that use it are off");
+
+	dynamicFeatures.pNext = const_cast<void*>(deviceInfo.Features);
+	deviceInfo.Features = &dynamicFeatures;
 	scalarFeatures.pNext = const_cast<void*>(deviceInfo.Features);
 	deviceInfo.Features = &scalarFeatures;
 	deviceInfo.EnableDeviceAddress = true;
@@ -167,11 +178,6 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 	if (!m_Swapchain.Create(*chosen, m_Device, swapInfo))
 	{
 		FG_CORE_ERROR("VkRenderer: swapchain creation failed; presentation disabled");
-		ShutdownDevice();
-		return false;
-	}
-	if (!m_Swapchain.InitializeImages(m_Device, m_GraphicsFamily))
-	{
 		ShutdownDevice();
 		return false;
 	}
@@ -348,8 +354,6 @@ bool VkRenderer::RecreateSwapchain(uint32_t width, uint32_t height)
 	// new swapchain is created with it as OldSwapchain.
 	m_Swapchain.Destroy();
 	if (!m_Swapchain.Create(*m_PhysicalDevicePtr, m_Device, info))
-		return false;
-	if (!m_Swapchain.InitializeImages(m_Device, m_GraphicsFamily))
 		return false;
 
 	m_PresentWidth = m_Swapchain.GetExtent().width;

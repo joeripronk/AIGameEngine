@@ -243,9 +243,15 @@ namespace {
 		return VkDescriptorBufferInfo{ buffer, static_cast<VkDeviceSize>(offset), static_cast<VkDeviceSize>(size) };
 	}
 
-	[[nodiscard]] VkDescriptorImageInfo ImageBinding(::VkSampler sampler, ::VkImageView view)
+	// A descriptor names the layout its image is in, and the validation
+	// layer rejects the draw when the two disagree: a colour target is
+	// SHADER_READ_ONLY_OPTIMAL, a depth target is
+	// DEPTH_STENCIL_READ_ONLY_OPTIMAL. The default is the colour case;
+	// a depth image says so.
+	[[nodiscard]] VkDescriptorImageInfo ImageBinding(::VkSampler sampler, ::VkImageView view,
+		VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
 	{
-		return VkDescriptorImageInfo{ sampler, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+		return VkDescriptorImageInfo{ sampler, view, layout };
 	}
 
 }  // namespace
@@ -453,9 +459,10 @@ void VkRenderer::RenderSSAOPass(const glm::mat4& viewProjection)
 	std::memcpy(m_SsaoUboData, &params, sizeof(params));
 
 	const std::array<::VkImageView, 1> views{ m_DepthView };
+	const std::array<VkImageLayout, 1> layouts{ VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL };
 	const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 	const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_SsaoUbo, 0, sizeof(SsaoParams)) };
-	::VkDescriptorSet set = BuildPostSet(m_SetLayoutSsao, views, samplers, buffers);
+	::VkDescriptorSet set = BuildPostSet(m_SetLayoutSsao, views, layouts, samplers, buffers);
 	if (set == VK_NULL_HANDLE)
 		return;
 
@@ -522,9 +529,10 @@ void VkRenderer::DiagDrawSsaoIntoTonemap()
 	vkCmdBeginRendering(cmd, &rendering);
 
 	const std::array<::VkImageView, 1> views{ m_DepthView };
+	const std::array<VkImageLayout, 1> layouts{ VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL };
 	const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 	const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_SsaoUbo, 0, sizeof(SsaoParams)) };
-	::VkDescriptorSet set = BuildPostSet(m_SetLayoutSsao, views, samplers, buffers);
+	::VkDescriptorSet set = BuildPostSet(m_SetLayoutSsao, views, layouts, samplers, buffers);
 	if (set != VK_NULL_HANDLE)
 		DrawFullscreenQuad(m_Device, cmd, m_PipelineSsao, m_LayoutSsao, set,
 			m_QuadVertexBuffer, m_QuadIndexBuffer, m_PresentWidth, m_PresentHeight);
@@ -586,9 +594,10 @@ void VkRenderer::RenderBloomPass()
 	// Step 1: soft-threshold luminance + 13-tap downsample, full-res HDR -> half-res.
 	{
 		const std::array<::VkImageView, 1> views{ m_HdrView };
+		const std::array<VkImageLayout, 1> layouts{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 		const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_BloomUbo, 0, sizeof(GpuBloomParams)) };
-		::VkDescriptorSet set = BuildPostSet(m_SetLayoutBloom, views, samplers, buffers);
+		::VkDescriptorSet set = BuildPostSet(m_SetLayoutBloom, views, layouts, samplers, buffers);
 		if (set == VK_NULL_HANDLE)
 			return;
 		const std::array<VkClearValue, 1> clears{ VkClearValue{ .color = { 0.0f, 0.0f, 0.0f, 0.0f } } };
@@ -611,9 +620,10 @@ void VkRenderer::RenderBloomPass()
 		std::memcpy(m_BlurUboData, &blurParams, sizeof(blurParams));
 
 		const std::array<::VkImageView, 1> views{ sources[iteration] };
+		const std::array<VkImageLayout, 1> layouts{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 		const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 		const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_BlurUbo, 0, sizeof(GpuBlurParams)) };
-		::VkDescriptorSet set = BuildPostSet(m_SetLayoutBloom, views, samplers, buffers);
+		::VkDescriptorSet set = BuildPostSet(m_SetLayoutBloom, views, layouts, samplers, buffers);
 		if (set == VK_NULL_HANDLE)
 			return;
 
@@ -636,9 +646,10 @@ void VkRenderer::RenderTonemapPass()
 
 	const bool diagWhite = std::getenv("FG_DIAG_TONEMAP_WHITE") != nullptr;
 	const std::array<::VkImageView, 2> views{ diagWhite ? m_WhiteView : m_HdrView, m_BloomAView };
+	const std::array<VkImageLayout, 2> layouts{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 	const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_HdrUbo, 0, sizeof(GpuHdrParams)) };
-	::VkDescriptorSet set = BuildPostSet(m_SetLayoutTonemap, views, samplers, buffers);
+	::VkDescriptorSet set = BuildPostSet(m_SetLayoutTonemap, views, layouts, samplers, buffers);
 	if (set == VK_NULL_HANDLE)
 		return;
 
@@ -664,9 +675,10 @@ void VkRenderer::RenderFinalPass()
 	std::memcpy(m_FinalUboData, &finalParams, sizeof(finalParams));
 
 	const std::array<::VkImageView, 2> views{ m_TonemapView, m_SsaoView };
+	const std::array<VkImageLayout, 2> layouts{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 	const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 	const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_FinalUbo, 0, sizeof(GpuFinalParams)) };
-	::VkDescriptorSet set = BuildPostSet(m_SetLayoutFinal, views, samplers, buffers);
+	::VkDescriptorSet set = BuildPostSet(m_SetLayoutFinal, views, layouts, samplers, buffers);
 	if (set == VK_NULL_HANDLE)
 		return;
 
@@ -738,7 +750,10 @@ namespace {
 	};
 	const std::array<VkDescriptorImageInfo, 6> images{
 		ImageBinding(m_SamplerAlbedo, albedo),
-		ImageBinding(m_SamplerShadow, m_ShadowView),
+		// The shadow map is a depth image: it is left in
+		// DEPTH_STENCIL_READ_ONLY_OPTIMAL by the shadow pass, and the
+		// descriptor has to say so.
+		ImageBinding(m_SamplerShadow, m_ShadowView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL),
 		ImageBinding(m_SamplerLinear, VK_NULL_HANDLE),
 		ImageBinding(m_SamplerLinear, envView),
 		ImageBinding(m_SamplerLinear, irradianceView),
@@ -795,6 +810,7 @@ namespace {
 
 ::VkDescriptorSet VkRenderer::BuildPostSet(const DescriptorSetLayout& layout,
 	std::span<const ::VkImageView> views,
+	std::span<const VkImageLayout> layouts,
 	std::span<const ::VkSampler> samplers,
 	std::span<const VkDescriptorBufferInfo> buffers)
 {
@@ -831,8 +847,13 @@ namespace {
 		case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
 		{
 			const ::VkImageView view = viewIndex < views.size() ? views[viewIndex] : VK_NULL_HANDLE;
+			// The descriptor names the layout the image is in. A caller
+			// that does not say which layout its views are in gets the
+			// colour layout, which is what every colour target uses.
+			const VkImageLayout imageLayout = viewIndex < layouts.size()
+				? layouts[viewIndex] : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			++viewIndex;
-			imageInfos.push_back(VkDescriptorImageInfo{ VK_NULL_HANDLE, view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
+			imageInfos.push_back(VkDescriptorImageInfo{ VK_NULL_HANDLE, view, imageLayout });
 			writes.push_back(VkWriteDescriptorSet{ VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set,
 				binding.binding, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, &imageInfos.back(), nullptr, nullptr });
 			break;
@@ -1059,12 +1080,9 @@ bool VkRenderer::LoadEnvironmentMap(const Ref<CpuTexture>& envMap)
 		m_Device.GetFunctions().CmdCopyBufferToImage(cmd, staging->Handle(), m_EnvImage,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
 
-		imageBarrier.OldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		imageBarrier.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		imageBarrier.SrcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-		imageBarrier.DstAccess = VK_ACCESS_SHADER_READ_BIT;
-		imageBarrier.SrcStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-		imageBarrier.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		// The post-upload transition is the helper's business: it owns the
+		// layouts, the access masks and the stage masks, because they have
+		// to be legal on the queue family the staging pool runs on.
 		RecordUploadPostBarrier(m_Device, cmd, m_EnvImage, imageBarrier);
 
 		m_Device.GetFunctions().EndCommandBuffer(cmd);
@@ -1085,9 +1103,10 @@ bool VkRenderer::LoadEnvironmentMap(const Ref<CpuTexture>& envMap)
 			std::memcpy(m_IrradianceUboData, &params, sizeof(params));
 
 			const std::array<::VkImageView, 1> views{ m_EnvImageView };
+			const std::array<VkImageLayout, 1> layouts{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 			const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 			const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_IrradianceUbo, 0, sizeof(GpuIrradianceParams)) };
-			::VkDescriptorSet set = BuildPostSet(m_SetLayoutIrradiance, views, samplers, buffers);
+			::VkDescriptorSet set = BuildPostSet(m_SetLayoutIrradiance, views, layouts, samplers, buffers);
 			if (set == VK_NULL_HANDLE)
 				return false;
 
@@ -1117,9 +1136,10 @@ bool VkRenderer::LoadEnvironmentMap(const Ref<CpuTexture>& envMap)
 			for (uint32_t face = 0; face < 6; ++face)
 			{
 				const std::array<::VkImageView, 1> views{ m_EnvImageView };
+				const std::array<VkImageLayout, 1> layouts{ VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
 				const std::array<::VkSampler, 1> samplers{ m_SamplerLinear };
 				const std::array<VkDescriptorBufferInfo, 1> buffers{ BufferRange(m_PrefilterUbo, 0, sizeof(GpuPrefilterParams)) };
-				::VkDescriptorSet set = BuildPostSet(m_SetLayoutPrefilter, views, samplers, buffers);
+				::VkDescriptorSet set = BuildPostSet(m_SetLayoutPrefilter, views, layouts, samplers, buffers);
 				if (set == VK_NULL_HANDLE)
 					return false;
 
@@ -1503,12 +1523,9 @@ bool VkRenderer::UploadTexture(const Ref<Texture>& texture)
 	m_Device.GetFunctions().CmdCopyBufferToImage(cmd, staging->Handle(), imageAlloc.Image,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
 
-	imageBarrier.OldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	imageBarrier.NewLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	imageBarrier.SrcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-	imageBarrier.DstAccess = VK_ACCESS_SHADER_READ_BIT;
-	imageBarrier.SrcStages = VK_PIPELINE_STAGE_TRANSFER_BIT;
-	imageBarrier.DstStages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+	// The post-upload transition is the helper's business: it owns the
+	// layouts, the access masks and the stage masks, because they have to
+	// be legal on the queue family the staging pool runs on.
 	RecordUploadPostBarrier(m_Device, cmd, imageAlloc.Image, imageBarrier);
 
 	m_Device.GetFunctions().EndCommandBuffer(cmd);

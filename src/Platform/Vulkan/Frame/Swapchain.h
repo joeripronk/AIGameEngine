@@ -59,13 +59,16 @@ public:
 	// RebuildNextFrame sets NeedsRebuild so the next Create rebuilds.
 	[[nodiscard]] AcquireOutcome AcquireNextImage(uint64_t timeoutNanos, ::VkSemaphore semaphore, uint32_t& outImageIndex);
 
-	// One-shot command buffer initializing every backbuffer
-	// Undefined -> PresentSrcKHR, submitted and awaited on the spot.
-	[[nodiscard]] bool InitializeImages(Device& device, uint32_t queueFamily);
-
 private:
 	Device* m_Device = nullptr;
 	::VkSwapchainKHR m_Handle = VK_NULL_HANDLE;
+	// The backbuffers start undefined, and they stay that way until the
+	// frame that acquires them: a presentable image may only be used after
+	// vkAcquireNextImageKHR has returned it, so there is nothing to
+	// transition before the first acquire. The present render pass
+	// declares an UNDEFINED initial layout, so the transition into
+	// COLOR_ATTACHMENT_OPTIMAL happens in the frame that owns the image,
+	// and EndFrame takes it to PRESENT_SRC.
 	std::vector<::VkImage> m_Images;
 	VkExtent2D m_Extent{};
 	VkSurfaceFormatKHR m_Format{};

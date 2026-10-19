@@ -198,6 +198,12 @@ namespace Forge {
 			[[nodiscard]] uint32_t GetRenderHeight() const { return m_RenderHeight; }
 			[[nodiscard]] uint32_t GetShadowMapSizeValue() const { return m_ShadowMapSize; }
 
+		// The render pass the ImGui overlay draws into. The overlay's
+		// draws are recorded into the frame's command buffer while this
+		// pass is still open, so the ImGui pipeline has to be the one
+		// this pass was created with.
+		[[nodiscard]] ::VkRenderPass GetPresentRenderPass() const { return m_RenderPassPresent; }
+
 			// The tonemapped target as an ImGui-sampleable view: the editor's
 			// viewport panel displays what the Final pass composites.
 			[[nodiscard]] ::VkImageView GetTonemapView() const { return m_TonemapView; }
@@ -293,12 +299,20 @@ namespace Forge {
 				::VkImageView albedoView, bool probeDraw);
 			[[nodiscard]] ::VkDescriptorSet BuildShadowSet(::VkBuffer objectBuffer, size_t objectOffset);
 
-			// One fullscreen-pass set from the frame pool: binding order is
-			// the layout's (views, samplers, UBOs as declared).
-			[[nodiscard]] ::VkDescriptorSet BuildPostSet(const DescriptorSetLayout& layout,
-				std::span<const ::VkImageView> views,
-				std::span<const ::VkSampler> samplers,
-				std::span<const VkDescriptorBufferInfo> buffers);
+		// One fullscreen-pass set from the frame pool: binding order is
+		// the layout's (views, samplers, UBOs as declared).
+		//
+		// `layouts` names the image layout each view is in, in the same
+		// order as `views`. A descriptor's imageLayout must match the
+		// layout the image is actually in: a colour target is
+		// SHADER_READ_ONLY_OPTIMAL, a depth target is
+		// DEPTH_STENCIL_READ_ONLY_OPTIMAL, and the validation layer
+		// rejects the draw when the two disagree.
+		[[nodiscard]] ::VkDescriptorSet BuildPostSet(const DescriptorSetLayout& layout,
+			std::span<const ::VkImageView> views,
+			std::span<const VkImageLayout> layouts,
+			std::span<const ::VkSampler> samplers,
+			std::span<const VkDescriptorBufferInfo> buffers);
 
 			void WriteCameraUniforms(const CameraParams& camera);
 			void WriteShadowParams(const CameraParams& camera);

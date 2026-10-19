@@ -31,6 +31,13 @@ Ref<FrameLoop> FrameLoop::Create(Device& device, Ref<Queue> queue, Swapchain& sw
 
 	VkCommandPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	// RESET_COMMAND_BUFFER_BIT: each frame's command buffer is recorded
+	// again the next time its image comes around, and a command buffer
+	// may only be re-recorded from the initial state - the pool has to
+	// allow resetting it individually. The frame that resets it is the
+	// one that waited for its fence, so it is the only one that is
+	// finished (see BeginFrame).
+	poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	poolInfo.queueFamilyIndex = loop->m_Queue->GetFamilyIndex();
 	if (functions.CreateCommandPool(device.Handle(), &poolInfo, nullptr, &loop->m_CommandPool) != VK_SUCCESS)
 	{
@@ -165,9 +172,19 @@ AcquireOutcome FrameLoop::BeginFrame(uint32_t& outImageIndex)
 	// buffer is executing is undefined - it corrupts the command stream and
 	// the driver answers with a GPU hang (VK_ERROR_DEVICE_LOST, measured on
 	// Intel after roughly 12 seconds of sustained rendering). One command
-	// buffer per image, and BeginCommandBuffer with ONE_TIME_SUBMIT resets
-	// exactly the buffer whose fence was waited above - the only one that
-	// is finished.
+	// buffer per image, and the buffer that is reset below is the one whose
+	// fence was waited above - the only one that is finished.
+	//
+	// The reset is explicit because that is what the spec requires: a
+	// command buffer may only be recorded again from the initial state,
+	// and VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT does not reset it -
+	// it only says the buffer is not to be submitted twice.
+	if (functions.ResetCommandBuffer(sync.CommandBuffer, 0) != VK_SUCCESS)
+	{
+		FG_CORE_ERROR("FrameLoop: command buffer reset failed");
+		return AcquireOutcome::Error;
+	}
+
 	VkCommandBufferBeginInfo beginInfo{};
 	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
