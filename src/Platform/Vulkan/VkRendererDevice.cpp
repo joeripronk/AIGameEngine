@@ -371,6 +371,7 @@ uint32_t VkRenderer::BeginFrame()
 	// recording into it is undefined behaviour the driver punishes with a
 	// crash (measured on NVIDIA at window close).
 	m_CurrentImageIndex = UINT32_MAX;
+	m_CurrentPoolIndex = UINT32_MAX;
 
 	if (!m_DeviceReady || !m_FrameLoop)
 		return UINT32_MAX;
@@ -383,18 +384,25 @@ uint32_t VkRenderer::BeginFrame()
 	if (outcome != AcquireOutcome::Ok && outcome != AcquireOutcome::Suboptimal)
 		return UINT32_MAX;
 
+	if (imageIndex >= PoolRingSize)
+	{
+		FG_CORE_ERROR("VkRenderer: swapchain image {0} outside the {1}-slot descriptor pool ring",
+			imageIndex, PoolRingSize);
+		return UINT32_MAX;
+	}
+
 	m_CurrentImageIndex = imageIndex;
-	m_ObjectSlot = 0;
+	m_CurrentPoolIndex = imageIndex;
+	m_ObjectSlot = imageIndex * ObjectSlotsPerFrame;   // this image's region of the object ring
 	m_SceneBegun = false;
 
-	// The frame's descriptor sets come from this slot's pool. The frame that
+	// The frame's descriptor sets come from this image's pool. The frame that
 	// last used it drew the image acquired above - its fence is what
 	// BeginFrame just waited - so resetting it now cannot touch a set any
 	// in-flight frame is reading.
-	DescriptorPool& pool = CurrentDescriptorPool();
+	DescriptorPool& pool = m_DescriptorPools[imageIndex];
 	if (pool.Handle() != VK_NULL_HANDLE)
 		(void)pool.Reset();
-	++m_FrameCounter;
 
 	return imageIndex;
 }
@@ -431,6 +439,7 @@ void VkRenderer::EndFrame(uint32_t imageIndex)
 
 	const PresentOutcome outcome = m_FrameLoop->EndFrame(imageIndex);
 	m_CurrentImageIndex = UINT32_MAX;   // the frame is closed; passes record nothing after this
+	m_CurrentPoolIndex = UINT32_MAX;
 	if (outcome == PresentOutcome::RebuildNextFrame)
 		FG_CORE_INFO("VkRenderer: present reported OUT_OF_DATE; swapchain rebuild scheduled by the app");
 }

@@ -452,8 +452,19 @@ namespace Forge {
 			// are an invalid offset from slot 2 onward - the write is refused
 			// and the shader reads garbage matrices, which is every draw
 			// discarded.
+			//
+			// The ring is split into one region per swapchain image, and a
+			// frame writes only inside the region of the image it draws: the
+			// frame that last used that region is the one whose fence
+			// BeginFrame waited. A ring that wraps across frames overwrites
+			// the object data of frames still in flight - with the probe
+			// redrawing the scene (6 + 1 + 1 draws per mesh) a 128-mesh frame
+			// needs 1024 slots, and 256 shared slots wrapped onto submitted
+			// frames every single frame.
 			static constexpr size_t ObjectSlotBytes = 256;
-			static constexpr uint32_t ObjectRingSize = 256;
+			static constexpr uint32_t PoolRingSize = 8;   // >= swapchain images
+			static constexpr uint32_t ObjectSlotsPerFrame = 1024;
+			static constexpr uint32_t ObjectRingSize = PoolRingSize * ObjectSlotsPerFrame;
 			::VkBuffer m_ObjectUbo = VK_NULL_HANDLE;
 			VmaAllocation m_ObjectUboAlloc = nullptr;
 			void* m_ObjectUboData = nullptr;
@@ -496,16 +507,19 @@ namespace Forge {
 			::VkPipelineLayout m_LayoutIrradiance = VK_NULL_HANDLE;
 			::VkPipelineLayout m_LayoutPrefilter = VK_NULL_HANDLE;
 
-			// Descriptor layouts + a pool per frame slot (Phase 4 accounting).
+			// Descriptor layouts + a pool per swapchain image (Phase 4 accounting).
 			//
 			// A pool reset frees its sets, so it may only run once the frame
 			// that allocated them has finished on the GPU. BeginFrame has just
 			// waited the fence of the image it acquired - the frame that drew
-			// that image four frames ago - so the pool *that frame* used is the
-			// safe one to reset and reuse. One pool is one frame in flight
-			// waiting to be corrupted.
-			static constexpr uint32_t PoolRingSize = 4;   // >= swapchain images
-			[[nodiscard]] DescriptorPool& CurrentDescriptorPool() { return m_DescriptorPools[m_FrameCounter % PoolRingSize]; }
+			// that image imageCount frames ago - so the pool *that frame* used
+			// is the safe one to reset and reuse. Indexing the ring by anything
+			// other than the image index shifts the reset one frame early: the
+			// sets it destroys are still in flight, and the GPU reading them
+			// faults the context (VK_ERROR_DEVICE_LOST, measured on Intel with
+			// the probe + shadow chain keeping the GPU several frames behind).
+			// One pool is one frame in flight waiting to be corrupted.
+			[[nodiscard]] DescriptorPool& CurrentDescriptorPool() { return m_DescriptorPools[m_CurrentPoolIndex]; }
 			DescriptorSetLayout m_SetLayoutPbr;
 			DescriptorSetLayout m_SetLayoutShadow;
 			DescriptorSetLayout m_SetLayoutSsao;
@@ -515,7 +529,7 @@ namespace Forge {
 			DescriptorSetLayout m_SetLayoutIrradiance;
 			DescriptorSetLayout m_SetLayoutPrefilter;
 			std::array<DescriptorPool, PoolRingSize> m_DescriptorPools;
-			uint32_t m_FrameCounter = 0;
+			uint32_t m_CurrentPoolIndex = UINT32_MAX;   // == image index while a frame is begun
 
 			// Vertex layouts (Phase 4, from the CPU struct).
 			VertexLayout m_VertexLayoutMesh;

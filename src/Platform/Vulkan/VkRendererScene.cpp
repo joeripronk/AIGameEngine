@@ -336,9 +336,11 @@ void VkRenderer::DrawObject(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTex
 		return;
 
 	// One ring slot per draw: the descriptor's range points the shader's
-	// ObjectData at this draw's copy.
+	// ObjectData at this draw's copy. The ring wraps inside this image's
+	// region only, so a submitted frame's data is never overwritten.
 	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * ObjectSlotBytes;
-	m_ObjectSlot = (m_ObjectSlot + 1U) % ObjectRingSize;
+	const uint32_t regionBase = m_CurrentImageIndex * ObjectSlotsPerFrame;
+	m_ObjectSlot = regionBase + (m_ObjectSlot + 1U - regionBase) % ObjectSlotsPerFrame;
 	ObjectData data{};
 	data.Transform = object.Model;
 	data.NormalMatrix = glm::mat4(object.NormalMatrix);
@@ -407,7 +409,8 @@ void VkRenderer::DrawShadowObject(const Ref<Mesh>& mesh, const glm::mat4& model)
 		return;
 
 	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * ObjectSlotBytes;
-	m_ObjectSlot = (m_ObjectSlot + 1U) % ObjectRingSize;
+	const uint32_t regionBase = m_CurrentImageIndex * ObjectSlotsPerFrame;
+	m_ObjectSlot = regionBase + (m_ObjectSlot + 1U - regionBase) % ObjectSlotsPerFrame;
 	ObjectData data{};
 	data.Transform = model;
 	data.NormalMatrix = glm::mat4(glm::mat3(1.0f));
