@@ -77,10 +77,14 @@ bool Instance::Create(const CreateInfo& createInfo)
 
 	VkDebugUtilsMessengerCreateInfoEXT messengerInfo{};
 	messengerInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+	// Warning and error only. The layer's info severity carries its
+	// verbose loader chatter - every layer manifest it looks for, every
+	// ICD it registers - which is a hundred lines about nothing at
+	// startup. A spec violation is reported as a warning or an error, so
+	// those are the two that are worth the console.
 	messengerInfo.messageSeverity =
 		VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-		VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-		VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT;
+		VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
 	messengerInfo.messageType =
 		VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
 		VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |

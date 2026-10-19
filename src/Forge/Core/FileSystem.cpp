@@ -13,6 +13,16 @@ namespace Forge {
 		std::ifstream stream(path, std::ios::binary | std::ios::ate);
 		if (!stream.is_open())
 		{
+			// A file that is not there is a normal answer, not a failure:
+			// the pipeline cache before the first run, an optional asset, a
+			// layout that was never saved. Anything else - a directory, a
+			// permission problem, a broken path - is worth reporting.
+			std::error_code ec;
+			if (!std::filesystem::exists(path, ec))
+			{
+				FG_CORE_TRACE("FileSystem: '{0}' does not exist", path.string());
+				return false;
+			}
 			FG_CORE_ERROR("FileSystem: could not open '{0}'", path.string());
 			return false;
 		}
