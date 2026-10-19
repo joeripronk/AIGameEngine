@@ -34,6 +34,19 @@ constexpr float kBlockZ = -0.44f;
 // blocks rather than one merged slab.
 constexpr float kBlockScale = 0.92f;
 
+// Depth of a block along z, in world units. The mesh is a unit cube scaled by
+// kBlockScale on every axis, so at kBlockScale the block is 0.92 deep and
+// protrudes most of the way out of the playfield plane. The main scene pass
+// occludes by a per-object centroid sort (no per-pixel depth test), which is
+// only correct for geometry that does not overlap on screen: a cube this deep
+// leans toward the angled camera and covers the row above it, and the centroid
+// behind it decides the draw order, so a lower block paints over the row it
+// belongs behind. Keeping the block a shallow slab - deep enough for the top
+// faces and bevels to catch the key light and read as solid, shallow enough
+// that neighbours tile the plane without overlapping - is what makes the sort
+// agree with what the eye expects.
+constexpr float kBlockDepth = 0.45f;
+
 // A jump longer than this is a new piece appearing at the top, not a block
 // moving: easing it from where the last one landed reads as the piece flying
 // back up the well.
@@ -618,13 +631,13 @@ void BoardView::SyncBoardEntities()
 			Forge::Entity entity = m_Scene->CreateEntity(ClearingBlockName(col, row));
 			auto& transform = entity.GetComponent<Forge::TransformComponent>();
 			transform.Translation = from;
-			transform.Scale = glm::vec3(kBlockScale);
+			transform.Scale = glm::vec3(kBlockScale, kBlockScale, kBlockDepth);
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
 			material.Albedo = pieceColor;
 			material.Metallic = kBlockMetallic;
 			material.Roughness = kBlockRoughness;
-			material.AO = 1.0f;
+			material.AO = kBlockAO;
 			material.Emissive = pieceColor;
 			material.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -696,13 +709,13 @@ void BoardView::SyncBoardEntities()
 				// not adding a second one.
 				auto& transform = entity.GetComponent<Forge::TransformComponent>();
 				transform.Translation = from;
-				transform.Scale = glm::vec3(kBlockScale);
+				transform.Scale = glm::vec3(kBlockScale, kBlockScale, kBlockDepth);
 
 				auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
 				material.Albedo = color;
 				material.Metallic = kBlockMetallic;
 				material.Roughness = kBlockRoughness;
-				material.AO = 1.0f;
+				material.AO = kBlockAO;
 				material.Emissive = color;
 				material.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -723,7 +736,7 @@ void BoardView::SyncBoardEntities()
 			cachedMaterial.Albedo = color;
 			cachedMaterial.Metallic = kBlockMetallic;
 			cachedMaterial.Roughness = kBlockRoughness;
-			cachedMaterial.AO = 1.0f;
+			cachedMaterial.AO = kBlockAO;
 			cachedMaterial.Emissive = color;
 			cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -819,13 +832,13 @@ void BoardView::SyncPieceEntities()
 			Forge::Entity entity = m_Scene->CreateEntity("TetBlock_Piece" + std::to_string(slot));
 			auto& transform = entity.GetComponent<Forge::TransformComponent>();
 			transform.Translation = target;
-			transform.Scale = glm::vec3(kBlockScale);
+			transform.Scale = glm::vec3(kBlockScale, kBlockScale, kBlockDepth);
 
 			auto& material = entity.AddComponent<Forge::PBRMaterialComponent>();
 			material.Albedo = color;
 			material.Metallic = kBlockMetallic;
 			material.Roughness = kBlockRoughness;
-			material.AO = 1.0f;
+			material.AO = kBlockAO;
 			material.Emissive = color;
 			material.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -843,7 +856,7 @@ void BoardView::SyncPieceEntities()
 		cachedMaterial.Albedo = color;
 		cachedMaterial.Metallic = kBlockMetallic;
 		cachedMaterial.Roughness = kBlockRoughness;
-		cachedMaterial.AO = 1.0f;
+		cachedMaterial.AO = kBlockAO;
 		cachedMaterial.Emissive = color;
 		cachedMaterial.EmissiveIntensity = kBlockEmissiveIntensity;
 
@@ -1013,7 +1026,8 @@ void BoardView::AdvanceClearAnimations(float dt)
 		{
 			auto& transform = cb.Entity.GetComponent<Forge::TransformComponent>();
 			transform.Translation = glm::mix(cb.From, cb.To, StrikeEase(travel));
-			transform.Scale = glm::vec3(kBlockScale * (1.0f - clear));
+			transform.Scale = glm::vec3(kBlockScale * (1.0f - clear), kBlockScale * (1.0f - clear),
+				kBlockDepth * (1.0f - clear));
 
 			// The row lights up as it goes out. The flash lives on the
 			// emissive term, because pbr.frag multiplies albedo into the

@@ -16,6 +16,8 @@
 #include <cstdlib>
 #include <cctype>
 #include <string>
+#include <chrono>
+#include <thread>
 
 namespace Tetris {
 
@@ -70,7 +72,10 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 
 	// Supersample the offscreen pass so Tetris blocks read with crisper edges
 	// without asking the engine to know this is Tetris.
-	Forge::Renderer::SetRenderScale(2.0f);
+	float renderScale = 2.0f;
+	if (const char* rs = std::getenv("FG_RENDER_SCALE"))
+		renderScale = std::atof(rs);
+	Forge::Renderer::SetRenderScale(renderScale);
 	Forge::Renderer::Init();
 
 	// Mirror-polish the blocks: redraw the scene from the playfield centre into
@@ -266,8 +271,21 @@ void TetrisApp::ApplyViewLayout()
 	auto& lightComponent = m_LightEntity.GetComponent<Forge::LightComponent>();
 	if (m_ThreeDimensional)
 	{
-		lightComponent.Intensity = 2.2f;
-		lightComponent.Direction = glm::normalize(glm::vec3(0.6f, 0.5f, 0.6f));
+		// A bright key light overexposes the lit faces, and ACES tonemapping
+		// rolls an overexposed saturated colour toward white - the pastel wash.
+		// Keeping the key near 1.0 stops the top faces blowing out, so the
+		// albedo reads as the block's own colour and the shadowed faces stay
+		// dark against it.
+		//
+		// The key comes from the front and only grazes the sides. pbr.frag
+		// shades each face by NdotL, so a direction with equal X and Z lights
+		// the front (normal +Z) and the side (normal +X) by the same amount and
+		// every face reads the same brightness - a flat, featureless cube.
+		// Loading Z (front, facing the camera) and pulling X back (side) makes
+		// the front the brightest face, the top a lit bevel, and the sides fall
+		// into shade, which is the lit/shadow face split that reads as depth.
+		lightComponent.Intensity = 1.6f;
+		lightComponent.Direction = glm::normalize(glm::vec3(0.22f, 0.40f, 0.90f));
 	}
 	else
 	{
@@ -564,18 +582,34 @@ void TetrisApp::Run()
 			autoExitFrames = static_cast<uint64_t>(parsed);
 	}
 
+	// Frame pacing. A real window is paced by the swapchain's present, which
+	// blocks until an image is free; with a software driver (headless capture,
+	// CI) present never blocks, so the loop runs as fast as the CPU allows and
+	// burns a whole core submitting frames the GPU can never drain. Cap the
+	// loop to a target frame rate so the automation does not peg the machine.
+	double targetFps = 60.0;
+	if (const char* fps = std::getenv("FG_TARGET_FPS"))
+		targetFps = std::atof(fps);
+	const double frameBudget = targetFps > 0.0 ? 1.0 / targetFps : 0.0;
+
 	// DIAGNOSTIC ONLY: fill the board so a capture shows every tile at once.
 	// Applied after the first Update, because StartGame() clears the board.
 
 	while (IsRunning())
 	{
 		FG_PROFILE_SCOPE("Frame");
-		const float time = static_cast<float>(Forge::Time::GetTime());
+		const double frameStart = Forge::Time::GetTime();
+		const float time = static_cast<float>(frameStart);
 		const float frameTime = time - lastFrameTime;
 		lastFrameTime = time;
 
 		// Advance the game and mirror it into the scene before anything draws.
 		m_BoardView.Update(frameTime);
+
+		// DIAGNOSTIC ONLY: start the game headless (no key to press), so the
+		// board fills, lines clear and blocks are created and destroyed.
+		if (std::getenv("FG_AUTOSTART") && m_FrameCount == 0)
+			m_BoardView.GetManager().StartGame();
 
 		// DIAGNOSTIC ONLY: fill the board so a capture shows every tile at once.
 		// Seeded after an Update so StartGame() has already cleared the board.
@@ -749,6 +783,16 @@ void TetrisApp::Run()
 		{
 			FG_INFO("Tetris: ran {0} frames", m_FrameCount);
 			Close();
+		}
+
+		// Sleep out the rest of the frame budget. Only when the frame ran
+		// faster than the budget: a frame that already overran (a slow
+		// software render) is not made slower.
+		if (frameBudget > 0.0)
+		{
+			const double spent = Forge::Time::GetTime() - frameStart;
+			if (spent < frameBudget)
+				std::this_thread::sleep_for(std::chrono::duration<double>(frameBudget - spent));
 		}
 	}
 

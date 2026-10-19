@@ -842,6 +842,12 @@ namespace Forge {
 		// resource writes (buffer uploads) or draw calls are recorded.
 		s_CommandList->open();
 
+		// Build the post-pass samplers/binding sets once, from the depth texture
+		// the PBR pass produced, so the passes reuse them instead of creating a
+		// dozen new nvrhi resources every frame.
+		if (s_PbrRenderer && s_PbrRenderer->IsValid())
+			VulkanRendererAPI::BuildPostPassResources(s_PbrRenderer->GetDepthTexture());
+
 		// Flush the static fullscreen quad's vertex/index data on the first
 		// frame; subsequent frames have nothing pending.
 		FlushPendingUploads(s_FullscreenQuad);

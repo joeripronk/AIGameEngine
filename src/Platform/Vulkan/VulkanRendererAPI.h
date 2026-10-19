@@ -85,6 +85,11 @@ namespace Forge {
 		static nvrhi::DeviceHandle GetStaticDevice() { return s_Device; }
 		static nvrhi::CommandListHandle GetStaticCommandList() { return s_CommandList; }
 
+		// Builds the post-pass samplers and binding sets once, from the current
+		// targets. Safe to call every frame: a no-op once built, and the resize
+		// path clears the flag so they are rebuilt for the new size.
+		static void BuildPostPassResources(nvrhi::TextureHandle depthTexture);
+
 		static VkInstance GetInstance() { return s_Instance; }
 		static VkSurfaceKHR GetSurface() { return s_Surface; }
 		static VkPhysicalDevice GetPhysicalDevice() { return s_PhysicalDevice; }
@@ -231,5 +236,27 @@ namespace Forge {
 
 		// Vertex layout for the fullscreen quad shared by the post passes.
 		static nvrhi::InputLayoutHandle s_FullscreenInputLayout;
+
+		// Post-pass samplers and binding sets. The post passes read the same
+		// targets every frame (HDR, bloom, tonemapped, SSAO) through the same
+		// samplers, so these are built once and reused. Building them per frame
+		// creates a dozen new nvrhi resources each frame; every one is added to
+		// the command list's referenced-resources list (kept alive until the GPU
+		// finishes) and to the device's resource registry, so a frame that
+		// creates them grows memory that only the GPU-finish garbage collection
+		// ever frees - which lags on a software driver, and the heap climbs for
+		// the whole session.
+		static nvrhi::SamplerHandle s_SSAOSampler;
+		static nvrhi::SamplerHandle s_BloomSampler;
+		static nvrhi::SamplerHandle s_HDRSampler;
+		static nvrhi::SamplerHandle s_FinalSampler;
+		static nvrhi::BindingSetHandle s_SSAOSet;
+		static nvrhi::BindingSetHandle s_BloomDownsampleSet;
+		static nvrhi::BindingSetHandle s_BloomBlurSet0;
+		static nvrhi::BindingSetHandle s_BloomBlurSet1;
+		static nvrhi::BindingSetHandle s_BloomBlurSet2;
+		static nvrhi::BindingSetHandle s_HDRSet;
+		static nvrhi::BindingSetHandle s_FinalSet;
+		static bool s_PostSetsBuilt;
 	};
 	}

@@ -90,7 +90,12 @@ if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
         for icd in /usr/share/vulkan/icd.d/lvp_icd*.json /usr/share/vulkan/icd.d/*llvmpipe*.json; do
             if [ -f "$icd" ]; then
                 export VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd"
-                echo "Forcing software Vulkan: $icd"
+                # The software rasteriser spawns one thread per core by default;
+                # a headless check that forces it then pegs every core. Cap it to
+                # one so the check uses a core, not the machine.
+                export LP_NUM_THREADS="${LP_NUM_THREADS:-1}"
+                export LAVAPIPE_NUM_THREADS="${LAVAPIPE_NUM_THREADS:-1}"
+                echo "Forcing software Vulkan: $icd (1 raster thread)"
                 break
             fi
         done

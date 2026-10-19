@@ -36,9 +36,18 @@ namespace Tetris {
 // block read as a solid, and feeds far less energy into the bloom pass. A
 // tighter roughness with a touch more metallic gives the top faces and the gaps
 // between blocks a crisp edge glint, which is where the 3D shape is legible.
-constexpr float kBlockMetallic = 0.35f;
-constexpr float kBlockRoughness = 0.32f;
-constexpr float kBlockEmissiveIntensity = 0.08f;
+//
+// AO is the lever on the ambient/IBL lift. pbr.frag multiplies both the flat
+// ambient and the diffuse IBL by AO, and the IBL irradiance is a bright neutral
+// environment, so AO=1 paints every face - including the ones turned away from
+// the key light - at full albedo. That is the pastel wash: no face is dark, so
+// nothing reads as a solid with a lit side and a shadowed side. Pulling AO down
+// darkens the ambient term, the unlit faces fall into shadow, and the saturated
+// albedo survives on the lit faces instead of being lifted toward white.
+constexpr float kBlockMetallic = 0.55f;
+constexpr float kBlockRoughness = 0.22f;
+constexpr float kBlockEmissiveIntensity = 0.04f;
+constexpr float kBlockAO = 0.55f;
 
 // Albedo is white because the theme's art supplies the colour.
 //
