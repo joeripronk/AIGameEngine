@@ -357,11 +357,18 @@ endif()
 target_compile_definitions(ForgeCore PRIVATE STBI_STATIC STB_IMAGE_IMPLEMENTATION)
 
 target_link_libraries(ForgeCore PUBLIC lua)
+# spdlog/fmt are PUBLIC because ForgeCore's own public headers include them
+# (Log.h pulls in <spdlog/spdlog.h>). A consumer that does not inherit
+# SPDLOG_COMPILED_LIB compiles spdlog header-only into its own objects, and
+# the linker then finds the compiled spdlog/fmt symbols twice - once in the
+# consumer's objects, once in spdlog::spdlog/fmt::fmt. The vulkan target
+# includes fgpch.h and hit exactly that.
 target_link_libraries(ForgeCore
-    PRIVATE
-        glfw
+    PUBLIC
         spdlog::spdlog
         fmt::fmt
+    PRIVATE
+        glfw
         miniaudio
         yaml-cpp
         assimp
