@@ -685,6 +685,17 @@ namespace Forge {
 		FG_CORE_TRACE("Physics body positions updated ({0} bodies)", s_Bodies.size());
 	}
 
+	bool Physics::RaycastDistance(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
+		glm::vec3& hitPosition, glm::vec3& hitNormal, float& hitDistance, uint64_t& hitBodyID)
+	{
+		if (!Raycast(origin, direction, maxDistance, hitPosition, hitNormal, hitBodyID))
+			return false;
+
+		// The distance is the length of the line from the origin to the hit.
+		hitDistance = glm::length(hitPosition - origin);
+		return true;
+	}
+
 	bool Physics::Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal, uint64_t& hitBodyID)
 	{
 		float rayLength = glm::length(direction);

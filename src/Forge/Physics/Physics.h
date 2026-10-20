@@ -52,6 +52,12 @@ namespace Forge {
 
 		// Collision queries
 		static bool Raycast(const glm::vec3& origin, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal, uint64_t& hitBodyID);
+
+		// The same question, with the distance: "what is in front of me, and
+		// how far away is it". The distance is what a character measures its
+		// step by.
+		static bool RaycastDistance(const glm::vec3& origin, const glm::vec3& direction, float maxDistance,
+			glm::vec3& hitPosition, glm::vec3& hitNormal, float& hitDistance, uint64_t& hitBodyID);
 		static bool SphereCast(const glm::vec3& origin, float radius, const glm::vec3& direction, float maxDistance, glm::vec3& hitPosition, glm::vec3& hitNormal);
 
 		// Accessors

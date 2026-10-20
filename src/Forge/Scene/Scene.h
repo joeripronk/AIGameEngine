@@ -58,6 +58,10 @@ namespace Forge {
 		// Advances the animations on the entities that have them and writes
 		// their values onto the entities.
 		void UpdateAnimations(Timestep ts);
+
+		// Moves the characters: the game says how fast they walk, and the
+		// controller resolves the move against the world's static geometry.
+		void UpdateCharacterControllers(Timestep ts);
 		void OnUpdateSimulation(Timestep ts);
 		void OnUpdateEditor(Timestep ts);
 		void OnViewportResize(uint32_t width, uint32_t height);

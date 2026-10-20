@@ -107,6 +107,8 @@ target_sources(ForgeCore
         Forge/Project/ProjectSerializer.h
         Forge/Project/ProjectSerializer.cpp
         Forge/Physics/Physics.h
+        Forge/Physics/CharacterController.h
+        Forge/Physics/CharacterController.cpp
         Forge/Physics/Physics.cpp
         Forge/Scripting/ScriptEngine.h
         Forge/Scripting/ScriptEngine.cpp

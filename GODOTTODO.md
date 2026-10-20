@@ -96,7 +96,7 @@ target over a duration, with an easing curve, delay, looping and chaining.
   service that runs them: start, update, cancel.
 - The curves and the interpolation are pure and unit-tested.
 
-### 5. [ ] A character controller and a raycast shape (`Forge/Physics/`)
+### 5. [x] A character controller and a raycast shape (`Forge/Physics/`)
 
 **Godot has** `CharacterBody3D` (a capsule that walks, slides, climbs steps
 and sticks to slopes) and `RayCast3D` / `ShapeCast3D` for line of sight.
@@ -108,7 +108,8 @@ about the world's static geometry. Nothing walks.
 - A kinematic body moves with a velocity, slides along what it hits, climbs
   steps and does not climb slopes that are too steep - the movement maths is
   pure and unit-tested.
-- A raycast shape answers "what is in front of me", with a hit distance.
+- A raycast answers "what is in front of me", with a hit distance
+  (`Physics::RaycastDistance`).
 
 ---
 

@@ -17,6 +17,7 @@ target_sources(ForgeTests
         src/UndoStackTests.cpp
         src/AnimationTests.cpp
         src/TweenTests.cpp
+        src/CharacterControllerTests.cpp
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp

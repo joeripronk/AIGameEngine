@@ -3,6 +3,7 @@
 #include "Forge/Core/UUID.h"
 #include "Forge/Renderer/Texture.h"
 #include "Forge/Scene/Animation.h"
+#include "Forge/Physics/CharacterController.h"
 #include "Forge/Audio/AudioEngine.h"
 
 #include <glm/glm.hpp>
@@ -316,6 +317,38 @@ namespace Forge {
 		AnimationComponent() = default;
 		AnimationComponent(const AnimationComponent&) = default;
 		explicit AnimationComponent(const AnimationClip& clip) : Clip(clip) {}
+	};
+
+	// A character: a body that walks.
+	//
+	// The game says how fast it walks; the controller moves the entity and
+	// resolves the move against the world's static geometry. It is not a
+	// rigid body: a character is moved by the game and the world moves out
+	// of its way, which is what lets it slide along a wall and climb a step
+	// without any of that turning into momentum.
+	struct CharacterControllerComponent
+	{
+		// How fast it walks, in world units per second. The vertical part is
+		// the game's too: the controller adds the gravity to it.
+		glm::vec3 Velocity = glm::vec3(0.0f);
+
+		// The shape and the rules it walks by.
+		CharacterShape Shape;
+		CharacterSettings Settings;
+
+		// Whether it is standing on something. The game reads it to know
+		// whether to jump, and the controller uses it to know whether the
+		// gravity applies.
+		bool OnFloor = false;
+
+		// Whether the gravity pulls it down. A flying character turns it
+		// off.
+		bool UseGravity = true;
+
+		// How fast it is falling. The gravity changes it, and landing sets
+		// it back to zero - a character that keeps the speed it had when
+		// it landed jumps again by itself.
+		float FallSpeed = 0.0f;
 	};
 
 	// Registers every engine component with the TypeRegistry (idempotent).

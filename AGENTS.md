@@ -1581,6 +1581,28 @@ it. Kinematic bodies never sleep.
 Positional correction is weighted by inverse mass, so when one partner is
 immovable the movable body absorbs the entire correction rather than half of it.
 
+### The character controller
+
+A character is not a rigid body: the game says how fast it walks, and the
+world moves out of its way. That is what lets it slide along a wall and
+climb a step without any of that turning into momentum.
+
+```cpp
+Forge::Character::Move(position, velocity * dt, shape, settings, obstacles);
+```
+
+- **The movement is swept, not sampled.** A character that walks five metres
+  in one frame ends up *past* a wall, and a test of the position it ends up
+  in finds nothing to collide with. The wall is in the way the whole way.
+- **The horizontal axes are moved one at a time.** A character that is
+  stopped on one of them still moves on the other: that is what sliding
+  along a wall is.
+- **A step is a step and a wall is a wall.** An obstacle whose top is
+  within the step height is climbed; a taller one stops the character.
+- The movement maths is pure and unit-tested, and the component that uses
+  it resolves the move against the world's *static* geometry: the dynamic
+  bodies are moved by the physics and are not part of it.
+
 ### Continuous collision detection
 
 Discrete detection only tests overlaps at step boundaries, so a fast body passes

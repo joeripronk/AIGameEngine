@@ -5,6 +5,7 @@
 
 #include "Forge/Scene/Components.h"
 #include "Forge/Core/Tween.h"
+#include "Forge/Physics/CharacterController.h"
 
 #include <cmath>
 #include "Forge/Renderer/CpuMesh.h"
@@ -186,6 +187,10 @@ namespace Forge {
 			// way round.
 			UpdateAnimations(ts);
 
+			// The characters move before the scripts run, so a script reads
+			// where the character ended up.
+			UpdateCharacterControllers(ts);
+
 			// The tweens run on the same clock: a tween is a movement that
 			// takes time, and the frame is what says how much time passed.
 			Tweens::Update(ts);
@@ -290,6 +295,56 @@ namespace Forge {
 			}
 
 			Animation::Apply(entity, animation.Clip, animation.Time);
+		}
+	}
+
+	void Scene::UpdateCharacterControllers(Timestep ts)
+	{
+		// The static geometry the characters walk into. The world's boxes are
+		// what a character collides with; the dynamic bodies are moved by the
+		// physics and are not part of it.
+		std::vector<glm::vec3> minima;
+		std::vector<glm::vec3> maxima;
+		for (const PhysicsBody* body : Physics::GetBodies())
+		{
+			if (!body || !body->IsStatic)
+				continue;
+
+			minima.push_back(body->GetAABBBottomLeft());
+			maxima.push_back(body->GetAABBBottomRight());
+		}
+		const std::vector<CharacterObstacle> obstacles = Character::CollectObstacles(minima, maxima);
+
+		auto view = m_Registry.view<CharacterControllerComponent>();
+		for (auto e : view)
+		{
+			Entity entity = { e, this };
+			CharacterControllerComponent& controller = view.get<CharacterControllerComponent>(e);
+
+			if (!entity.HasComponent<TransformComponent>())
+				continue;
+
+			TransformComponent& transform = entity.GetComponent<TransformComponent>();
+
+			// The gravity: a character that is not on the floor falls, and
+			// the speed it falls at builds up until it lands.
+			if (controller.UseGravity && !controller.OnFloor)
+				controller.FallSpeed += Physics::GetGravityY() * ts;
+
+			glm::vec3 velocity = controller.Velocity;
+			velocity.y += controller.FallSpeed;
+
+			const glm::vec3 displacement = velocity * ts.GetSeconds();
+			const CharacterMoveResult result = Character::Move(transform.Translation, displacement,
+				controller.Shape, controller.Settings, obstacles);
+
+			transform.Translation = result.Position;
+			controller.OnFloor = result.OnFloor;
+
+			// A character that has landed does not keep the speed it had
+			// when it landed: it would jump again by itself.
+			if (result.OnFloor && controller.FallSpeed < 0.0f)
+				controller.FallSpeed = 0.0f;
 		}
 	}
 
