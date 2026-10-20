@@ -118,6 +118,15 @@ namespace Forge {
 		}
 		row.AddComponent<PBRMaterialComponent>().Albedo = { 0.3f, 0.6f, 0.9f };
 
+		// A label: text in the world.
+		auto label = m_Scene->CreateEntity("Label");
+		label.GetComponent<TransformComponent>().Translation = { 0.0f, 2.5f, 0.0f };
+		label.AddComponent<MeshComponent>();
+		auto& text = label.AddComponent<LabelComponent>();
+		text.Text = "Forge Runtime";
+		text.Size = 0.1f;
+		label.AddComponent<PBRMaterialComponent>().Albedo = { 1.0f, 0.9f, 0.6f };
+
 		// A scripted entity so the runtime exercises the Lua pipeline.
 		auto scripted = m_Scene->CreateEntity("ScriptedMover");
 		scripted.GetComponent<TransformComponent>().Translation = { 3.0f, 0.5f, 0.0f };

@@ -22,6 +22,7 @@ target_sources(ForgeTests
         src/LocalizationTests.cpp
         src/LODTests.cpp
         src/MultiMeshTests.cpp
+        src/LabelTests.cpp
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp

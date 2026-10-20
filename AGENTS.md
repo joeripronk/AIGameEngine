@@ -900,6 +900,27 @@ replaced was sized for no particular map: large enough to peter-pan a fine map,
 too small to clear a grazing surface on a coarse one - which is a checkerboard
 of lit and shadowed blocks, and reads as textures appearing on random cells.
 
+### Text in the world
+
+A label is text placed in the world: a score that floats over a block, a
+sign on a wall, a name over a character.
+
+```cpp
+auto& label = entity.AddComponent<LabelComponent>();
+label.Text = "Score: 100";
+label.Size = 0.05f;      // the world units per pixel of the font
+label.Billboard = true;   // the label turns to face the camera
+```
+
+The engine's font is a built-in vector font, so the glyphs are quads: a
+label needs no texture and no blending, and it is drawn by the same path
+as any other mesh. The label's colour is the entity's material, so a
+label is coloured the same way a cube is.
+
+The label rebuilds its mesh when the text changes and not otherwise - a
+label that is rebuilt every frame is a label that is uploaded every
+frame.
+
 ### Instanced rendering
 
 One mesh in many places, one draw call.

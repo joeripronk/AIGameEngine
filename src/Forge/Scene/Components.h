@@ -4,6 +4,7 @@
 #include "Forge/Renderer/Texture.h"
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scene/Animation.h"
+#include "Forge/UI/Label.h"
 #include "Forge/Physics/CharacterController.h"
 #include "Forge/Audio/AudioEngine.h"
 

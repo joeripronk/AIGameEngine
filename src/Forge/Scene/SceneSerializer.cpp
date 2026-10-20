@@ -167,6 +167,7 @@ namespace Forge {
 				"ScriptComponent", "RigidbodyComponent", "BoxColliderComponent",
 				"SphereColliderComponent", "LightComponent",
 				"PBRMaterialComponent", "MeshComponent", "MultiMeshComponent",
+				"LabelComponent",
 				"EnvironmentMapComponent", "AudioSourceComponent"
 			};
 
@@ -361,6 +362,18 @@ namespace Forge {
 			out << YAML::EndMap;
 		}
 
+		if (entity.HasComponent<LabelComponent>())
+		{
+			const LabelComponent& label = entity.GetComponent<LabelComponent>();
+
+			out << YAML::Key << "LabelComponent";
+			out << YAML::BeginMap;
+			out << YAML::Key << "Text" << YAML::Value << label.Text;
+			out << YAML::Key << "Size" << YAML::Value << label.Size;
+			out << YAML::Key << "Billboard" << YAML::Value << label.Billboard;
+			out << YAML::EndMap;
+		}
+
 		if (entity.HasComponent<MultiMeshComponent>())
 		{
 			const MultiMeshComponent& multi = entity.GetComponent<MultiMeshComponent>();
@@ -493,6 +506,15 @@ namespace Forge {
 			tc.Translation = DecodeVec3(transformComponent["Translation"], tc.Translation);
 			tc.Rotation = DecodeVec3(transformComponent["Rotation"], tc.Rotation);
 			tc.Scale = DecodeVec3(transformComponent["Scale"], tc.Scale);
+		}
+
+		if (HasNode(entityNode, "LabelComponent"))
+		{
+			auto labelNode = entityNode["LabelComponent"];
+			auto& label = deserializedEntity.AddComponent<LabelComponent>();
+			label.Text = GetString(labelNode, "Text", "");
+			label.Size = GetFloat(labelNode, "Size", 0.01f);
+			label.Billboard = GetBool(labelNode, "Billboard", true);
 		}
 
 		if (HasNode(entityNode, "MultiMeshComponent"))

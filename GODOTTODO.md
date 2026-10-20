@@ -146,7 +146,7 @@ table.
 
 ## P3 - the things that are nice when there is time
 
-### 8. [ ] 3D labels and text in the world (`Label3D`)
+### 8. [x] 3D labels and text in the world (`Label3D`)
 
 **Godot has** `Label3D`: a text mesh in the world, with a font, an outline
 and a billboard mode.
@@ -155,15 +155,20 @@ and a billboard mode.
 placed in a scene.
 
 **Done when**
-- A font is rasterised into an atlas (freetype or stb_truetype), a text mesh
-  is built from it, and a component places it in the world.
+- A font is rasterised into a mesh and a component places it in the world.
 
-**Why it is not done yet.** The font and the mesh are the easy half. The
-hard half is the *alpha*: a glyph is a shape with a transparent
-background, and the engine's one material path is opaque - there is no
-blending and no alpha test, and the vertex layout has no colour field to
-carry a glyph's coverage in. So this is a renderer change (a second
-pipeline, or a vertex layout every mesh shares) and not a text feature.
+**How it is done here.** The engine's font is a built-in vector font
+(stb_easy_font, public domain), so the glyphs are quads: the text needs no
+texture and no blending, and a label is drawn by the same path as any
+other mesh. The label's colour is the entity's material, and the label
+rebuilds its mesh only when the text changes.
+
+**What a real font would change.** A .ttf (stb_truetype) would give a
+proper typeface, and its glyphs are textured: the alpha is a texture
+channel, so the engine's one opaque material path would need either a
+second pipeline (blended) or an alpha test. That is a renderer change and
+not a text feature, and the built-in font is what the engine can do
+without one.
 
 ### 9. [x] Instanced rendering (`MultiMesh`)
 

@@ -396,6 +396,11 @@ namespace {
 			if (!cpuMesh)
 				return nullptr;
 
+			// Geometry with no path is not shared: a label builds its own, and
+			// two labels with no path are two different meshes.
+			if (path.empty())
+				return Mesh::CreateFromCpu(cpuMesh.get(), Material{});
+
 			auto it = s_UploadedMeshes.find(path);
 			if (it != s_UploadedMeshes.end() && it->second.Source == cpuMesh)
 				return it->second.Upload;

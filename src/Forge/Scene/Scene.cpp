@@ -191,6 +191,9 @@ namespace Forge {
 			// where the character ended up.
 			UpdateCharacterControllers(ts);
 
+			// The labels follow their text and face the camera.
+			UpdateLabels();
+
 			// The tweens run on the same clock: a tween is a movement that
 			// takes time, and the frame is what says how much time passed.
 			Tweens::Update(ts);
@@ -295,6 +298,55 @@ namespace Forge {
 			}
 
 			Animation::Apply(entity, animation.Clip, animation.Time);
+		}
+	}
+
+	void Scene::UpdateLabels()
+	{
+		// The labels: the mesh follows the text, and a label that faces the
+		// camera looks at it.
+		//
+		// The text is built into the entity's mesh, so a label is drawn by
+		// the same path as any other geometry.
+		Entity cameraEntity = GetPrimaryCameraEntity();
+		glm::vec3 cameraPosition = glm::vec3(0.0f);
+		bool haveCamera = false;
+		if (cameraEntity && cameraEntity.HasComponent<TransformComponent>())
+		{
+			cameraPosition = cameraEntity.GetComponent<TransformComponent>().Translation;
+			haveCamera = true;
+		}
+
+		auto view = m_Registry.view<LabelComponent, TransformComponent, MeshComponent>();
+		for (auto e : view)
+		{
+			LabelComponent& label = view.get<LabelComponent>(e);
+			MeshComponent& mesh = view.get<MeshComponent>(e);
+			TransformComponent& transform = view.get<TransformComponent>(e);
+
+			// The mesh is rebuilt when the text changes, and not otherwise:
+			// a label that is rebuilt every frame is a label that is uploaded
+			// every frame.
+			if (label.Text != label.BuiltText || label.Size != label.BuiltSize)
+			{
+				Ref<CpuMesh> built = BuildTextMesh(label.Text, label.Size);
+				label.MeshData = built;
+				label.BuiltText = label.Text;
+				label.BuiltSize = label.Size;
+
+				mesh.CpuMeshData = built;
+				// The uploaded mesh is of the old text: it has to go.
+				mesh.Mesh = nullptr;
+			}
+
+			if (!label.Billboard || !haveCamera)
+				continue;
+
+			// The label faces the camera: it turns around the world's up
+			// axis towards it, so the text stays upright.
+			const glm::vec3 toCamera = cameraPosition - transform.Translation;
+			const float yaw = std::atan2(toCamera.x, toCamera.z);
+			transform.Rotation = glm::vec3(0.0f, yaw, 0.0f);
 		}
 	}
 

@@ -42,6 +42,7 @@ namespace Forge {
 			FG_REGISTER_ENGINE_COMPONENT(AudioSourceComponent)
 			FG_REGISTER_ENGINE_COMPONENT(AnimationComponent)
 			FG_REGISTER_ENGINE_COMPONENT(MultiMeshComponent)
+			FG_REGISTER_ENGINE_COMPONENT(LabelComponent)
 			FG_REGISTER_ENGINE_COMPONENT(CharacterControllerComponent)
 
 #undef FG_REGISTER_ENGINE_COMPONENT

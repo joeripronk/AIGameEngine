@@ -62,6 +62,10 @@ namespace Forge {
 		// Moves the characters: the game says how fast they walk, and the
 		// controller resolves the move against the world's static geometry.
 		void UpdateCharacterControllers(Timestep ts);
+
+		// Rebuilds the labels whose text changed, and turns the ones that
+		// face the camera towards it.
+		void UpdateLabels();
 		void OnUpdateSimulation(Timestep ts);
 		void OnUpdateEditor(Timestep ts);
 		void OnViewportResize(uint32_t width, uint32_t height);
