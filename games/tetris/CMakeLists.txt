@@ -13,7 +13,32 @@
 # input arrives as a Tetris::Action, which is what lets the test target below
 # exercise the whole game with no window and no graphics device.
 
-add_executable(ForgeTetris)
+# On a phone the game is the package's native library: the system loads it
+# and calls its entry point, which is the platform's (the system's glue hands
+# the app over and the app runs).
+if(FG_ANDROID)
+    add_library(ForgeTetris SHARED)
+
+    # The NDK's own glue, compiled into the package's library.
+    #
+    # The system looks the glue's entry point up by name in the library it
+    # loads, and a static archive's member is only linked when something
+    # asks for it - so the glue has to be in the library itself, not in an
+    # archive beside it.
+    target_sources(ForgeTetris PRIVATE ${FORGE_ANDROID_GLUE_DIR}/android_native_app_glue.c)
+    target_include_directories(ForgeTetris PRIVATE ${FORGE_ANDROID_GLUE_DIR})
+
+    # The glue is the NDK's own code, and this build treats warnings as
+    # errors: the two warnings it draws are about the NDK's style (a
+    # function without a prototype, parameters it does not use), not about
+    # this engine's. They are silenced for that file alone - a flag on the
+    # target would silence them everywhere, including where they would be
+    # worth hearing.
+    set_source_files_properties(${FORGE_ANDROID_GLUE_DIR}/android_native_app_glue.c
+        PROPERTIES COMPILE_OPTIONS "-Wno-strict-prototypes;-Wno-unused-parameter")
+else()
+    add_executable(ForgeTetris)
+endif()
 
 target_include_directories(ForgeTetris
     PRIVATE
@@ -53,8 +78,10 @@ target_link_libraries(ForgeTetris
     PRIVATE
         ForgeApp
         imgui
-        glfw
 )
+if(NOT FG_ANDROID)
+    target_link_libraries(ForgeTetris PRIVATE glfw)
+endif()
 
 set_target_properties(ForgeTetris PROPERTIES
     CXX_STANDARD 20
@@ -82,9 +109,15 @@ endif()
 # the engine's tree:
 #
 #     file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/resources DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
-file(COPY ${CMAKE_SOURCE_DIR}/resources DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+# The resources are staged next to the binary on a desktop. On a phone they
+# are the package's assets, and the Gradle build puts them there.
+if(NOT FG_ANDROID)
+    file(COPY ${CMAKE_SOURCE_DIR}/resources DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+endif()
 
-install(TARGETS ForgeTetris RUNTIME DESTINATION bin)
+if(NOT FG_ANDROID)
+    install(TARGETS ForgeTetris RUNTIME DESTINATION bin)
+endif()
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -97,6 +130,11 @@ install(TARGETS ForgeTetris RUNTIME DESTINATION bin)
 #
 # Links ForgeCore, not ForgeApp: no window, no Vulkan, so this runs headless in
 # CI.
+#
+# A desktop program: the tests are built and run where the tests are, and a
+# phone is not where they are run.
+if(NOT FG_ANDROID)
+
 add_executable(ForgeTetrisTests)
 
 if(NOT TARGET Catch2::Catch2WithMain)
@@ -171,6 +209,7 @@ endif()
 
 # The scene authoring tool: it builds the scene the game ships with the
 # editor's own model, so what it writes is what the editor would write.
+if(NOT FG_ANDROID)
 add_executable(TetrisSceneAuthor)
 
 target_include_directories(TetrisSceneAuthor
@@ -207,10 +246,14 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_link_options(TetrisSceneAuthor PRIVATE /FORCE:MULTIPLE)
 endif()
 
+endif()  # NOT FG_ANDROID
+
 add_test(NAME ForgeTetrisTests COMMAND ForgeTetrisTests)
 set_tests_properties(ForgeTetrisTests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
+
+endif()  # NOT FG_ANDROID
 
 # The resize integration check: the game resizes its own window and the
 # frame it captures afterwards has to be the new size. The unit tests cannot

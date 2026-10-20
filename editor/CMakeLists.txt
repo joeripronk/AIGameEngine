@@ -1,39 +1,8 @@
 # Forge Editor
 add_executable(ForgeEditor)
 
-# Dear ImGui library (v1.91.9: split core translation units + backends/)
-add_library(imgui STATIC)
-target_sources(imgui PRIVATE
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_draw.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_tables.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_widgets.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_demo.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_glfw.cpp
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_vulkan.cpp
-)
-# ImGui's GLFW backend includes <GLFW/glfw3.h> without defining this itself, so
-# it picks up <GL/gl.h> - unlike our own sources, which define it at the
-# include. Measured: 281 preprocessed lines came from /usr/include/GL/. Only
-# the Vulkan backend is built, so nothing here actually reads them.
-target_compile_definitions(imgui PRIVATE GLFW_INCLUDE_NONE)
-target_include_directories(imgui PUBLIC
-    ${CMAKE_SOURCE_DIR}/vendor/imgui
-    ${CMAKE_SOURCE_DIR}/vendor/imgui/backends
-    ${CMAKE_SOURCE_DIR}/vendor/glfw/include
-)
-
-# imgui_impl_vulkan.h includes <vulkan/vulkan.h> directly, so this target needs
-# the Vulkan headers. On Windows that produced "Cannot open include file:
-# 'vulkan/vulkan.h'"; on Linux it went unnoticed, because /usr/include is a
-# default search path and the file happened to be there.
-#
-# Found here rather than reusing src/'s variable: imported targets and plain
-# variables from find_package are scoped to the directory that ran it, and this
-# directory is a sibling of src/, not a child. The result is cached, so the
-# second call costs nothing.
-find_package(Vulkan REQUIRED)
-target_link_libraries(imgui PRIVATE Vulkan::Headers)
+# The Dear ImGui library is built in src/: the game uses it too, and the
+# game is what is built for a phone, where the editor is not built at all.
 
 target_include_directories(ForgeEditor
     PRIVATE

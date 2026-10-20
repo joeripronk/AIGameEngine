@@ -5,6 +5,7 @@ build-release/
 build-dist/
 build-asan/
 build-tetris/
+build-android/
 bin/
 lib/
 *.o
@@ -96,6 +97,15 @@ resources/audio/gen_*.wav
 # Tooling dependencies installed by npm; the manifests are tracked, what they
 # install is not.
 node_modules/
+
+# The Android package's build outputs: the native build, the Gradle build
+# and the assets copied out of the engine's resources.
+android/build/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+android/local.properties
+android/app/src/main/assets/resources/
 
 # Editor and debugging scratch
 imgui.ini

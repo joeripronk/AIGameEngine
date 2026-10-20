@@ -1,0 +1,81 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The engine's resources are the package's assets.
+//
+// The engine reads its files by path - "resources/models/cube.glb" - and a
+// file inside a package is not a file: it is an entry in a zip, with no path
+// the engine can open. The engine writes the assets out on the first run,
+// and this is where they come from.
+def engineAssets = tasks.register('syncEngineAssets', Copy) {
+    from "${rootDir}/../resources"
+    into "${projectDir}/src/main/assets/resources"
+}
+
+android {
+    namespace 'com.forge.tetris'
+    compileSdk 34
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'com.forge.tetris'
+
+        // The engine asks for Vulkan 1.3, which Android has had since
+        // Android 13. A package that asked for less would run on more
+        // phones, and the engine's renderer is written for 1.3.
+        minSdk 34
+        targetSdk 34
+
+        versionCode 1
+        versionName '1.0'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared',
+                          '-DANDROID_PLATFORM=android-34',
+                          '-DCMAKE_BUILD_TYPE=Release'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            // The engine's own CMake: the package is built around the engine,
+            // not the other way round.
+            path '../../CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+
+    buildTypes {
+        debug {
+            externalNativeBuild {
+                cmake {
+                    targets 'ForgeTetris'
+                }
+            }
+        }
+        release {
+            minifyEnabled false
+            externalNativeBuild {
+                cmake {
+                    targets 'ForgeTetris'
+                }
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn engineAssets
+}

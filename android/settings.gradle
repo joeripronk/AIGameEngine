@@ -1,0 +1,24 @@
+// The Android package.
+//
+// The engine's CMake is the build: this project is the package around it -
+// the manifest, the assets and the native library - and nothing more. The
+// engine's own targets are not built here: the editor, the runtime and the
+// tests are desktop programs, and the game is the one that ships.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "ForgeTetris"
+include ':app'

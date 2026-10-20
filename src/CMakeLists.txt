@@ -182,7 +182,14 @@ add_library(lua STATIC
 # upstream's own style, not something to impose on a compiler that cannot parse
 # it.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(lua PRIVATE -std=gnu90 -Wno-unused-parameter)
+    # Lua 5.4 is C89: the -std is what keeps the vendored sources building as
+    # they are. Clang in C90 mode does not define LLONG_MAX, which is how Lua
+    # decides that the compiler has no 64-bit integers - so on the NDK's
+    # clang the standard stays where the compiler puts it.
+    if(NOT FG_ANDROID)
+        target_compile_options(lua PRIVATE -std=gnu90)
+    endif()
+    target_compile_options(lua PRIVATE -Wno-unused-parameter)
 elseif(MSVC)
     # MSVC has no C89/C90 switch. /std:c11 is the closest available and Lua
     # compiles cleanly under it.
@@ -197,7 +204,12 @@ target_include_directories(lua PUBLIC ${CMAKE_SOURCE_DIR}/vendor/lua)
 find_package(Threads REQUIRED)
 
 set(GLFW_BUILD_WAYLAND OFF)
-add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
+# GLFW is the desktop's window, and this vendored copy has no Android
+# backend: a phone's window is the system's own surface, which the
+# platform layer talks to directly.
+if(NOT FG_ANDROID)
+    add_subdirectory(${CMAKE_SOURCE_DIR}/vendor/glfw ${CMAKE_BINARY_DIR}/vendor/glfw)
+endif()
 
 
 # The Vulkan SDK: the loader library to link. The loader is what matters at run
@@ -291,9 +303,10 @@ target_compile_definitions(ForgeCore PRIVATE LUA_USE_C89 FG_NO_VULKAN_RUNTIME)
 # Vulkan platform implementation (separate from core for testability)
 add_library(vulkan STATIC)
 target_sources(vulkan PRIVATE
-    Platform/Vulkan/VulkanWindow.cpp
     Platform/Vulkan/ImGuiLayer.cpp
     Platform/Vulkan/ImGuiLayer.h
+    Platform/Vulkan/PlatformSurface.h
+    Platform/Vulkan/PlatformSurface.cpp
     # BRUTAL rewrite - raw-Vulkan renderer layers (device, memory, frame,
     # pipeline, renderer)
     Platform/Vulkan/Device/DeviceSelection.h
@@ -382,7 +395,48 @@ target_compile_definitions(vulkan PRIVATE FG_DEBUG GLFW_INCLUDE_VULKAN)
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(vulkan PRIVATE /std:c++20 /utf-8)
 else()
-    target_compile_options(vulkan PRIVATE -std=c++20)
+    # The C++ standard is the C++ sources' business: the target also
+    # carries C sources (the NDK's own glue on a phone), and a C compiler
+    # asked for "-std=c++20" refuses.
+    target_compile_options(vulkan PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-std=c++20>)
+endif()
+
+# The Android platform layer.
+#
+# There is no GLFW on a phone: the window is the system's own surface, the
+# input arrives as the system's events, and the entry point is the system's.
+# The system's own glue (the one the NDK ships) is what connects the three.
+# The desktop's window: GLFW's. A phone's window is the system's own
+# surface, and the platform layer talks to it directly.
+if(NOT FG_ANDROID)
+    target_sources(vulkan PRIVATE
+        Platform/Vulkan/VulkanWindow.h
+        Platform/Vulkan/VulkanWindow.cpp
+    )
+endif()
+
+if(FG_ANDROID)
+    target_sources(vulkan PRIVATE
+        Platform/Android/AndroidWindow.h
+        Platform/Android/AndroidWindow.cpp
+        Platform/Android/AndroidKeymap.h
+        Platform/Android/AndroidKeymap.cpp
+        Platform/Android/AndroidAssets.h
+        Platform/Android/AndroidAssets.cpp
+        Platform/Android/AndroidEntryPoint.h
+        Platform/Android/AndroidEntryPoint.cpp
+    )
+
+    # The NDK's own glue: the system calls ANativeActivity_onCreate, the
+    # glue hands the app over, and the app's entry point runs. The glue's
+    # source is compiled into the package's own library (the game that
+    # ships does that; see games/tetris/CMakeLists.txt) and its header is
+    # what the platform layer here needs: the app's structure, the commands
+    # and the input queue.
+    target_include_directories(vulkan PRIVATE ${FORGE_ANDROID_GLUE_DIR})
+
+    # The system's libraries: the log, the asset manager and the loader.
+    target_link_libraries(vulkan PUBLIC android log)
 endif()
 
 # stb (compile definitions for implementation)
@@ -400,28 +454,80 @@ target_link_libraries(ForgeCore
         spdlog::spdlog
         fmt::fmt
     PRIVATE
-        glfw
         miniaudio
         yaml-cpp
         assimp
         Threads::Threads
 )
+# GLFW is the desktop's window; a phone's window is the system's own
+# surface, and the platform layer talks to it directly.
+if(NOT FG_ANDROID)
+    target_link_libraries(ForgeCore PRIVATE glfw)
+endif()
 
 # Vulkan backend depends on GLFW (window/input), the Vulkan loader + VMA
 # (the device VkRenderer builds) and ForgeCore (for CpuTexture decoding and
 # the types the renderer draws with).
 target_link_libraries(vulkan
     PRIVATE
-        glfw
         ForgeCore
         Vulkan::Vulkan
         vma
 )
+if(NOT FG_ANDROID)
+    target_link_libraries(vulkan PRIVATE glfw)
+endif()
 
 # ImGuiLayer drives the ImGui GLFW/Vulkan backends, so the imgui target is
 # part of vulkan's public interface: any app including ImGuiLayer.h needs the
 # imgui headers, which the link propagates.
 target_link_libraries(vulkan PUBLIC imgui)
+
+# ---------------------------------------------------------------------------
+# Dear ImGui (v1.91.9: split core translation units + backends/).
+#
+# The library lives here and not in the editor's directory because the game
+# uses it too - and the game is what is built for a phone, where the editor
+# is not built at all.
+# ---------------------------------------------------------------------------
+add_library(imgui STATIC)
+target_sources(imgui PRIVATE
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_draw.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_tables.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_widgets.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/imgui_demo.cpp
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_vulkan.cpp
+)
+# The GLFW backend is the desktop's: a phone has no GLFW, and ImGui has no
+# Android platform backend of its own, so the overlay is off there.
+if(NOT FG_ANDROID)
+    target_sources(imgui PRIVATE ${CMAKE_SOURCE_DIR}/vendor/imgui/backends/imgui_impl_glfw.cpp)
+endif()
+# ImGui's GLFW backend includes <GLFW/glfw3.h> without defining this itself, so
+# it picks up <GL/gl.h> - unlike our own sources, which define it at the
+# include. Measured: 281 preprocessed lines came from /usr/include/GL/. Only
+# the Vulkan backend is built, so nothing here actually reads them.
+target_compile_definitions(imgui PRIVATE GLFW_INCLUDE_NONE)
+target_include_directories(imgui PUBLIC
+    ${CMAKE_SOURCE_DIR}/vendor/imgui
+    ${CMAKE_SOURCE_DIR}/vendor/imgui/backends
+)
+if(NOT FG_ANDROID)
+    target_include_directories(imgui PUBLIC ${CMAKE_SOURCE_DIR}/vendor/glfw/include)
+endif()
+
+# imgui_impl_vulkan.h includes <vulkan/vulkan.h> directly, so this target needs
+# the Vulkan headers. On Windows that produced "Cannot open include file:
+# 'vulkan/vulkan.h'"; on Linux it went unnoticed, because /usr/include is a
+# default search path and the file happened to be there.
+#
+# Found here rather than reusing src/'s variable: imported targets and plain
+# variables from find_package are scoped to the directory that ran it, and this
+# directory is a sibling of src/, not a child. The result is cached, so the
+# second call costs nothing.
+find_package(Vulkan REQUIRED)
+target_link_libraries(imgui PRIVATE Vulkan::Headers)
 
 # ---------------------------------------------------------------------------
 # ForgeApp: the platform layer (window + renderer + application shell).
@@ -460,21 +566,25 @@ target_include_directories(ForgeApp
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/vendor/glm
-        ${CMAKE_SOURCE_DIR}/vendor/glfw/include
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/Platform/Vulkan
 )
+if(NOT FG_ANDROID)
+    target_include_directories(ForgeApp PUBLIC ${CMAKE_SOURCE_DIR}/vendor/glfw/include)
+endif()
 target_compile_definitions(ForgeApp PRIVATE STBI_STATIC)
 target_link_libraries(ForgeApp
     PUBLIC
         ForgeCore
         vulkan
-        glfw
         spdlog::spdlog
         fmt::fmt
         yaml-cpp
         Threads::Threads
 )
+if(NOT FG_ANDROID)
+    target_link_libraries(ForgeApp PUBLIC glfw)
+endif()
 set_target_properties(ForgeApp PROPERTIES
     CXX_STANDARD 20
     CXX_STANDARD_REQUIRED ON

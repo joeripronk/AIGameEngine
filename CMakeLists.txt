@@ -30,6 +30,8 @@ set(CMAKE_LINK_INTERFACE_MULTIPLICITY 3)
 # same problem: it is appended to the link line of every probe.
 if(NOT APPLE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--start-group")
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--start-group")
+    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--start-group")
     string(APPEND CMAKE_CXX_STANDARD_LIBRARIES " -Wl,--end-group")
 endif()
 # macOS linker needs -Wl,-force_load for static library symbol resolution,
@@ -127,12 +129,59 @@ add_compile_definitions(
 )
 
 # Platform definitions
-if(FG_PLATFORM_WINDOWS)
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    # Android is a Linux kernel, and CMake says so - but it is not a Linux
+    # build: the window is the system's own surface, there is no GLFW, and
+    # the entry point is the system's. Defining the Linux platform here as
+    # well would make every "#if defined(FG_PLATFORM_LINUX)" in the engine
+    # take the desktop's path.
+    add_compile_definitions(FG_PLATFORM_ANDROID)
+elseif(FG_PLATFORM_WINDOWS)
     add_compile_definitions(FG_PLATFORM_WINDOWS)
 elseif(FG_PLATFORM_MACOS)
     add_compile_definitions(FG_PLATFORM_MACOS)
 elseif(FG_PLATFORM_LINUX)
     add_compile_definitions(FG_PLATFORM_LINUX)
+endif()
+
+# The Android build.
+#
+# The NDK's toolchain file sets CMAKE_SYSTEM_NAME to Android, and the
+# platform follows from it: there is no window to create, the surface is the
+# system's own, and the entry point is the system's. The desktop targets -
+# the editor, the runtime, the tests - are not built for a phone, and the
+# game is built as the shared library the package loads.
+if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(FG_ANDROID ON)
+
+    # The Vulkan headers' Android surface: the loader's extension for a
+    # surface made from the system's own window. The headers only declare
+    # it when the platform is asked for by name.
+    add_compile_definitions(VK_USE_PLATFORM_ANDROID_KHR)
+
+    # A package carries one shared library - the game's - and everything
+    # else is linked into it. The NDK's toolchain asks for shared libraries
+    # by default, which would put a dozen .so files in the package for no
+    # reason.
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+
+    # The NDK's own glue: the system calls ANativeActivity_onCreate, the
+    # glue hands the app over, and the app's entry point runs. It is a source
+    # file the NDK ships rather than a library it installs, so it is
+    # compiled - into the package's own library, because the system looks
+    # its entry point up by name and a static archive's member is only
+    # linked when something asks for it.
+    #
+    # The path is here, in the root, because the variable is inherited by
+    # the subdirectories and a variable set in one of them is not.
+    set(FORGE_ANDROID_GLUE_DIR ${CMAKE_ANDROID_NDK}/sources/android/native_app_glue)
+    if(NOT EXISTS ${FORGE_ANDROID_GLUE_DIR}/android_native_app_glue.c)
+        message(FATAL_ERROR
+            "Forge: the NDK has no native_app_glue at '${FORGE_ANDROID_GLUE_DIR}'. "
+            "The Android build needs the NDK's sources.")
+    endif()
+
+    message(STATUS "Forge: Android build (${ANDROID_ABI}, API ${ANDROID_PLATFORM_LEVEL})")
 endif()
 
 # nativefiledialog-extended: the Open/Save dialogs the editor menu uses.
@@ -149,13 +198,22 @@ set(NFD_BUILD_SDL2_TESTS OFF CACHE BOOL "" FORCE)
 set(NFD_BUILD_SDL3_TESTS OFF CACHE BOOL "" FORCE)
 set(NFD_BUILD_GLFW3_TESTS OFF CACHE BOOL "" FORCE)
 set(NFD_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory(vendor/nativefiledialog-extended EXCLUDE_FROM_ALL)
+# The file dialogs are the editor's, and the editor is not built for a
+# phone: a phone has no desktop file dialog to open.
+if(NOT FG_ANDROID)
+    add_subdirectory(vendor/nativefiledialog-extended EXCLUDE_FROM_ALL)
+endif()
 
 # Subdirectories
 add_subdirectory(src)
-add_subdirectory(editor)
-add_subdirectory(runtime)
-add_subdirectory(tests)
+
+# The editor and the runtime are desktop applications, and the tests are
+# desktop executables: none of them is built for a phone. The game is.
+if(NOT FG_ANDROID)
+    add_subdirectory(editor)
+    add_subdirectory(runtime)
+    add_subdirectory(tests)
+endif()
 
 # Games link the engine; the engine does not link them. They are ordinary
 # subdirectories, so a default build covers them and `ctest` runs their tests -

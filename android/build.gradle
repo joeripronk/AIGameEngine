@@ -1,0 +1,4 @@
+// The Android Gradle plugin, declared once for the whole project.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}
