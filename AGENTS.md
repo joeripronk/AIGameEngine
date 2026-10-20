@@ -1096,6 +1096,25 @@ Forge::Log::GetLogLevel();
 All of it is covered by `BuildConfigTests`, which runs identically in every
 configuration and asserts whichever branch applies.
 
+### A build directory that was built across a layout change is not a build
+
+A component's layout is part of every translation unit that touches it,
+and a build directory that holds objects compiled against two versions of
+a header produces a binary that reads one layout and writes another. The
+symptom is not a compile error: it is a crash in the middle of a frame,
+or a field that is suddenly empty.
+
+This is not hypothetical - a Release build directory that was rebuilt
+while `MeshComponent` grew a field produced exactly that: the game wrote
+a model path where the renderer read a pointer, and the frame died in
+`CpuMesh::GetMin()`. A fresh build and a build that was rebuilt after
+the header changed are both fine.
+
+So: **when a component's layout changes, build the directory from
+scratch** (or touch the header and rebuild everything, which the
+dependency tracking does correctly). A crash that only happens in one
+build directory is a build directory, not a bug.
+
 ### One runtime target, not two
 
 The shipping executable is `ForgeRuntime` built with `-DCMAKE_BUILD_TYPE=Dist`.
