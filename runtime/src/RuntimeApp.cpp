@@ -104,6 +104,20 @@ namespace Forge {
 		physics.AddComponent<RigidbodyComponent>().Type = RigidbodyComponent::BodyType::Dynamic;
 		physics.AddComponent<BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
 
+		// A row of cubes drawn as one mesh in many places: the instanced
+		// draw, so the runtime exercises it.
+		auto row = m_Scene->CreateEntity("CubeRow");
+		row.GetComponent<TransformComponent>().Translation = { 0.0f, 0.5f, 3.0f };
+		auto& multi = row.AddComponent<MultiMeshComponent>();
+		multi.ModelPath = "resources/models/cube.glb";
+		for (int i = 0; i < 12; ++i)
+		{
+			glm::mat4 place = glm::mat4(1.0f);
+			place = glm::translate(place, glm::vec3(static_cast<float>(i) * 1.2f - 6.6f, 0.0f, 0.0f));
+			multi.Transforms.push_back(place);
+		}
+		row.AddComponent<PBRMaterialComponent>().Albedo = { 0.3f, 0.6f, 0.9f };
+
 		// A scripted entity so the runtime exercises the Lua pipeline.
 		auto scripted = m_Scene->CreateEntity("ScriptedMover");
 		scripted.GetComponent<TransformComponent>().Translation = { 3.0f, 0.5f, 0.0f };

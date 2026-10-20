@@ -4,6 +4,7 @@
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Renderer/CpuMesh.h"
 
 #include "Forge/Core/FileSystem.h"
 
@@ -165,7 +166,7 @@ namespace Forge {
 				"TransformComponent", "TagComponent", "CameraComponent",
 				"ScriptComponent", "RigidbodyComponent", "BoxColliderComponent",
 				"SphereColliderComponent", "LightComponent",
-				"PBRMaterialComponent", "MeshComponent",
+				"PBRMaterialComponent", "MeshComponent", "MultiMeshComponent",
 				"EnvironmentMapComponent", "AudioSourceComponent"
 			};
 
@@ -360,6 +361,30 @@ namespace Forge {
 			out << YAML::EndMap;
 		}
 
+		if (entity.HasComponent<MultiMeshComponent>())
+		{
+			const MultiMeshComponent& multi = entity.GetComponent<MultiMeshComponent>();
+
+			out << YAML::Key << "MultiMeshComponent";
+			out << YAML::BeginMap;
+			out << YAML::Key << "ModelPath" << YAML::Value << multi.ModelPath;
+			out << YAML::Key << "Instances" << YAML::Value << YAML::BeginSeq;
+
+			for (const glm::mat4& transform : multi.Transforms)
+			{
+				out << YAML::BeginSeq;
+				for (int column = 0; column < 4; ++column)
+				{
+					for (int row = 0; row < 4; ++row)
+						out << transform[column][row];
+				}
+				out << YAML::EndSeq;
+			}
+
+			out << YAML::EndSeq;
+			out << YAML::EndMap;
+		}
+
 		if (entity.HasComponent<AnimationComponent>())
 		{
 			const AnimationComponent& animation = entity.GetComponent<AnimationComponent>();
@@ -468,6 +493,45 @@ namespace Forge {
 			tc.Translation = DecodeVec3(transformComponent["Translation"], tc.Translation);
 			tc.Rotation = DecodeVec3(transformComponent["Rotation"], tc.Rotation);
 			tc.Scale = DecodeVec3(transformComponent["Scale"], tc.Scale);
+		}
+
+		if (HasNode(entityNode, "MultiMeshComponent"))
+		{
+			auto multiNode = entityNode["MultiMeshComponent"];
+			auto& multi = deserializedEntity.AddComponent<MultiMeshComponent>();
+			multi.ModelPath = GetString(multiNode, "ModelPath", "");
+
+			// The path is assigned rather than added, so the hook that
+			// imports the model does not run - the same contract the
+			// MeshComponent has.
+			if (!multi.ModelPath.empty())
+			{
+				multi.CpuMeshData = CpuMesh::LoadFromFile(multi.ModelPath);
+				if (!multi.CpuMeshData)
+				{
+					FG_CORE_ERROR("Entity '{0}': could not import model '{1}'",
+						deserializedEntity.GetName(), multi.ModelPath);
+				}
+			}
+
+			if (HasNode(multiNode, "Instances"))
+			{
+				for (const YAML::Node& instanceNode : multiNode["Instances"])
+				{
+					glm::mat4 transform = glm::mat4(1.0f);
+					int index = 0;
+					for (int column = 0; column < 4; ++column)
+					{
+						for (int row = 0; row < 4; ++row)
+						{
+							if (index < static_cast<int>(instanceNode.size()))
+								transform[column][row] = instanceNode[index].as<float>();
+							index++;
+						}
+					}
+					multi.Transforms.push_back(transform);
+				}
+			}
 		}
 
 		if (HasNode(entityNode, "AnimationComponent"))
@@ -744,6 +808,24 @@ namespace Forge {
 			return v;
 		}
 
+		void WriteVec4(std::ostream& stream, const glm::vec4& v)
+		{
+			Write<float>(stream, v.x);
+			Write<float>(stream, v.y);
+			Write<float>(stream, v.z);
+			Write<float>(stream, v.w);
+		}
+
+		glm::vec4 ReadVec4(std::istream& stream)
+		{
+			glm::vec4 v(0.0f);
+			Read<float>(stream, v.x);
+			Read<float>(stream, v.y);
+			Read<float>(stream, v.z);
+			Read<float>(stream, v.w);
+			return v;
+		}
+
 		constexpr uint32_t FlagTag = BIT(0);
 		constexpr uint32_t FlagTransform = BIT(1);
 		constexpr uint32_t FlagCamera = BIT(2);
@@ -769,6 +851,7 @@ namespace Forge {
 		// variable-length one: the number of tracks and the number of keys
 		// are written with it, so the reader knows how much to read.
 		constexpr uint32_t FlagAnimation = BIT(14);
+		constexpr uint32_t FlagMultiMesh = BIT(15);
 
 		uint32_t GetComponentFlags(Entity entity)
 		{
@@ -792,6 +875,7 @@ namespace Forge {
 				&& !entity.GetComponent<PBRMaterialComponent>().AlbedoTexturePath.empty())
 				? FlagPBRAlbedoTexture : 0;
 			flags |= entity.HasComponent<AnimationComponent>() ? FlagAnimation : 0;
+			flags |= entity.HasComponent<MultiMeshComponent>() ? FlagMultiMesh : 0;
 			return flags;
 		}
 
@@ -947,6 +1031,21 @@ namespace Forge {
 				Write<bool>(stream, audio.Spatial);
 				Write<float>(stream, audio.MinDistance);
 				Write<float>(stream, audio.MaxDistance);
+			}
+
+			if (entity.HasComponent<MultiMeshComponent>())
+			{
+				const MultiMeshComponent& multi = entity.GetComponent<MultiMeshComponent>();
+				WriteString(stream, multi.ModelPath);
+				Write<uint32_t>(stream, (uint32_t)multi.Transforms.size());
+				for (const glm::mat4& transform : multi.Transforms)
+					WriteVec4(stream, glm::vec4(transform[0]));
+				for (const glm::mat4& transform : multi.Transforms)
+					WriteVec4(stream, glm::vec4(transform[1]));
+				for (const glm::mat4& transform : multi.Transforms)
+					WriteVec4(stream, glm::vec4(transform[2]));
+				for (const glm::mat4& transform : multi.Transforms)
+					WriteVec4(stream, glm::vec4(transform[3]));
 			}
 
 			if (entity.HasComponent<AnimationComponent>())
@@ -1137,6 +1236,25 @@ namespace Forge {
 				Read<bool>(stream, audio.Spatial);
 				Read<float>(stream, audio.MinDistance);
 				Read<float>(stream, audio.MaxDistance);
+			}
+
+			if (flags & FlagMultiMesh)
+			{
+				auto& multi = entity.AddComponent<MultiMeshComponent>();
+				ReadString(stream, multi.ModelPath);
+
+				uint32_t instanceCount = 0;
+				Read<uint32_t>(stream, instanceCount);
+
+				multi.Transforms.resize(instanceCount);
+				for (uint32_t i = 0; i < instanceCount; ++i)
+					multi.Transforms[i][0] = ReadVec4(stream);
+				for (uint32_t i = 0; i < instanceCount; ++i)
+					multi.Transforms[i][1] = ReadVec4(stream);
+				for (uint32_t i = 0; i < instanceCount; ++i)
+					multi.Transforms[i][2] = ReadVec4(stream);
+				for (uint32_t i = 0; i < instanceCount; ++i)
+					multi.Transforms[i][3] = ReadVec4(stream);
 			}
 
 			if (flags & FlagAnimation)

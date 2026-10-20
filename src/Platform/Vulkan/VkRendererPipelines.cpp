@@ -167,6 +167,23 @@ bool VkRenderer::CreatePipelines()
 			Presets::DepthStencil::Opaque, Presets::Blend::None, m_PipelineCache.Handle());
 	}
 
+	// The instanced pipeline: the scene's pipeline with the instance
+	// layout beside the mesh's, so the model matrix arrives as a vertex
+	// attribute and one draw can put the mesh in many places.
+	if (!m_VertexShaderPbrInstanced.IsNull() && !m_FragmentShaderPbr.IsNull())
+	{
+		m_PipelinePbrInstanced = VkRenderer::CreateGraphicsPipeline(device,
+			m_VertexShaderPbrInstanced.Handle(), m_FragmentShaderPbr.Handle(), &m_VertexLayoutMesh,
+			m_RenderPassHdr, 0, m_LayoutPbr,
+			[]() {
+				VkPipelineRasterizationStateCreateInfo r = Presets::Rasterizer::FillNoCull;
+				r.frontFace = VK_FRONT_FACE_CLOCKWISE;
+				return r;
+			}(),
+			Presets::DepthStencil::Opaque, Presets::Blend::None, m_PipelineCache.Handle(),
+			&m_VertexLayoutInstance);
+	}
+
 	// The shadow pipeline: depth-only, back-face culled, counter-clockwise
 	// front face (nvrhi's frontCounterClockwise for the shadow draw).
 	if (!m_VertexShaderShadow.IsNull() && !m_FragmentShaderShadow.IsNull())
@@ -222,6 +239,7 @@ void VkRenderer::DestroyPipelines()
 		pipeline = VK_NULL_HANDLE;
 	};
 	destroyPipeline(m_PipelinePbr);
+	destroyPipeline(m_PipelinePbrInstanced);
 	destroyPipeline(m_PipelineShadow);
 	destroyPipeline(m_PipelineSsao);
 	destroyPipeline(m_PipelineBloom);

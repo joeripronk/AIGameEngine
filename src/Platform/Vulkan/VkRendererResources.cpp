@@ -470,8 +470,16 @@ bool VkRenderer::CreateTargets(uint32_t presentWidth, uint32_t presentHeight, ui
 	m_PrefilterUbo = CreateHostBuffer(*m_Allocator, 32, "Ubo.Prefilter", m_PrefilterUboAlloc, &m_PrefilterUboData);
 	m_ObjectUbo = CreateHostBuffer(*m_Allocator, objectBytes, "Ubo.Object", m_ObjectUboAlloc, &m_ObjectUboData);
 
+	// The instance buffer: the transforms the instanced draws read. It is a
+	// vertex buffer, so it needs the vertex-buffer usage, and it is host
+	// visible and coherent, so the CPU can write the transforms as the
+	// draws are recorded without a staging copy.
+	m_InstanceBuffer = CreateHostBuffer(*m_Allocator, InstanceRingSize * sizeof(Forge::InstanceData),
+		"Buffer.Instances", m_InstanceBufferAlloc, &m_InstanceBufferData,
+		VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
 	if (!m_CameraUbo || !m_ShadowParamsUbo || !m_ShadowCameraUbo || !m_SsaoUbo || !m_BloomUbo ||
-		!m_BlurUbo || !m_HdrUbo || !m_FinalUbo || !m_ObjectUbo)
+		!m_BlurUbo || !m_HdrUbo || !m_FinalUbo || !m_ObjectUbo || !m_InstanceBuffer)
 	{
 		FG_CORE_ERROR("VkRenderer: uniform buffer allocation failed");
 		return false;
@@ -560,6 +568,7 @@ void VkRenderer::DestroyTargets()
 	destroyHost(m_IrradianceUbo, m_IrradianceUboAlloc, m_IrradianceUboData);
 	destroyHost(m_PrefilterUbo, m_PrefilterUboAlloc, m_PrefilterUboData);
 	destroyHost(m_ObjectUbo, m_ObjectUboAlloc, m_ObjectUboData);
+	destroyHost(m_InstanceBuffer, m_InstanceBufferAlloc, m_InstanceBufferData);
 
 	auto destroyImage = [this](::VkImage& image, ::VkImageView& view, VmaAllocation& alloc)
 	{

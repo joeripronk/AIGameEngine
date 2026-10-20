@@ -135,6 +135,11 @@ namespace Forge {
 			// One PBR draw. Geometry is uploaded (and cached) on first use.
 			// `probeDraw` binds the static environment fallback: a probe pass
 			// must not sample the cubemap it is writing.
+			// One draw for a mesh in many places: the transforms are read
+			// from the instance buffer as vertex attributes.
+			void DrawInstanced(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
+				const std::vector<glm::mat4>& transforms, const ObjectParams& object);
+
 			void DrawObject(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
 				const ObjectParams& object, bool probeDraw = false);
 
@@ -274,7 +279,11 @@ namespace Forge {
 				const VkPipelineRasterizationStateCreateInfo& rasterizer,
 				const VkPipelineDepthStencilStateCreateInfo& depth,
 				const VkPipelineColorBlendStateCreateInfo& blend,
-				::VkPipelineCache pipelineCache = VK_NULL_HANDLE);
+				::VkPipelineCache pipelineCache = VK_NULL_HANDLE,
+				// The instance layout, for a pipeline that reads the
+				// transforms as vertex attributes. Null for a draw that does
+				// not instance.
+				const VertexLayout* instanceLayout = nullptr);
 			[[nodiscard]] bool CreateSwapchainFramebuffers();
 			void DestroySwapchainFramebuffers();
 
@@ -496,6 +505,7 @@ namespace Forge {
 
 			// Shader modules.
 			ShaderModule m_VertexShaderPbr;
+			ShaderModule m_VertexShaderPbrInstanced;
 			ShaderModule m_FragmentShaderPbr;
 			ShaderModule m_VertexShaderShadow;
 			ShaderModule m_FragmentShaderShadow;
@@ -511,6 +521,7 @@ namespace Forge {
 			// Pipelines.
 			PipelineCache m_PipelineCache;   // dumped/loaded across sessions
 			::VkPipeline m_PipelinePbr = VK_NULL_HANDLE;
+			::VkPipeline m_PipelinePbrInstanced = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineShadow = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineSsao = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineBloom = VK_NULL_HANDLE;
@@ -557,6 +568,25 @@ namespace Forge {
 
 			// Vertex layouts (Phase 4, from the CPU struct).
 			VertexLayout m_VertexLayoutMesh;
+
+			// The instance layout: the model matrix, as four rows. The
+			// locations follow the mesh's, so the two can share a pipeline.
+			VertexLayout m_VertexLayoutInstance;
+
+			// The instance buffer: the transforms of the instanced draws of
+			// the frame, written by the CPU as the draws are recorded.
+			//
+			// It is a ring, one region per swapchain image, for the same
+			// reason the object data is: a frame writes only inside the
+			// region of the image it draws, so the frame that last used
+			// that region - the one whose fence BeginFrame waited - is the
+			// only one that could still be reading it.
+			static constexpr uint32_t InstanceSlotsPerFrame = 4096;
+			static constexpr uint32_t InstanceRingSize = PoolRingSize * InstanceSlotsPerFrame;
+			::VkBuffer m_InstanceBuffer = VK_NULL_HANDLE;
+			VmaAllocation m_InstanceBufferAlloc = nullptr;
+			void* m_InstanceBufferData = nullptr;
+			uint32_t m_InstanceSlot = 0;
 			VertexLayout m_VertexLayoutQuad;
 
 			// Environment / probe state.

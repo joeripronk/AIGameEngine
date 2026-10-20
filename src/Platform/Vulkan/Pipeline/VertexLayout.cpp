@@ -29,7 +29,7 @@ VertexLayoutError VertexLayout::Validate(const VertexFieldList& fields, uint32_t
 	return VertexLayoutError::Ok;
 }
 
-VertexLayout VertexLayout::FromFields(const VertexFieldList& fields, uint32_t structSize, uint32_t binding, VkVertexInputRate inputRate)
+VertexLayout VertexLayout::FromFields(const VertexFieldList& fields, uint32_t structSize, uint32_t binding, VkVertexInputRate inputRate, uint32_t firstLocation)
 {
 	VertexLayout layout{};
 
@@ -44,7 +44,7 @@ VertexLayout VertexLayout::FromFields(const VertexFieldList& fields, uint32_t st
 
 	for (uint32_t i = 0; i < fields.Count; ++i)
 	{
-		layout.Attributes[i] = VkVertexInputAttributeDescription{ i, binding, fields.Fields[i].Format, fields.Fields[i].Offset };
+		layout.Attributes[i] = VkVertexInputAttributeDescription{ firstLocation + i, binding, fields.Fields[i].Format, fields.Fields[i].Offset };
 	}
 	layout.AttributeCount = fields.Count;
 

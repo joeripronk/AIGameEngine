@@ -199,7 +199,14 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 		sizeof(Forge::Vertex));
 	m_VertexLayoutQuad = VertexLayout::FromFields(
 		MakeFieldList(FieldFloat2{}, FieldFloat2{}), 16);
-	if (m_VertexLayoutMesh.AttributeCount == 0 || m_VertexLayoutQuad.AttributeCount == 0)
+	// The instance layout: the model matrix as four rows, at the locations
+	// after the mesh's. The mesh uses 0 to 4, so the instance's rows are at
+	// 5 to 8 - the same places the instanced vertex shader reads them.
+	m_VertexLayoutInstance = VertexLayout::FromFields(
+		MakeFieldList(FieldFloat4{}, FieldFloat4{}, FieldFloat4{}, FieldFloat4{}),
+		sizeof(Forge::InstanceData), 1, VK_VERTEX_INPUT_RATE_INSTANCE, 5);
+	if (m_VertexLayoutMesh.AttributeCount == 0 || m_VertexLayoutQuad.AttributeCount == 0 ||
+		m_VertexLayoutInstance.AttributeCount == 0)
 	{
 		FG_CORE_ERROR("VkRenderer: vertex layout generation failed");
 		ShutdownDevice();
@@ -214,6 +221,14 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 		{
 			FG_CORE_ERROR("VkRenderer: PBR shaders missing; the scene will not be drawn");
 		}
+	}
+	{
+		// The instanced variant of the scene's vertex shader. The fragment
+		// shader is the same: only the place the model matrix comes from is
+		// different.
+		const std::vector<uint32_t> vert = ReadSpirv("resources/shaders/pbr_instanced.vert.spv");
+		if (!m_VertexShaderPbrInstanced.FromSpirv(m_Device, vert, "PBR.instanced.vert"))
+			FG_CORE_WARN("VkRenderer: the instanced vertex shader is missing; instanced draws are off");
 	}
 	{
 		const std::vector<uint32_t> vert = ReadSpirv("resources/shaders/shadow.vert.spv");
@@ -291,6 +306,7 @@ void VkRenderer::ShutdownDevice()
 	DestroyRenderPasses();
 
 	m_VertexShaderPbr.Destroy();
+	m_VertexShaderPbrInstanced.Destroy();
 	m_FragmentShaderPbr.Destroy();
 	m_VertexShaderShadow.Destroy();
 	m_FragmentShaderShadow.Destroy();
@@ -491,7 +507,8 @@ VkCommandBuffer VkRenderer::CurrentCommandBuffer() const
 	const VkPipelineRasterizationStateCreateInfo& rasterizer,
 	const VkPipelineDepthStencilStateCreateInfo& depth,
 	const VkPipelineColorBlendStateCreateInfo& blend,
-	::VkPipelineCache pipelineCache)
+	::VkPipelineCache pipelineCache,
+	const VertexLayout* instanceLayout)
 {
 	std::array<VkPipelineShaderStageCreateInfo, 2> stages{};
 	uint32_t stageCount = 0;
@@ -501,16 +518,32 @@ VkCommandBuffer VkRenderer::CurrentCommandBuffer() const
 		stages[stageCount++] = VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, frag, "main", nullptr };
 
 	VkPipelineVertexInputStateCreateInfo vertexInput = Presets::NoVertexInput;
-	VkVertexInputBindingDescription binding{};
+	std::array<VkVertexInputBindingDescription, 2> bindings{};
 	std::array<VkVertexInputAttributeDescription, 16> attributes{};
-	if (vertexLayout)
+	uint32_t bindingCount = 0;
+	uint32_t attributeCount = 0;
+
+	// The layouts that share the pipeline: the mesh's vertices and, for an
+	// instanced draw, the instances' transforms. Each has its own binding
+	// and its own range of locations.
+	const VertexLayout* layouts[2] = { vertexLayout, instanceLayout };
+	for (const VertexLayout* layout : layouts)
 	{
-		binding = vertexLayout->Binding;
-		for (uint32_t i = 0; i < vertexLayout->AttributeCount; ++i)
-			attributes[i] = vertexLayout->Attributes[i];
-		vertexInput.vertexBindingDescriptionCount = 1;
-		vertexInput.pVertexBindingDescriptions = &binding;
-		vertexInput.vertexAttributeDescriptionCount = vertexLayout->AttributeCount;
+		if (!layout)
+			continue;
+
+		bindings[bindingCount] = layout->Binding;
+		for (uint32_t i = 0; i < layout->AttributeCount; ++i)
+			attributes[attributeCount + i] = layout->Attributes[i];
+		attributeCount += layout->AttributeCount;
+		bindingCount++;
+	}
+
+	if (bindingCount > 0)
+	{
+		vertexInput.vertexBindingDescriptionCount = bindingCount;
+		vertexInput.pVertexBindingDescriptions = bindings.data();
+		vertexInput.vertexAttributeDescriptionCount = attributeCount;
 		vertexInput.pVertexAttributeDescriptions = attributes.data();
 	}
 

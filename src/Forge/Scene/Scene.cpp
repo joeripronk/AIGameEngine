@@ -1179,6 +1179,28 @@ namespace Forge {
 		(void)ImportMeshData(entity);
 	}
 
+	template<>
+	void Scene::OnComponentAdded<MultiMeshComponent>(Entity entity, MultiMeshComponent& component)
+	{
+		// The same contract as the MeshComponent: the model is imported when
+		// the component is added, so a path that does not resolve is reported
+		// where the entity was authored.
+		(void)entity;
+
+		if (component.ModelPath.empty())
+			return;
+
+		component.CpuMeshData = CpuMesh::LoadFromFile(component.ModelPath);
+		if (!component.CpuMeshData)
+		{
+			FG_CORE_ERROR("Entity '{0}': could not import model '{1}'", entity.GetName(), component.ModelPath);
+			return;
+		}
+
+		FG_CORE_INFO("Entity '{0}': imported '{1}' ({2} vertices)",
+			entity.GetName(), component.ModelPath, component.CpuMeshData->GetVertices().size());
+	}
+
 	void Scene::OnComponentAdded(Entity entity, EnvironmentMapComponent& component)
 	{
 		(void)entity; (void)component;

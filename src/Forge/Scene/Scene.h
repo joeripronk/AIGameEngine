@@ -289,6 +289,9 @@ namespace Forge {
 	void Scene::OnComponentAdded(Entity entity, MeshComponent& component);
 
 	template<>
+	void Scene::OnComponentAdded(Entity entity, MultiMeshComponent& component);
+
+	template<>
 	void Scene::OnComponentAdded(Entity entity, PBRMaterialComponent& component);
 
 	template<>

@@ -371,6 +371,85 @@ void VkRenderer::DrawObject(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTex
 	functions.CmdDrawIndexed(cmd, gpu->IndexCount, 1, 0, 0, 0);
 }
 
+void VkRenderer::DrawInstanced(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
+	const std::vector<glm::mat4>& transforms, const ObjectParams& object)
+{
+	if (!m_DeviceReady || !m_RenderPassOpen || m_PipelinePbrInstanced == VK_NULL_HANDLE)
+		return;
+	if (transforms.empty())
+		return;
+
+	MeshGpu* gpu = GetMeshGpu(mesh);
+	if (!gpu)
+		return;
+
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
+
+	// The transforms go into the instance buffer, in the region of the
+	// image this frame draws. The region is the frame's own: the frame that
+	// last used it is the one whose fence BeginFrame waited, so nothing that
+	// is in flight is overwritten.
+	const uint32_t regionBase = m_CurrentImageIndex * InstanceSlotsPerFrame;
+	const uint32_t regionLimit = regionBase + InstanceSlotsPerFrame;
+	const uint32_t slot = regionBase + (m_InstanceSlot + 1U - regionBase) % InstanceSlotsPerFrame;
+
+	// The instances that fit in the region's remaining space are the ones
+	// that are drawn: a frame that wants more than the region holds draws
+	// what fits, and the rest is a frame that overflowed rather than a
+	// buffer overrun.
+	const uint32_t room = slot < regionLimit ? regionLimit - slot : 0;
+	const uint32_t count = static_cast<uint32_t>(transforms.size()) < room
+		? static_cast<uint32_t>(transforms.size()) : room;
+	if (count == 0)
+	{
+		FG_CORE_WARN("VkRenderer: the instance buffer is full; {0} instances were not drawn",
+			transforms.size());
+		return;
+	}
+
+	uint8_t* destination = static_cast<uint8_t*>(m_InstanceBufferData) + slot * sizeof(Forge::InstanceData);
+	for (uint32_t i = 0; i < count; ++i)
+	{
+		const Forge::InstanceData data = Forge::InstanceData::FromMatrix(transforms[i]);
+		std::memcpy(destination + i * sizeof(Forge::InstanceData), &data, sizeof(data));
+	}
+
+	m_InstanceSlot = slot + count - 1;
+
+	// One object slot for the whole draw: the material is the same for every
+	// instance, and the model matrix is the instance's.
+	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * ObjectSlotBytes;
+	const uint32_t objectRegionBase = m_CurrentImageIndex * ObjectSlotsPerFrame;
+	m_ObjectSlot = objectRegionBase + (m_ObjectSlot + 1U - objectRegionBase) % ObjectSlotsPerFrame;
+	ObjectData data{};
+	data.Transform = glm::mat4(1.0f);   // the instances carry the model matrix
+	data.NormalMatrix = glm::mat4(1.0f);
+	data.Albedo = glm::vec4(object.Albedo, 1.0f);
+	data.MetallicRoughnessAO = glm::vec4(object.Metallic, object.Roughness, object.AO, 0.0f);
+	data.Emissive = glm::vec4(object.Emissive, object.EmissiveIntensity);
+	std::memcpy(static_cast<uint8_t*>(m_ObjectUboData) + slotOffset, &data, sizeof(data));
+
+	const TextureGpu* albedo = GetTextureGpu(albedoTexture);
+	::VkDescriptorSet set = BuildPbrSet(m_ObjectUbo, slotOffset,
+		albedo ? albedo->View : m_WhiteView, false);
+	if (set == VK_NULL_HANDLE)
+		return;
+
+	const DeviceFunctions& functions = m_Device.GetFunctions();
+	functions.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelinePbrInstanced);
+	functions.CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_LayoutPbr, 0, 1, &set, 0, nullptr);
+
+	// The mesh's vertices and the instances' transforms: two bindings.
+	const std::array<::VkDeviceSize, 2> offsets{ 0, slot * sizeof(Forge::InstanceData) };
+	const std::array<::VkBuffer, 2> buffers{ gpu->VertexBuffer, m_InstanceBuffer };
+	functions.CmdBindVertexBuffers(cmd, 0, 2, buffers.data(), offsets.data());
+	functions.CmdBindIndexBuffer(cmd, gpu->IndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+	SetViewportScissor(m_Device, cmd, m_CurrentTargetWidth, m_CurrentTargetHeight);
+	functions.CmdDrawIndexed(cmd, gpu->IndexCount, count, 0, 0, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Shadow pass
 // ---------------------------------------------------------------------------

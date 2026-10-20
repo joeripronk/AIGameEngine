@@ -33,7 +33,8 @@ namespace Forge { namespace Vulkan {
 
 // Host-visible, host-coherent, mapped-for-life uniform buffer.
 [[nodiscard]] ::VkBuffer CreateHostBuffer(VmaDeviceAllocator& allocator, VkDeviceSize size, const char* name,
-	VmaAllocation& outAlloc, void** outData);
+	VmaAllocation& outAlloc, void** outData,
+	VkBufferUsageFlags usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
 
 void DestroyHostBuffer(VmaDeviceAllocator& allocator, ::VkBuffer& buffer, VmaAllocation& alloc, void*& data);
 

@@ -98,7 +98,11 @@ struct VertexLayout final
 
 	// Build from the declared field list; validates that the field sizes
 	// tile the struct exactly - no gaps, no overrun.
-	[[nodiscard]] static VertexLayout FromFields(const VertexFieldList& fields, uint32_t structSize, uint32_t binding = 0, VkVertexInputRate inputRate = VK_VERTEX_INPUT_RATE_VERTEX);
+	// The attributes are numbered from `firstLocation`. A layout that
+	// shares a pipeline with another one - the mesh's attributes and the
+	// instance's - needs its own range of locations, or the second layout's
+	// attributes land on the first one's.
+	[[nodiscard]] static VertexLayout FromFields(const VertexFieldList& fields, uint32_t structSize, uint32_t binding = 0, VkVertexInputRate inputRate = VK_VERTEX_INPUT_RATE_VERTEX, uint32_t firstLocation = 0);
 
 	// Gaps, overrun, empty list, unsupported format.
 	[[nodiscard]] static VertexLayoutError Validate(const VertexFieldList& fields, uint32_t structSize);

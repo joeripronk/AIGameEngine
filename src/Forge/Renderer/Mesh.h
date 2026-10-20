@@ -16,6 +16,18 @@ namespace Forge {
 		glm::vec3 Bitangent;
 	};
 
+	// The per-instance data: the model matrix, as the vertex attributes
+	// read it. Four rows, because a matrix is four vec4s to the hardware.
+	struct InstanceData
+	{
+		glm::vec4 Row0 = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+		glm::vec4 Row1 = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+		glm::vec4 Row2 = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+		glm::vec4 Row3 = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+
+		[[nodiscard]] static InstanceData FromMatrix(const glm::mat4& matrix);
+	};
+
 	struct Material
 	{
 		glm::vec3 Albedo = { 1.0f, 1.0f, 1.0f };

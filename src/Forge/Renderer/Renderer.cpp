@@ -315,6 +315,36 @@ namespace {
 			shadowBoxes.emplace_back(worldMin, worldMax);
 		}
 
+		// The instanced meshes cast shadows too: the box is the union of the
+		// instances', because the shadow pass draws them one at a time and
+		// each of them has to be inside the map.
+		auto multiCasters = scene->GetAllEntitiesWith<MultiMeshComponent, TransformComponent>();
+		for (auto handle : multiCasters)
+		{
+			const auto& multi = multiCasters.get<MultiMeshComponent>(handle);
+			const auto& transform = multiCasters.get<TransformComponent>(handle);
+
+			if (multi.Transforms.empty())
+				continue;
+
+			const glm::mat4 group = transform.GetTransform();
+			const glm::vec3 boundsMin = multi.CpuMeshData ? multi.CpuMeshData->GetMin() : DefaultCubeMin();
+			const glm::vec3 boundsMax = multi.CpuMeshData ? multi.CpuMeshData->GetMax() : DefaultCubeMax();
+
+			glm::vec3 worldMin = boundsMin;
+			glm::vec3 worldMax = boundsMax;
+			for (const glm::mat4& instance : multi.Transforms)
+			{
+				glm::vec3 instanceMin;
+				glm::vec3 instanceMax;
+				TransformAABB(boundsMin, boundsMax, group * instance, instanceMin, instanceMax);
+				worldMin = glm::min(worldMin, instanceMin);
+				worldMax = glm::max(worldMax, instanceMax);
+			}
+
+			shadowBoxes.emplace_back(worldMin, worldMax);
+		}
+
 		Vulkan::VkRenderer::CameraParams cameraParams{};
 		cameraParams.ViewProjection = camera.ViewProjectionMatrix;
 		cameraParams.CameraPosition = cameraTransform.Translation;
@@ -359,30 +389,34 @@ namespace {
 		// The component holds the CPU geometry (the engine core imports it, so a
 		// broken model path is reported where the entity was authored) and the
 		// GPU mesh is derived from it here, because uploading needs a device.
-		auto uploadMesh = [](MeshComponent& component) -> Ref<Mesh>
+		// The upload is keyed by the path, so a mesh that is drawn in many
+		// places is uploaded once.
+		auto uploadGeometry = [](const std::string& path, const Ref<CpuMesh>& cpuMesh) -> Ref<Mesh>
 		{
-			if (component.Mesh)
-				return component.Mesh;
-
-			if (!component.CpuMeshData)
+			if (!cpuMesh)
 				return nullptr;
 
-			auto it = s_UploadedMeshes.find(component.ModelPath);
-			if (it != s_UploadedMeshes.end() && it->second.Source == component.CpuMeshData)
-			{
-				component.Mesh = it->second.Upload;
-				return component.Mesh;
-			}
+			auto it = s_UploadedMeshes.find(path);
+			if (it != s_UploadedMeshes.end() && it->second.Source == cpuMesh)
+				return it->second.Upload;
 
 			// The material authored on the entity overrides the imported one; the
 			// renderer's per-draw parameters are read from the PBR component below,
 			// so the upload only carries geometry.
-			Ref<Mesh> uploaded = Mesh::CreateFromCpu(component.CpuMeshData.get(), Material{});
+			Ref<Mesh> uploaded = Mesh::CreateFromCpu(cpuMesh.get(), Material{});
 			if (!uploaded)
 				return nullptr;
 
-			s_UploadedMeshes[component.ModelPath] = UploadedMesh{ component.CpuMeshData, uploaded };
-			component.Mesh = uploaded;
+			s_UploadedMeshes[path] = UploadedMesh{ cpuMesh, uploaded };
+			return uploaded;
+		};
+
+		auto uploadMesh = [&uploadGeometry](MeshComponent& component) -> Ref<Mesh>
+		{
+			if (component.Mesh)
+				return component.Mesh;
+
+			component.Mesh = uploadGeometry(component.ModelPath, component.CpuMeshData);
 			return component.Mesh;
 		};
 
@@ -419,6 +453,10 @@ namespace {
 			float EmissiveIntensity;
 			float Depth;
 			Ref<Texture> AlbedoTexture;
+
+			// The instances of an instanced draw: the same mesh in many
+			// places, one draw call. Empty for a mesh that is drawn once.
+			std::vector<glm::mat4> Instances;
 		};
 
 		std::vector<DrawRecord> records;
@@ -509,7 +547,89 @@ namespace {
 
 			records.push_back({ mesh, model, normalMatrix, albedo, emissive,
 				metallic, roughness, ambientOcclusion, emissiveIntensity, depth,
-				albedoTexture });
+				albedoTexture, {} });
+		}
+
+		// The instanced meshes: one mesh in many places, one draw call.
+		//
+		// The entity's own transform is applied to every instance, so the
+		// whole group can be moved as one, and the instances' own transforms
+		// place them inside it.
+		auto multiEntities = scene->GetAllEntitiesWith<MultiMeshComponent, TransformComponent>();
+		for (auto handle : multiEntities)
+		{
+			auto& multi = multiEntities.get<MultiMeshComponent>(handle);
+			const auto& transform = multiEntities.get<TransformComponent>(handle);
+
+			if (multi.Transforms.empty())
+				continue;
+
+			Ref<Mesh> mesh = multi.Mesh;
+			if (!mesh)
+			{
+				mesh = uploadGeometry(multi.ModelPath, multi.CpuMeshData);
+				if (!mesh)
+					continue;
+				multi.Mesh = mesh;
+			}
+
+			const glm::mat4 group = transform.GetTransform();
+
+			std::vector<glm::mat4> instances;
+			instances.reserve(multi.Transforms.size());
+			for (const glm::mat4& instance : multi.Transforms)
+				instances.push_back(group * instance);
+
+			// The bounds are the union of the instances': the draw is culled
+			// as one thing, so the box has to cover all of it.
+			glm::vec3 boundsMin = multi.CpuMeshData ? multi.CpuMeshData->GetMin() : DefaultCubeMin();
+			glm::vec3 boundsMax = multi.CpuMeshData ? multi.CpuMeshData->GetMax() : DefaultCubeMax();
+			glm::vec3 worldMin = boundsMin;
+			glm::vec3 worldMax = boundsMax;
+			for (const glm::mat4& instance : instances)
+			{
+				glm::vec3 instanceMin;
+				glm::vec3 instanceMax;
+				TransformAABB(boundsMin, boundsMax, instance, instanceMin, instanceMax);
+				worldMin = glm::min(worldMin, instanceMin);
+				worldMax = glm::max(worldMax, instanceMax);
+			}
+
+			if (!Frustum::IntersectsAABB(frustum, worldMin, worldMax))
+			{
+				s_Statistics.AddFrustumCulled();
+				continue;
+			}
+
+			glm::vec3 albedo = { 1.0f, 1.0f, 1.0f };
+			float metallic = 0.0f;
+			float roughness = 0.5f;
+			float ambientOcclusion = 1.0f;
+			glm::vec3 emissive = { 0.0f, 0.0f, 0.0f };
+			float emissiveIntensity = 0.0f;
+			Ref<Texture> albedoTexture;
+
+			Entity entity(handle, scene);
+			if (entity.HasComponent<PBRMaterialComponent>())
+			{
+				const auto& material = entity.GetComponent<PBRMaterialComponent>();
+				albedo = material.Albedo;
+				metallic = material.Metallic;
+				roughness = material.Roughness;
+				ambientOcclusion = material.AO;
+				emissive = material.Emissive;
+				emissiveIntensity = material.EmissiveIntensity;
+				if (!material.AlbedoTexturePath.empty())
+					albedoTexture = GetAlbedoTexture(material.AlbedoTexturePath);
+			}
+
+			// The depth is the group's: the instances are sorted as one draw.
+			const glm::vec3 objectPosition(group[3][0], group[3][1], group[3][2]);
+			const glm::vec4 viewPosition = camera.ViewMatrix * glm::vec4(objectPosition, 1.0f);
+
+			records.push_back({ mesh, glm::mat4(1.0f), glm::mat3(1.0f), albedo, emissive,
+				metallic, roughness, ambientOcclusion, emissiveIntensity, viewPosition.z,
+				albedoTexture, std::move(instances) });
 		}
 
 		s_Statistics.Reset();
@@ -518,7 +638,19 @@ namespace {
 		// transform, before the PBR pass reads the map.
 		renderer.BeginShadowScene(cameraParams.ShadowViewProjection);
 		for (const DrawRecord& record : records)
-			renderer.DrawShadowObject(record.MeshHandle, record.Model);
+		{
+			if (record.Instances.empty())
+			{
+				renderer.DrawShadowObject(record.MeshHandle, record.Model);
+				continue;
+			}
+
+			// The shadow pass draws the instances one at a time: the shadow
+			// pipeline is not the instanced one, and a shadow of a forest is
+			// not what the frame is about.
+			for (const glm::mat4& instance : record.Instances)
+				renderer.DrawShadowObject(record.MeshHandle, instance);
+		}
 
 		// Reflection probe pass: redraw the scene from the probe into a cubemap
 		// *before* BeginScene records the real camera, because the probe writes
@@ -530,18 +662,40 @@ namespace {
 			probeDraws.reserve(records.size());
 			for (const DrawRecord& record : records)
 			{
-				Vulkan::VkRenderer::ProbeDraw probe{};
-				probe.MeshHandle = record.MeshHandle;
-				probe.AlbedoTexture = record.AlbedoTexture;
-				probe.Model = record.Model;
-				probe.NormalMatrix = record.NormalMatrix;
-				probe.Albedo = record.Albedo;
-				probe.Emissive = record.Emissive;
-				probe.Metallic = record.Metallic;
-				probe.Roughness = record.Roughness;
-				probe.AO = record.AO;
-				probe.EmissiveIntensity = record.EmissiveIntensity;
-				probeDraws.push_back(std::move(probe));
+				// An instanced draw is probed as its instances: the probe
+				// draws the scene the way it is drawn, one mesh at a time.
+				if (record.Instances.empty())
+				{
+					Vulkan::VkRenderer::ProbeDraw probe{};
+					probe.MeshHandle = record.MeshHandle;
+					probe.AlbedoTexture = record.AlbedoTexture;
+					probe.Model = record.Model;
+					probe.NormalMatrix = record.NormalMatrix;
+					probe.Albedo = record.Albedo;
+					probe.Emissive = record.Emissive;
+					probe.Metallic = record.Metallic;
+					probe.Roughness = record.Roughness;
+					probe.AO = record.AO;
+					probe.EmissiveIntensity = record.EmissiveIntensity;
+					probeDraws.push_back(std::move(probe));
+					continue;
+				}
+
+				for (const glm::mat4& instance : record.Instances)
+				{
+					Vulkan::VkRenderer::ProbeDraw probe{};
+					probe.MeshHandle = record.MeshHandle;
+					probe.AlbedoTexture = record.AlbedoTexture;
+					probe.Model = instance;
+					probe.NormalMatrix = glm::inverseTranspose(glm::mat3(instance));
+					probe.Albedo = record.Albedo;
+					probe.Emissive = record.Emissive;
+					probe.Metallic = record.Metallic;
+					probe.Roughness = record.Roughness;
+					probe.AO = record.AO;
+					probe.EmissiveIntensity = record.EmissiveIntensity;
+					probeDraws.push_back(std::move(probe));
+				}
 			}
 			renderer.RenderReflectionProbe(cameraParams, probeDraws);
 		}
@@ -567,8 +721,19 @@ namespace {
 			object.Emissive = record.Emissive;
 			object.EmissiveIntensity = record.EmissiveIntensity;
 
-			renderer.DrawObject(record.MeshHandle, record.AlbedoTexture, object);
-			s_Statistics.AddDrawCall(record.MeshHandle->GetIndexCount() / 3, record.AlbedoTexture != nullptr);
+			if (record.Instances.empty())
+			{
+				renderer.DrawObject(record.MeshHandle, record.AlbedoTexture, object);
+				s_Statistics.AddDrawCall(record.MeshHandle->GetIndexCount() / 3, record.AlbedoTexture != nullptr);
+			}
+			else
+			{
+				// One draw for the whole group: the instances are the
+				// vertices the same mesh is drawn with.
+				renderer.DrawInstanced(record.MeshHandle, record.AlbedoTexture, record.Instances, object);
+				s_Statistics.AddDrawCall(record.MeshHandle->GetIndexCount() / 3 *
+					static_cast<int>(record.Instances.size()), record.AlbedoTexture != nullptr);
+			}
 			++drawn;
 		}
 

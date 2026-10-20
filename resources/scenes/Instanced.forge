@@ -1,0 +1,57 @@
+Scene: Untitled
+Entities:
+  - Entity: 1000000000000000001
+    TagComponent:
+      Tag: MainCamera
+    TransformComponent:
+      Translation: [0, 3, 12]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Primary: true
+      FieldOfView: 60
+      NearClip: 0.1
+      FarClip: 1000
+      AspectRatio: 1.7777778
+      OrthographicSize: 10
+  - Entity: 1000000000000000002
+    TagComponent:
+      Tag: DirectionalLight
+    TransformComponent:
+      Translation: [0, 5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 0
+      Color: [1, 0.95, 0.9]
+      Intensity: 1.2
+      Direction: [-0.5, -1, -0.3]
+  - Entity: 1000000000000000003
+    TagComponent:
+      Tag: CubeRow
+    TransformComponent:
+      Translation: [0, 0.5, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MultiMeshComponent:
+      ModelPath: resources/models/cube.glb
+      Instances:
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -6.6, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -5.3999999999999995, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -4.199999999999999, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -3.0, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1.7999999999999998, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -0.5999999999999996, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.5999999999999996, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.8000000000000007, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 3.0, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 4.199999999999999, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5.4, 0, 0, 1]
+        - [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 6.6, 0, 0, 1]
+    PBRMaterialComponent:
+      Albedo: [0.3, 0.6, 0.9]
+      Metallic: 0
+      Roughness: 0.5
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0

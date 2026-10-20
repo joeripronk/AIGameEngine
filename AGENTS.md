@@ -900,6 +900,31 @@ replaced was sized for no particular map: large enough to peter-pan a fine map,
 too small to clear a grazing surface on a coarse one - which is a checkerboard
 of lit and shadowed blocks, and reads as textures appearing on random cells.
 
+### Instanced rendering
+
+One mesh in many places, one draw call.
+
+```cpp
+auto& row = entity.AddComponent<MultiMeshComponent>();
+row.ModelPath = "resources/models/cube.glb";
+row.Transforms.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(0, 0, 0)));
+```
+
+A forest is a thousand draw calls when every tree is an entity, and one
+when the trees are instances of one mesh. The transforms arrive as vertex
+attributes - the model matrix, as four rows - so the vertex shader reads
+the instance's place instead of the object's, and the material (which
+every instance shares) stays in the per-object uniform buffer.
+
+The instance buffer is a ring, one region per swapchain image, for the
+same reason the object data is: a frame writes only inside the region of
+the image it draws, so a frame that is still in flight is not
+overwritten.
+
+The shadow pass draws the instances one at a time - the shadow pipeline is
+not the instanced one, and a shadow of a forest is not what the frame is
+about.
+
 ### Level of detail
 
 A mesh that is far away is drawn with fewer triangles: the difference

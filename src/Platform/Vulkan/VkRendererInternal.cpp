@@ -126,12 +126,12 @@ std::vector<uint32_t> ReadSpirv(const std::string& path)
 }
 
 ::VkBuffer CreateHostBuffer(VmaDeviceAllocator& allocator, VkDeviceSize size, const char* name,
-	VmaAllocation& outAlloc, void** outData)
+	VmaAllocation& outAlloc, void** outData, VkBufferUsageFlags usage)
 {
 	VkBufferCreateInfo info{};
 	info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	info.size = size;
-	info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+	info.usage = usage;
 	info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 	AllocationCreateInfo alloc{};

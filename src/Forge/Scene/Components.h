@@ -212,6 +212,31 @@ namespace Forge {
 		MeshComponent(const MeshComponent&) = default;
 	};
 
+	// A mesh drawn many times: one mesh, many transforms, one draw call.
+	//
+	// A forest is a thousand draw calls when every tree is an entity, and
+	// one when the trees are instances of one mesh. The transforms are the
+	// instances' places in the world; the entity's own transform is applied
+	// to all of them, so the whole group can be moved as one.
+	struct MultiMeshComponent
+	{
+		// The mesh the instances share.
+		std::string ModelPath;
+
+		// The imported geometry, loaded on the CPU when the component is
+		// added - the same contract the MeshComponent has.
+		Ref<class CpuMesh> CpuMeshData;
+
+		// The uploaded mesh. Filled in by the renderer.
+		Ref<class Mesh> Mesh;
+
+		// Where the instances are.
+		std::vector<glm::mat4> Transforms;
+
+		MultiMeshComponent() = default;
+		MultiMeshComponent(const MultiMeshComponent&) = default;
+	};
+
 	struct PBRMaterialComponent
 	{
 		glm::vec3 Albedo = { 1.0f, 1.0f, 1.0f };
