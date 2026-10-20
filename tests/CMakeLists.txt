@@ -23,6 +23,7 @@ target_sources(ForgeTests
         src/LODTests.cpp
         src/MultiMeshTests.cpp
         src/LabelTests.cpp
+        src/FontTests.cpp
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp

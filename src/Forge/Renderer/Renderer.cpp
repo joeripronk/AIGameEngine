@@ -8,6 +8,8 @@
 #include "Forge/Renderer/Texture.h"
 #include "Forge/Renderer/LOD.h"
 #include "Forge/Renderer/Mesh.h"
+#include "Forge/UI/Font.h"
+#include "Forge/UI/Label.h"
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Renderer/CpuTexture.h"
 #include "Forge/Renderer/Camera.h"
@@ -462,6 +464,10 @@ namespace {
 			// The instances of an instanced draw: the same mesh in many
 			// places, one draw call. Empty for a mesh that is drawn once.
 			std::vector<glm::mat4> Instances;
+
+			// Whether the draw is text: a label drawn from a typeface, which
+			// is textured and blended rather than lit and opaque.
+			bool IsText = false;
 		};
 
 		std::vector<DrawRecord> records;
@@ -533,6 +539,7 @@ namespace {
 			Ref<Texture> albedoTexture;
 
 			Entity entity(handle, scene);
+			bool isText = false;
 			if (entity.HasComponent<PBRMaterialComponent>())
 			{
 				const auto& material = entity.GetComponent<PBRMaterialComponent>();
@@ -546,13 +553,26 @@ namespace {
 					albedoTexture = GetAlbedoTexture(material.AlbedoTexturePath);
 			}
 
+			// A label drawn from a typeface is textured: the atlas says how
+			// much of the colour each glyph covers, and the text is blended
+			// over the scene rather than lit like a cube.
+			if (entity.HasComponent<LabelComponent>())
+			{
+				const LabelComponent& label = entity.GetComponent<LabelComponent>();
+				if (label.Font)
+				{
+					isText = true;
+					albedoTexture = label.Font->GetTexture();
+				}
+			}
+
 			const glm::vec3 objectPosition(model[3][0], model[3][1], model[3][2]);
 			const glm::vec4 viewPosition = camera.ViewMatrix * glm::vec4(objectPosition, 1.0f);
 			const float depth = viewPosition.z;
 
 			records.push_back({ mesh, model, normalMatrix, albedo, emissive,
 				metallic, roughness, ambientOcclusion, emissiveIntensity, depth,
-				albedoTexture, {} });
+				albedoTexture, {}, isText });
 		}
 
 		// The instanced meshes: one mesh in many places, one draw call.
@@ -726,7 +746,14 @@ namespace {
 			object.Emissive = record.Emissive;
 			object.EmissiveIntensity = record.EmissiveIntensity;
 
-			if (record.Instances.empty())
+			if (record.IsText)
+			{
+				// The text: the atlas and the colour, blended over the
+				// scene.
+				renderer.DrawText(record.MeshHandle, record.AlbedoTexture, object);
+				s_Statistics.AddDrawCall(record.MeshHandle->GetIndexCount() / 3, record.AlbedoTexture != nullptr);
+			}
+			else if (record.Instances.empty())
 			{
 				renderer.DrawObject(record.MeshHandle, record.AlbedoTexture, object);
 				s_Statistics.AddDrawCall(record.MeshHandle->GetIndexCount() / 3, record.AlbedoTexture != nullptr);

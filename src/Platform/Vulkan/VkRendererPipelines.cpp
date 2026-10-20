@@ -184,6 +184,23 @@ bool VkRenderer::CreatePipelines()
 			&m_VertexLayoutInstance);
 	}
 
+	// The text pipeline: the scene's pipeline with the blending a label
+	// needs, and the depth write off so the text does not hide what is
+	// behind it. The atlas and the sampler come from the scene's descriptor
+	// set, so the two share one layout.
+	if (!m_VertexShaderText.IsNull() && !m_FragmentShaderText.IsNull())
+	{
+		m_PipelineText = VkRenderer::CreateGraphicsPipeline(device,
+			m_VertexShaderText.Handle(), m_FragmentShaderText.Handle(), &m_VertexLayoutMesh,
+			m_RenderPassHdr, 0, m_LayoutPbr,
+			[]() {
+				VkPipelineRasterizationStateCreateInfo r = Presets::Rasterizer::FillNoCull;
+				r.frontFace = VK_FRONT_FACE_CLOCKWISE;
+				return r;
+			}(),
+			Presets::DepthStencil::TestNoWrite, Presets::Blend::Alpha, m_PipelineCache.Handle());
+	}
+
 	// The shadow pipeline: depth-only, back-face culled, counter-clockwise
 	// front face (nvrhi's frontCounterClockwise for the shadow draw).
 	if (!m_VertexShaderShadow.IsNull() && !m_FragmentShaderShadow.IsNull())
@@ -240,6 +257,7 @@ void VkRenderer::DestroyPipelines()
 	};
 	destroyPipeline(m_PipelinePbr);
 	destroyPipeline(m_PipelinePbrInstanced);
+	destroyPipeline(m_PipelineText);
 	destroyPipeline(m_PipelineShadow);
 	destroyPipeline(m_PipelineSsao);
 	destroyPipeline(m_PipelineBloom);

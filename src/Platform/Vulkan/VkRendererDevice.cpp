@@ -231,6 +231,17 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 			FG_CORE_WARN("VkRenderer: the instanced vertex shader is missing; instanced draws are off");
 	}
 	{
+		// The text's shaders: a mesh of the glyphs' quads, drawn from an
+		// atlas of their coverage and blended over the scene.
+		const std::vector<uint32_t> vert = ReadSpirv("resources/shaders/text.vert.spv");
+		const std::vector<uint32_t> frag = ReadSpirv("resources/shaders/text.frag.spv");
+		if (!m_VertexShaderText.FromSpirv(m_Device, vert, "Text.vert") ||
+			!m_FragmentShaderText.FromSpirv(m_Device, frag, "Text.frag"))
+		{
+			FG_CORE_WARN("VkRenderer: the text shaders are missing; text is not drawn");
+		}
+	}
+	{
 		const std::vector<uint32_t> vert = ReadSpirv("resources/shaders/shadow.vert.spv");
 		const std::vector<uint32_t> frag = ReadSpirv("resources/shaders/shadow.frag.spv");
 		if (!m_VertexShaderShadow.FromSpirv(m_Device, vert, "Shadow.vert") || !m_FragmentShaderShadow.FromSpirv(m_Device, frag, "Shadow.frag"))
@@ -307,6 +318,8 @@ void VkRenderer::ShutdownDevice()
 
 	m_VertexShaderPbr.Destroy();
 	m_VertexShaderPbrInstanced.Destroy();
+	m_VertexShaderText.Destroy();
+	m_FragmentShaderText.Destroy();
 	m_FragmentShaderPbr.Destroy();
 	m_VertexShaderShadow.Destroy();
 	m_FragmentShaderShadow.Destroy();

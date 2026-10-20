@@ -137,6 +137,10 @@ namespace Forge {
 			// must not sample the cubemap it is writing.
 			// One draw for a mesh in many places: the transforms are read
 			// from the instance buffer as vertex attributes.
+			// The text: a mesh of the glyphs' quads, drawn from the atlas
+			// and blended over the scene.
+			void DrawText(const Ref<Mesh>& mesh, const Ref<Texture>& atlas, const ObjectParams& object);
+
 			void DrawInstanced(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
 				const std::vector<glm::mat4>& transforms, const ObjectParams& object);
 
@@ -507,6 +511,8 @@ namespace Forge {
 			ShaderModule m_VertexShaderPbr;
 			ShaderModule m_VertexShaderPbrInstanced;
 			ShaderModule m_FragmentShaderPbr;
+			ShaderModule m_VertexShaderText;
+			ShaderModule m_FragmentShaderText;
 			ShaderModule m_VertexShaderShadow;
 			ShaderModule m_FragmentShaderShadow;
 			ShaderModule m_VertexShaderFullscreen;
@@ -521,6 +527,7 @@ namespace Forge {
 			// Pipelines.
 			PipelineCache m_PipelineCache;   // dumped/loaded across sessions
 			::VkPipeline m_PipelinePbr = VK_NULL_HANDLE;
+			::VkPipeline m_PipelineText = VK_NULL_HANDLE;
 			::VkPipeline m_PipelinePbrInstanced = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineShadow = VK_NULL_HANDLE;
 			::VkPipeline m_PipelineSsao = VK_NULL_HANDLE;

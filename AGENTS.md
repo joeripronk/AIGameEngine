@@ -922,10 +922,25 @@ label.Size = 0.05f;      // the world units per pixel of the font
 label.Billboard = true;   // the label turns to face the camera
 ```
 
-The engine's font is a built-in vector font, so the glyphs are quads: a
-label needs no texture and no blending, and it is drawn by the same path
-as any other mesh. The label's colour is the entity's material, so a
-label is coloured the same way a cube is.
+The label's colour is the entity's material, so a label is coloured the
+same way a cube is.
+
+There are two fonts. A label with a typeface draws from it: the glyphs
+are pixels with a coverage, so the text is textured and it is blended -
+the atlas says how much of the colour each glyph covers, and the text is
+drawn over the scene rather than into it. A label with no typeface draws
+from the engine's built-in vector font, where the glyphs are solid
+shapes, so the text needs no texture and no blending and is drawn by the
+same path as any other mesh.
+
+A typeface is rasterised into an atlas of the printable ASCII, and the
+label's mesh is one quad per glyph with the atlas's coordinates. The
+atlas's rows run from the top, so the bottom of a glyph is the bottom of
+its rectangle in the atlas - the other way round and the text hangs
+upside down.
+
+The engine ships one typeface (`resources/fonts/DejaVuSans.ttf`), so a
+label can be drawn without the project bringing a font of its own.
 
 The label rebuilds its mesh when the text changes and not otherwise - a
 label that is rebuilt every frame is a label that is uploaded every

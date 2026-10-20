@@ -66,8 +66,9 @@ Entities:
       ModelPath: ""
       Scale: [1, 1, 1]
     LabelComponent:
-      Text: Forge
-      Size: 0.12
+      Text: Forge Engine
+      FontPath: resources/fonts/DejaVuSans.ttf
+      Size: 0.6
       Billboard: true
     PBRMaterialComponent:
       Albedo: [1, 0.9, 0.6]

@@ -371,6 +371,50 @@ void VkRenderer::DrawObject(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTex
 	functions.CmdDrawIndexed(cmd, gpu->IndexCount, 1, 0, 0, 0);
 }
 
+void VkRenderer::DrawText(const Ref<Mesh>& mesh, const Ref<Texture>& atlas, const ObjectParams& object)
+{
+	if (!m_DeviceReady || !m_RenderPassOpen || m_PipelineText == VK_NULL_HANDLE)
+		return;
+
+	MeshGpu* gpu = GetMeshGpu(mesh);
+	if (!gpu)
+		return;
+
+	::VkCommandBuffer cmd = CurrentCommandBuffer();
+	if (cmd == VK_NULL_HANDLE)
+		return;
+
+	// One ring slot per draw: the descriptor's range points the shader's
+	// ObjectData at this draw's copy.
+	const size_t slotOffset = static_cast<size_t>(m_ObjectSlot) * ObjectSlotBytes;
+	const uint32_t regionBase = m_CurrentImageIndex * ObjectSlotsPerFrame;
+	m_ObjectSlot = regionBase + (m_ObjectSlot + 1U - regionBase) % ObjectSlotsPerFrame;
+	ObjectData data{};
+	data.Transform = object.Model;
+	data.NormalMatrix = glm::mat4(object.NormalMatrix);
+	data.Albedo = glm::vec4(object.Albedo, 1.0f);
+	data.MetallicRoughnessAO = glm::vec4(object.Metallic, object.Roughness, object.AO, 0.0f);
+	data.Emissive = glm::vec4(object.Emissive, object.EmissiveIntensity);
+	std::memcpy(static_cast<uint8_t*>(m_ObjectUboData) + slotOffset, &data, sizeof(data));
+
+	// The atlas is bound where the scene's shader binds the albedo map: the
+	// text's shader reads the same binding.
+	const TextureGpu* atlasGpu = GetTextureGpu(atlas);
+	::VkDescriptorSet set = BuildPbrSet(m_ObjectUbo, slotOffset,
+		atlasGpu ? atlasGpu->View : m_WhiteView, false);
+	if (set == VK_NULL_HANDLE)
+		return;
+
+	const DeviceFunctions& functions = m_Device.GetFunctions();
+	functions.CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineText);
+	functions.CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m_LayoutPbr, 0, 1, &set, 0, nullptr);
+	const ::VkDeviceSize offset = 0;
+	functions.CmdBindVertexBuffers(cmd, 0, 1, &gpu->VertexBuffer, &offset);
+	functions.CmdBindIndexBuffer(cmd, gpu->IndexBuffer, 0, VK_INDEX_TYPE_UINT32);
+	SetViewportScissor(m_Device, cmd, m_CurrentTargetWidth, m_CurrentTargetHeight);
+	functions.CmdDrawIndexed(cmd, gpu->IndexCount, 1, 0, 0, 0);
+}
+
 void VkRenderer::DrawInstanced(const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,
 	const std::vector<glm::mat4>& transforms, const ObjectParams& object)
 {

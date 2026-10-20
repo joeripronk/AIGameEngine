@@ -157,18 +157,16 @@ placed in a scene.
 **Done when**
 - A font is rasterised into a mesh and a component places it in the world.
 
-**How it is done here.** The engine's font is a built-in vector font
-(stb_easy_font, public domain), so the glyphs are quads: the text needs no
-texture and no blending, and a label is drawn by the same path as any
-other mesh. The label's colour is the entity's material, and the label
-rebuilds its mesh only when the text changes.
+**How it is done here.** There are two fonts. A label with a typeface
+draws from it: the glyphs are pixels with a coverage, so the text is
+textured and it is blended over the scene. A label with no typeface
+draws from the engine's built-in vector font, where the glyphs are solid
+shapes, so the text needs no texture and no blending.
 
-**What a real font would change.** A .ttf (stb_truetype) would give a
-proper typeface, and its glyphs are textured: the alpha is a texture
-channel, so the engine's one opaque material path would need either a
-second pipeline (blended) or an alpha test. That is a renderer change and
-not a text feature, and the built-in font is what the engine can do
-without one.
+A typeface is rasterised into an atlas of the printable ASCII and the
+label's mesh is one quad per glyph with the atlas's coordinates. The
+engine ships one typeface (DejaVu Sans), so a label can be drawn without
+the project bringing a font of its own.
 
 ### 9. [x] Instanced rendering (`MultiMesh`)
 

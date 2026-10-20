@@ -802,6 +802,25 @@ namespace Forge {
 		ImGui::Separator();
 		ImGui::Text("Components");
 
+		if (entity.HasComponent<LabelComponent>())
+		{
+			auto& label = entity.GetComponent<LabelComponent>();
+			ImGui::Text("Label");
+
+			char textBuffer[256];
+			CopyToBuffer(textBuffer, sizeof(textBuffer), label.Text);
+			if (ImGui::InputText("Text##label", textBuffer, sizeof(textBuffer)))
+				label.Text = textBuffer;
+
+			char fontBuffer[256];
+			CopyToBuffer(fontBuffer, sizeof(fontBuffer), label.FontPath);
+			if (ImGui::InputText("Font##label", fontBuffer, sizeof(fontBuffer)))
+				label.FontPath = fontBuffer;
+
+			ImGui::DragFloat("Size##label", &label.Size, 0.01f, 0.01f, 100.0f);
+			ImGui::Checkbox("Billboard##label", &label.Billboard);
+		}
+
 		if (entity.HasComponent<CameraComponent>())
 		{
 			auto& camera = entity.GetComponent<CameraComponent>();
@@ -993,6 +1012,8 @@ namespace Forge {
 			OfferAddComponent<ScriptComponent>(entity, "Script");
 			OfferAddComponent<AudioSourceComponent>(entity, "Audio Source");
 			OfferAddComponent<EnvironmentMapComponent>(entity, "Environment Map");
+			OfferAddComponent<LabelComponent>(entity, "Label");
+			OfferAddComponent<MultiMeshComponent>(entity, "Multi Mesh");
 			ImGui::Separator();
 			OfferAddComponent<RigidbodyComponent>(entity, "Rigidbody");
 			OfferAddComponent<BoxColliderComponent>(entity, "Box Collider");
@@ -1010,6 +1031,8 @@ namespace Forge {
 			OfferRemoveComponent<ScriptComponent>(entity, "Script");
 			OfferRemoveComponent<AudioSourceComponent>(entity, "Audio Source");
 			OfferRemoveComponent<EnvironmentMapComponent>(entity, "Environment Map");
+			OfferRemoveComponent<LabelComponent>(entity, "Label");
+			OfferRemoveComponent<MultiMeshComponent>(entity, "Multi Mesh");
 			ImGui::Separator();
 			OfferRemoveComponent<RigidbodyComponent>(entity, "Rigidbody");
 			OfferRemoveComponent<BoxColliderComponent>(entity, "Box Collider");

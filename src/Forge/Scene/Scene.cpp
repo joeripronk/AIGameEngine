@@ -5,6 +5,8 @@
 
 #include "Forge/Scene/Components.h"
 #include "Forge/Core/Tween.h"
+#include "Forge/UI/Font.h"
+#include "Forge/UI/Label.h"
 #include "Forge/Physics/CharacterController.h"
 
 #include <cmath>
@@ -324,15 +326,25 @@ namespace Forge {
 			MeshComponent& mesh = view.get<MeshComponent>(e);
 			TransformComponent& transform = view.get<TransformComponent>(e);
 
-			// The mesh is rebuilt when the text changes, and not otherwise:
-			// a label that is rebuilt every frame is a label that is uploaded
-			// every frame.
-			if (label.Text != label.BuiltText || label.Size != label.BuiltSize)
+			// The typeface: loaded from the path when it is not loaded yet.
+			// A label with no typeface uses the engine's built-in font.
+			if (!label.Font && !label.FontPath.empty())
+				label.Font = Font::Load(label.FontPath);
+
+			// The mesh is rebuilt when the text, the size or the typeface
+			// changes, and not otherwise: a label that is rebuilt every frame
+			// is a label that is uploaded every frame.
+			if (label.Text != label.BuiltText || label.Size != label.BuiltSize ||
+				label.FontPath != label.BuiltFontPath)
 			{
-				Ref<CpuMesh> built = BuildTextMesh(label.Text, label.Size);
+				Ref<CpuMesh> built = label.Font
+					? BuildFontTextMesh(label.Font, label.Text, label.Size)
+					: BuildTextMesh(label.Text, label.Size);
+
 				label.MeshData = built;
 				label.BuiltText = label.Text;
 				label.BuiltSize = label.Size;
+				label.BuiltFontPath = label.FontPath;
 
 				mesh.CpuMeshData = built;
 				// The uploaded mesh is of the old text: it has to go.

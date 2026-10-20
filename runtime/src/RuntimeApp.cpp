@@ -124,7 +124,8 @@ namespace Forge {
 		label.AddComponent<MeshComponent>();
 		auto& text = label.AddComponent<LabelComponent>();
 		text.Text = "Forge Runtime";
-		text.Size = 0.1f;
+		text.FontPath = "resources/fonts/DejaVuSans.ttf";
+		text.Size = 0.6f;
 		label.AddComponent<PBRMaterialComponent>().Albedo = { 1.0f, 0.9f, 0.6f };
 
 		// A scripted entity so the runtime exercises the Lua pipeline.

@@ -369,6 +369,7 @@ namespace Forge {
 			out << YAML::Key << "LabelComponent";
 			out << YAML::BeginMap;
 			out << YAML::Key << "Text" << YAML::Value << label.Text;
+			out << YAML::Key << "FontPath" << YAML::Value << label.FontPath;
 			out << YAML::Key << "Size" << YAML::Value << label.Size;
 			out << YAML::Key << "Billboard" << YAML::Value << label.Billboard;
 			out << YAML::EndMap;
@@ -529,7 +530,8 @@ namespace Forge {
 			auto labelNode = entityNode["LabelComponent"];
 			auto& label = deserializedEntity.AddComponent<LabelComponent>();
 			label.Text = GetString(labelNode, "Text", "");
-			label.Size = GetFloat(labelNode, "Size", 0.01f);
+			label.FontPath = GetString(labelNode, "FontPath", "");
+			label.Size = GetFloat(labelNode, "Size", 0.5f);
 			label.Billboard = GetBool(labelNode, "Billboard", true);
 		}
 

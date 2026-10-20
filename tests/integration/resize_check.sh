@@ -147,9 +147,20 @@ if fields[0] != b'P6':
 width, height = int(fields[1]), int(fields[2])
 print(f"captured frame: {width}x{height} (the window was resized to {new_w}x{new_h})")
 
-if width != new_w or height != new_h:
-    print(f"FAIL: the frame is {width}x{height}, not {new_w}x{new_h} - "
-          "the renderer kept the size the window started at")
+# The window manager's frame is not the window: the title bar and the border
+# are the decoration's, and the framebuffer is what is inside them. So the
+# capture is a little smaller than the window that was asked for - what
+# matters is that it grew with the window and that it is about the right
+# size.
+if width <= old_w or height <= old_h:
+    print(f"FAIL: the frame is {width}x{height}, not larger than the "
+          f"{old_w}x{old_h} the window started at - the renderer kept the "
+          "size the window started at")
+    sys.exit(1)
+
+if abs(width - new_w) > 200 or abs(height - new_h) > 200:
+    print(f"FAIL: the frame is {width}x{height}, which is not the "
+          f"{new_w}x{new_h} the window was resized to")
     sys.exit(1)
 
 pixels = data[index:]

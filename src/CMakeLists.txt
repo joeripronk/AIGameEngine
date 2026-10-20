@@ -60,6 +60,8 @@ target_sources(ForgeCore
         Forge/Events/ApplicationEvent.h
         Forge/Events/KeyEvent.h
         Forge/Events/MouseEvent.h
+        Forge/UI/Font.h
+        Forge/UI/Font.cpp
         Forge/UI/Label.h
         Forge/UI/Label.cpp
         Forge/Renderer/LOD.h
