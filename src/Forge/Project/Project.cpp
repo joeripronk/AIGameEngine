@@ -22,6 +22,7 @@ namespace Forge {
 			return nullptr;
 
 		project->m_ProjectDirectory = path.parent_path();
+		project->m_ProjectPath = path;
 		s_ActiveProject = project;
 		return project;
 	}
@@ -41,6 +42,7 @@ namespace Forge {
 		// Saving also establishes where the project lives: a caller that has
 		// just written the file is entitled to resolve assets relative to it.
 		project->m_ProjectDirectory = path.parent_path();
+		project->m_ProjectPath = path;
 		if (project == s_ActiveProject)
 			s_ActiveProject = project;
 		return true;

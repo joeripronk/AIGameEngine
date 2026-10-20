@@ -9,6 +9,7 @@
 #include "Forge/Scene/Scene.h"
 #include "Forge/Project/Project.h"
 
+#include <filesystem>
 #include <vector>
 
 namespace Forge {
@@ -189,6 +190,10 @@ namespace Forge {
 		// from the state it was in. The state is the entity's serialized
 		// form, so one command covers every component there is.
 		void RecordEntityStateChange(Entity entity, const std::string& before, const std::string& description);
+
+		// Records the scene in the active project, so that reopening the
+		// project reopens the scene.
+		void RecordSceneInProject(const std::string& path) const;
 
 		// Takes a component off an entity without recording a change of its
 		// own. The caller is a command that is restoring a state, and a

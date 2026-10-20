@@ -34,6 +34,15 @@ private:
 	// preview. Returns false if it could not be built.
 	bool CreateScene();
 
+	// Loads the scene the game ships - its camera, its light and its board.
+	// False when there is none, and the game builds its own then.
+	bool LoadAuthoredScene();
+
+	// Copies the board's decor out of the scene the game ships. The 2D
+	// mode's board is the scene's, so an author's changes to it survive a
+	// mode switch.
+	void LoadBoardDecor();
+
 	// Mirror the queued piece into the preview blocks beside the board.
 	void SyncPreview(float dt);
 

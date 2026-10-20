@@ -72,6 +72,10 @@ namespace Forge {
 		// saved or loaded.
 		const std::filesystem::path& GetProjectDirectory() const { return m_ProjectDirectory; }
 
+		// The project file's own path. Empty for a project that has never
+		// been saved - there is nothing to save it back to.
+		const std::filesystem::path& GetProjectPath() const { return m_ProjectPath; }
+
 		[[nodiscard]]
 		static std::filesystem::path GetAssetDirectory();
 
@@ -93,6 +97,7 @@ namespace Forge {
 	private:
 		ProjectConfig m_Config;
 		std::filesystem::path m_ProjectDirectory;
+		std::filesystem::path m_ProjectPath;
 
 		inline static Ref<Project> s_ActiveProject;
 	};

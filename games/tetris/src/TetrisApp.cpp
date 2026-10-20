@@ -10,6 +10,7 @@
 #include "Forge/Events/ApplicationEvent.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Scene/SceneSerializer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -33,6 +34,10 @@ constexpr float kPreviewGap = 2.0f;
 constexpr float kPreviewBlockScale = 0.92f;
 
 const char* kBlockMesh = "resources/models/cube.glb";
+
+// The scene the game ships: its camera, its light and its board. The editor
+// opens it like any other scene, and the game loads it so the two agree.
+constexpr const char* kAuthoredScene = "resources/scenes/Tetris.forge";
 
 // The impact shake: a damped oscillation about the camera's base position, in
 // world units (a block is 1.0). The vertical axis leads and the others trail,
@@ -251,23 +256,115 @@ bool TetrisApp::CreateScene()
 {
 	m_Scene = Forge::CreateRef<Forge::Scene>();
 
-	// --- Camera ---
+	// The scene the game ships, when it is there.
 	//
-	// Framed on the playfield; ApplyViewLayout places it for the mode.
-	m_CameraEntity = m_Scene->CreateEntity("MainCamera");
-	auto& cameraComponent = m_CameraEntity.AddComponent<Forge::CameraComponent>();
-	cameraComponent.Primary = true;
-	cameraComponent.AspectRatio = 16.0f / 9.0f;
+	// The camera, the light and the board are *content*: they are what an
+	// author tunes, and content belongs in a file the editor can open. So
+	// the game ships one, the editor opens it, edits it and saves it back,
+	// and the game picks the changes up.
+	//
+	// What is not content - the rules, the board's state - the game builds
+	// itself, and the engine knows nothing about either.
+	if (!LoadAuthoredScene())
+	{
+		// --- Camera ---
+		//
+		// Framed on the playfield; ApplyViewLayout places it for the mode.
+		m_CameraEntity = m_Scene->CreateEntity("MainCamera");
+		auto& cameraComponent = m_CameraEntity.AddComponent<Forge::CameraComponent>();
+		cameraComponent.Primary = true;
+		cameraComponent.AspectRatio = 16.0f / 9.0f;
 
-	// --- Light ---
-	m_LightEntity = m_Scene->CreateEntity("DirectionalLight");
-	auto& lightComponent = m_LightEntity.AddComponent<Forge::LightComponent>();
-	lightComponent.Type = Forge::LightComponent::Type::Directional;
+		// --- Light ---
+		m_LightEntity = m_Scene->CreateEntity("DirectionalLight");
+		auto& lightComponent = m_LightEntity.AddComponent<Forge::LightComponent>();
+		lightComponent.Type = Forge::LightComponent::Type::Directional;
+
+		CreateDecor();
+	}
 
 	ApplyViewLayout();
-	CreateDecor();
 
 	return true;
+}
+
+bool TetrisApp::LoadAuthoredScene()
+{
+	Forge::SceneSerializer serializer(m_Scene);
+	if (!serializer.Deserialize(kAuthoredScene))
+	{
+		// A game with no scene file builds one in code, so the game still
+		// runs on its own - a checkout without the scene is not a broken
+		// game.
+		FG_INFO("Tetris: no scene at '{0}'; the game builds its own", kAuthoredScene);
+		return false;
+	}
+
+	// The scene's camera and light are the game's: the game places the
+	// camera and drives the light, it just does not create them.
+	m_CameraEntity = m_Scene->FindEntityByName("MainCamera");
+	if (!m_CameraEntity)
+	{
+		FG_ERROR("Tetris: the scene has no camera named 'MainCamera'");
+		return false;
+	}
+
+	m_LightEntity = m_Scene->FindEntityByName("DirectionalLight");
+	if (!m_LightEntity)
+	{
+		FG_ERROR("Tetris: the scene has no light named 'DirectionalLight'");
+		return false;
+	}
+
+	// The board's decor is the scene's too, when it has one: the game
+	// creates only what the scene does not have.
+	m_DecorEntities.clear();
+	for (Forge::Entity entity : m_Scene->GetEntitiesInOrder())
+	{
+		if (entity.GetName().rfind("Board", 0) == 0)
+			m_DecorEntities.push_back(entity);
+	}
+
+	// The preview root is the parent the preview blocks hang from. It is
+	// the game's own, so the game makes it when the scene does not have
+	// one.
+	if (!m_Scene->FindEntityByName("PreviewRoot"))
+		m_PreviewRoot = m_Scene->CreateEntity("PreviewRoot");
+
+	FG_INFO("Tetris: scene '{0}' loaded", kAuthoredScene);
+	return true;
+}
+
+void TetrisApp::LoadBoardDecor()
+{
+	// The board's decor comes from the scene, so an author's changes to it
+	// survive a mode switch.
+	//
+	// The scene is read into a scene of its own and the board's entities are
+	// copied over: the game's scene holds the camera, the light and the
+	// blocks, and replacing it wholesale would throw all of them away.
+	Forge::Ref<Forge::Scene> authored = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer serializer(authored);
+	if (!serializer.Deserialize(kAuthoredScene))
+	{
+		FG_ERROR("Tetris: could not read the scene '{0}'", kAuthoredScene);
+		return;
+	}
+
+	for (Forge::Entity entity : authored->GetEntitiesInOrder())
+	{
+		if (entity.GetName().rfind("Board", 0) != 0)
+			continue;
+
+		Forge::Entity copy = m_Scene->CreateEntity(entity.GetName());
+		copy.GetComponent<Forge::TransformComponent>() = entity.GetComponent<Forge::TransformComponent>();
+		if (entity.HasComponent<Forge::MeshComponent>())
+			copy.AddComponent<Forge::MeshComponent>() = entity.GetComponent<Forge::MeshComponent>();
+		if (entity.HasComponent<Forge::PBRMaterialComponent>())
+			copy.AddComponent<Forge::PBRMaterialComponent>() = entity.GetComponent<Forge::PBRMaterialComponent>();
+
+		m_DecorEntities.push_back(copy);
+	}
 }
 
 void TetrisApp::ApplyViewLayout()
@@ -487,8 +584,15 @@ void TetrisApp::ToggleViewMode()
 	m_ThreeDimensional = !m_ThreeDimensional;
 
 	DestroyDecor();
+
+	// The 2D mode's board is the scene's, so an author's changes to it
+	// survive the switch; the 3D mode's well is the game's own.
+	if (m_ThreeDimensional)
+		CreateDecor();
+	else
+		LoadBoardDecor();
+
 	ApplyViewLayout();
-	CreateDecor();
 
 	FG_INFO("Tetris: switched to {0} view", m_ThreeDimensional ? "3D" : "2D");
 }

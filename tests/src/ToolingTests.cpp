@@ -172,6 +172,80 @@ TEST_CASE("EditorContext scene save and open", "[editor][tooling]")
 	REQUIRE(loaded.GetComponent<Forge::TransformComponent>().Translation == glm::vec3(1.0f, 2.0f, 3.0f));
 }
 
+TEST_CASE("Opening a project opens the scene it names", "[editor][tooling][project]")
+{
+	Forge::Log::Init();
+
+	// The active project is engine state, and a test that leaves one behind
+	// changes what the next test resolves.
+	Forge::Ref<Forge::Project> previous = Forge::Project::GetActive();
+
+	// A project and a scene: the project names the scene, and opening the
+	// project opens it. A project that is loaded without its scene leaves
+	// the editor looking at whatever was on screen before.
+	const std::string scenePath = "test_editor_project.forge";
+	const std::string projectPath = "test_editor_project.forgeproject";
+
+	{
+		Forge::EditorContext writer;
+		writer.CreateEntity("Projected");
+		REQUIRE(writer.SaveScene(scenePath));
+	}
+
+	{
+		Forge::ProjectConfig config;
+		config.Name = "Test";
+		config.StartScene = scenePath;
+		config.EditorScene = scenePath;
+		// The scene is in the working directory, and the asset directory is
+		// where the project's paths are resolved from.
+		config.AssetDirectory = ".";
+		REQUIRE(Forge::Project::Save(Forge::Project::New(config), projectPath));
+	}
+
+	{
+		Forge::EditorContext reader;
+		REQUIRE(reader.OpenProject(projectPath));
+
+		// The scene the project names is open.
+		REQUIRE(reader.FindEntityByName("Projected"));
+	}
+
+	std::remove(scenePath.c_str());
+	std::remove(projectPath.c_str());
+	Forge::Project::SetActive(previous);
+}
+
+TEST_CASE("Saving a scene records it in the project", "[editor][tooling][project]")
+{
+	Forge::Log::Init();
+
+	Forge::Ref<Forge::Project> previous = Forge::Project::GetActive();
+
+	const std::string scenePath = "test_editor_recorded.forge";
+	const std::string projectPath = "test_editor_recorded.forgeproject";
+
+	Forge::ProjectConfig config;
+	config.Name = "Recorded";
+	REQUIRE(Forge::Project::Save(Forge::Project::New(config), projectPath));
+
+	{
+		Forge::EditorContext writer;
+		writer.CreateEntity("Recorded");
+		REQUIRE(writer.SaveScene(scenePath));
+	}
+
+	// The project remembers the scene, so that reopening the project
+	// reopens the scene.
+	const Forge::ProjectConfig* saved = Forge::Project::GetActive() ? &Forge::Project::GetActive()->GetConfig() : nullptr;
+	REQUIRE(saved);
+	REQUIRE(saved->EditorScene == scenePath);
+
+	std::remove(scenePath.c_str());
+	std::remove(projectPath.c_str());
+	Forge::Project::SetActive(previous);
+}
+
 TEST_CASE("EditorContext playback controls", "[editor][tooling]")
 {
 	Forge::Log::Init();

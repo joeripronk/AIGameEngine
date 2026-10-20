@@ -1,0 +1,124 @@
+Scene: Untitled
+Entities:
+  - Entity: 9759063336786383745
+    TagComponent:
+      Tag: MainCamera
+    TransformComponent:
+      Translation: [1, 2, 21.21]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    CameraComponent:
+      Primary: true
+      FieldOfView: 60
+      NearClip: 0.1
+      FarClip: 1000
+      AspectRatio: 1.7777778
+      Projection: Perspective
+      OrthographicSize: 10
+  - Entity: 16447537701899395329
+    TagComponent:
+      Tag: DirectionalLight
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 0
+      Color: [1, 0.95, 0.9]
+      Intensity: 1.25
+      Direction: [0.20177332, 0.20177332, 0.9584232]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693
+  - Entity: 6136453645834296751
+    TagComponent:
+      Tag: BoardBackdrop
+    TransformComponent:
+      Translation: [1, 2, -4.64]
+      Rotation: [0, 0, 0]
+      Scale: [13.4, 25.4, 0.4]
+    PBRMaterialComponent:
+      Albedo: [0.018, 0.024, 0.042]
+      Metallic: 0
+      Roughness: 0.95
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+      AlbedoTexturePath: ""
+    MeshComponent:
+      ModelPath: resources/models/cube.glb
+      Scale: [1, 1, 1]
+  - Entity: 651389063035296435
+    TagComponent:
+      Tag: BoardBorderLeft
+    TransformComponent:
+      Translation: [-5.2, 2, -0.64]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 24.4, 0.3]
+    PBRMaterialComponent:
+      Albedo: [0.3, 0.32, 0.38]
+      Metallic: 0
+      Roughness: 0.6
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+      AlbedoTexturePath: ""
+    MeshComponent:
+      ModelPath: resources/models/cube.glb
+      Scale: [1, 1, 1]
+  - Entity: 4140502294377092339
+    TagComponent:
+      Tag: BoardBorderRight
+    TransformComponent:
+      Translation: [7.2, 2, -0.64]
+      Rotation: [0, 0, 0]
+      Scale: [0.2, 24.4, 0.3]
+    PBRMaterialComponent:
+      Albedo: [0.3, 0.32, 0.38]
+      Metallic: 0
+      Roughness: 0.6
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+      AlbedoTexturePath: ""
+    MeshComponent:
+      ModelPath: resources/models/cube.glb
+      Scale: [1, 1, 1]
+  - Entity: 1657083761012243766
+    TagComponent:
+      Tag: BoardBorderTop
+    TransformComponent:
+      Translation: [1, 14.2, -0.64]
+      Rotation: [0, 0, 0]
+      Scale: [12.4, 0.2, 0.3]
+    PBRMaterialComponent:
+      Albedo: [0.3, 0.32, 0.38]
+      Metallic: 0
+      Roughness: 0.6
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+      AlbedoTexturePath: ""
+    MeshComponent:
+      ModelPath: resources/models/cube.glb
+      Scale: [1, 1, 1]
+  - Entity: 14477390969998169820
+    TagComponent:
+      Tag: BoardBorderFloor
+    TransformComponent:
+      Translation: [1, -10.2, -0.64]
+      Rotation: [0, 0, 0]
+      Scale: [12.4, 0.2, 0.3]
+    PBRMaterialComponent:
+      Albedo: [0.3, 0.32, 0.38]
+      Metallic: 0
+      Roughness: 0.6
+      AO: 1
+      Emissive: [0, 0, 0]
+      EmissiveIntensity: 0
+      AlbedoTexturePath: ""
+    MeshComponent:
+      ModelPath: resources/models/cube.glb
+      Scale: [1, 1, 1]

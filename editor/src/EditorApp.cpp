@@ -821,6 +821,43 @@ namespace Forge {
 			ImGui::Checkbox("Billboard##label", &label.Billboard);
 		}
 
+		if (entity.HasComponent<MeshComponent>())
+		{
+			auto& mesh = entity.GetComponent<MeshComponent>();
+			ImGui::Text("Mesh");
+
+			// The model is the one thing about a mesh an author has to
+			// point at: without it the entity renders a unit cube, and
+			// there is no other way to change that from the editor.
+			char modelBuffer[256];
+			CopyToBuffer(modelBuffer, sizeof(modelBuffer), mesh.ModelPath);
+			if (ImGui::InputText("Model##mesh", modelBuffer, sizeof(modelBuffer)))
+				mesh.ModelPath = modelBuffer;
+
+			if (ImGui::Button("Browse##mesh"))
+			{
+				const std::string chosen = FileDialog::OpenFile("Forge Model", "glb,gltf,obj,fbx");
+				if (!chosen.empty())
+					mesh.ModelPath = chosen;
+			}
+		}
+
+		if (entity.HasComponent<MultiMeshComponent>())
+		{
+			auto& multi = entity.GetComponent<MultiMeshComponent>();
+			ImGui::Text("Multi Mesh");
+
+			char modelBuffer[256];
+			CopyToBuffer(modelBuffer, sizeof(modelBuffer), multi.ModelPath);
+			if (ImGui::InputText("Model##multimesh", modelBuffer, sizeof(modelBuffer)))
+				multi.ModelPath = modelBuffer;
+
+			// The instances' places are the data, and they are a list of
+			// matrices: the editor shows how many there are rather than
+			// pretending it can edit them.
+			ImGui::TextDisabled("%zu instances", multi.Transforms.size());
+		}
+
 		if (entity.HasComponent<CameraComponent>())
 		{
 			auto& camera = entity.GetComponent<CameraComponent>();

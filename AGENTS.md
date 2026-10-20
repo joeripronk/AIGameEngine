@@ -1252,7 +1252,27 @@ Dist branch answers "no samples", so the editor's Profiler panel needs no
 
 ## Games
 
-A game is **not** part of the engine. `games/tetris/` builds `ForgeTetris`, which
+### A game's content is a scene
+
+What an author tunes - the camera, the light, the board - is *content*, and
+content belongs in a file the editor can open. So the game ships one
+(`resources/scenes/Tetris.forge`), the editor opens it, edits it and saves
+it back, and the game loads it so the two agree.
+
+The scene is authored with the editor's own model - the same
+`EditorContext` the editor's UI and an AI agent drive - so what the
+authoring tool writes is what the editor would write
+(`games/tetris/tools/AuthorScene.cpp`).
+
+What is not content - the rules, the board's state - the game builds
+itself, and the engine knows nothing about either. A game with no scene
+file builds one in code, so the game still runs on its own.
+
+Opening a project opens the scene it names, and saving a scene records it
+in the project: a project that does not know its own scene is a project
+the editor cannot come back to.
+
+### A game is not part of the engine. `games/tetris/` builds `ForgeTetris`, which
 links exactly what `ForgeRuntime` links — `ForgeApp` — and supplies the game
 itself.
 

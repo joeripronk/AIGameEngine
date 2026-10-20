@@ -8,6 +8,9 @@ using Catch::Approx;
 #include "TetrisInputLayer.h"
 
 #include "Forge/Core/InputMap.h"
+#include "Forge/Scene/Entity.h"
+#include "Forge/Scene/Scene.h"
+#include "Forge/Scene/SceneSerializer.h"
 #include "Forge/Events/KeyEvent.h"
 #include "Forge/Core/KeyCodes.h"
 
@@ -1548,4 +1551,38 @@ TEST_CASE("Game states have names", "[tetris][state]")
 	REQUIRE(std::string(ToString(TetrisGameState::State::Playing)) == "Playing");
 	REQUIRE(std::string(ToString(TetrisGameState::State::Paused)) == "Paused");
 	REQUIRE(std::string(ToString(TetrisGameState::State::GameOver)) == "GameOver");
+}
+
+TEST_CASE("The game ships a scene the editor can open", "[tetris][scene]")
+{
+	// The scene is the game's content: its camera, its light and its board.
+	// The editor opens it like any other scene, and the game loads it so
+	// the two agree.
+	const std::string path = std::string(FORGE_SOURCE_DIR) + "/resources/scenes/Tetris.forge";
+
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer serializer(scene);
+	REQUIRE(serializer.Deserialize(path));
+
+	// The camera the game places for the mode it is in.
+	Forge::Entity camera = scene->FindEntityByName("MainCamera");
+	REQUIRE(camera);
+	REQUIRE(camera.HasComponent<Forge::CameraComponent>());
+
+	// The light.
+	Forge::Entity light = scene->FindEntityByName("DirectionalLight");
+	REQUIRE(light);
+	REQUIRE(light.HasComponent<Forge::LightComponent>());
+
+	// The board: its backdrop and the four borders around it.
+	REQUIRE(scene->FindEntityByName("BoardBackdrop"));
+	REQUIRE(scene->FindEntityByName("BoardBorderLeft"));
+	REQUIRE(scene->FindEntityByName("BoardBorderRight"));
+	REQUIRE(scene->FindEntityByName("BoardBorderTop"));
+	REQUIRE(scene->FindEntityByName("BoardBorderFloor"));
+
+	// And the board's pieces are meshes an author can point elsewhere.
+	Forge::Entity backdrop = scene->FindEntityByName("BoardBackdrop");
+	REQUIRE(backdrop.HasComponent<Forge::MeshComponent>());
+	REQUIRE(backdrop.GetComponent<Forge::MeshComponent>().ModelPath == "resources/models/cube.glb");
 }

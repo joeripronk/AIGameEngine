@@ -1,0 +1,6 @@
+Project:
+  Name: Tetris
+  StartScene: resources/scenes/Tetris.forge
+  EditorScene: resources/scenes/Tetris.forge
+  AssetDirectory: resources
+  ScriptDirectory: scripts

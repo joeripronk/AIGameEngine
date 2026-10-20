@@ -141,6 +141,9 @@ target_compile_definitions(ForgeTetrisTests
     PRIVATE
         FG_NO_VULKAN_RUNTIME
         CATCH_CONFIG_NO_PARALLEL_EXECUTION
+        # The scene the game ships lives in the repository's resources, and
+        # the tests run from the game's own directory.
+        FORGE_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
 )
 
 set_target_properties(ForgeTetrisTests PROPERTIES
@@ -153,6 +156,42 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     target_compile_options(ForgeTetrisTests PRIVATE /utf-8)
     target_link_options(ForgeTetrisTests PRIVATE /FORCE:MULTIPLE)
+endif()
+
+# The scene authoring tool: it builds the scene the game ships with the
+# editor's own model, so what it writes is what the editor would write.
+add_executable(TetrisSceneAuthor)
+
+target_include_directories(TetrisSceneAuthor
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}
+)
+
+target_sources(TetrisSceneAuthor
+    PRIVATE
+        tools/AuthorScene.cpp
+        src/TetrisBoardView.cpp
+        src/TetrisManager.cpp
+)
+
+target_link_libraries(TetrisSceneAuthor
+    PRIVATE
+        ForgeApp
+        ForgeCore
+        glfw
+)
+
+set_target_properties(TetrisSceneAuthor PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(TetrisSceneAuthor PRIVATE -Werror)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    target_compile_options(TetrisSceneAuthor PRIVATE /utf-8)
+    target_link_options(TetrisSceneAuthor PRIVATE /FORCE:MULTIPLE)
 endif()
 
 add_test(NAME ForgeTetrisTests COMMAND ForgeTetrisTests)

@@ -55,7 +55,35 @@ namespace Forge {
 		// Serialize reports failure; forwarding it means an agent that saves a
 		// scene learns whether the save actually happened.
 		SceneSerializer serializer(m_Scene);
-		return serializer.Serialize(path);
+		if (!serializer.Serialize(path))
+			return false;
+
+		// The scene is recorded in the project, so that reopening the project
+		// reopens the scene. A project that does not know its own scene is a
+		// project the editor cannot come back to.
+		RecordSceneInProject(path);
+		return true;
+	}
+
+	void EditorContext::RecordSceneInProject(const std::string& path) const
+	{
+		Ref<Project> project = Project::GetActive();
+		if (!project)
+			return;  // a scene without a project is a scene on its own
+
+		// The path is relative to the project, so the project can be moved
+		// or checked out anywhere. A project in the working directory has
+		// no directory of its own, and the path is already relative.
+		const std::filesystem::path directory = project->GetProjectDirectory();
+		project->GetConfig().EditorScene = directory.empty()
+			? std::filesystem::path(path)
+			: std::filesystem::relative(path, directory);
+
+		// And the project file is written back, so the change survives the
+		// session. A project that has never been saved has nowhere to be
+		// written to.
+		if (!project->GetProjectPath().empty())
+			(void)Project::Save(project, project->GetProjectPath());
 	}
 
 	void EditorContext::SelectEntity(Entity entity)
@@ -279,7 +307,25 @@ namespace Forge {
 
 	bool EditorContext::OpenProject(const std::string& path)
 	{
-		return Project::Load(path) != nullptr;
+		Ref<Project> project = Project::Load(path);
+		if (!project)
+			return false;
+
+		// The project names the scene the editor opens. Opening the project
+		// without opening its scene leaves the editor looking at whatever
+		// was on screen before, which is not what opening a project means.
+		//
+		// The project is the operation, though: it either loads or it does
+		// not. A project whose scene is missing is a project that is open
+		// with nothing in it, and saying it failed to open would be a lie
+		// about the thing that did not happen.
+		const std::string scene = Project::GetEditorScenePath().string();
+		if (!scene.empty() && !OpenScene(scene))
+		{
+			FG_CORE_WARN("OpenProject: the project is open, but its scene '{0}' could not be opened", scene);
+		}
+
+		return true;
 	}
 
 	bool EditorContext::SaveProject(const std::string& path) const
