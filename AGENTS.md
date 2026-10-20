@@ -156,6 +156,17 @@ so gameplay code never names `GLFW_KEY_*`; their values *are* GLFW's, and
 CoreTests asserts the whole enum against it, because one transcription error is
 a key that silently does nothing.
 
+**The polled input answers for the platform's own window.** The platform
+layer registers it (`Input::SetNativeWindow`) when it opens one. It has to be
+registered: GLFW's "the current context" is an *OpenGL* convention, and a
+Vulkan window has no context and never will - so `glfwGetCurrentContext()`
+answers null in every application this engine builds. Asking it for the
+window therefore meant that every polled key answered "not pressed": the
+editor camera never moved, and a script's `GetKeyDown` never fired, in an
+editor that looked like it was listening. A polled key that reports nothing is
+indistinguishable from a key that is not wired up, so the window is named
+explicitly rather than inferred.
+
 ### The input action map
 
 A key code in gameplay code is a binding written into the source. The
@@ -323,6 +334,18 @@ per entity, caching by the CPU mesh so ten entities naming one model upload it
 once. A path that does not resolve is logged where it is set, because an
 unimported model renders as a unit cube and looks like a rendering bug.
 
+**The path is not the geometry; the import is.** A mesh whose path was
+assigned after the component was added has a path and no geometry, and an
+entity with no geometry is not drawn at all - which is how the editor's
+default scene was an empty world with everything in it invisible. So
+`Scene::ImportMeshData` is called wherever a path is set (the editor's
+inspector field, the editor's own scene, a script's `SetString`), and the
+component remembers the path its geometry came from
+(`MeshComponent::ImportedModelPath`, runtime state, not authored data): a
+path that names a *different* model has to bring its geometry with it, and
+an importer that cannot tell "already imported" from "imported the other
+model" leaves the old model on the screen.
+
 `MeshImport::ImportModel` is the single assimp importer, shared by the headless
 `CpuMesh::LoadFromFile` and the GPU `Mesh::Create`. It applies each mesh's node
 transform and offsets each mesh's indices by the vertices already appended —
@@ -445,11 +468,20 @@ scene every time is otherwise invisible.
 `Scene::FindEntityOnRay` is the picking behind a viewport click: ray-AABB
 (slab) and ray-sphere against **colliders** at where physics puts them
 (transform translation + collider offset, scale ignored, as physics does),
-nearest hit wins. Picking where things collide and not where they draw is a
-decision, not an accident: an entity with no collider is not pickable.
-`EditorContext::SelectEntityAtRay` drives it for agents and the editor, and a
-miss reports false and leaves the selection alone - a viewport click is often
-the end of a camera drag, not a request to forget the selection.
+nearest hit wins. `EditorContext::SelectEntityAtRay` drives it for agents and
+the editor, and a miss reports false and leaves the selection alone - a
+viewport click is often the end of a camera drag, not a request to forget the
+selection.
+
+**What was drawn is what can be clicked.** A collider is the precise answer,
+but a scene whose objects have no colliders - which is most of what an author
+makes before the physics is written - would then be a scene in which nothing
+can be selected. So the mesh's own bounds are the second answer: the box the
+renderer drew, transformed by the same matrix the renderer drew it with
+(`Forge::Math::WorldAABB`, the same rule the frustum culls with), and the
+nearest hit wins. A collider nearer than the mesh it belongs to is still the
+more precise answer, and an entity with neither a collider nor a mesh is not
+pickable at all.
 
 ## Testing
 
@@ -601,6 +633,53 @@ The editor must be fully controllable by AI agents:
   then renders through (`GetViewProjection` answers with the scene
   camera only while simulating); `Pause`/`Step` are orthogonal to the
   mode, `Stop` clears both. F5 toggles play, F9 toggles simulate
+
+### The viewport is where the pointer is
+
+The pointer interaction lives **in the Viewport panel, on the image**: a
+click selects what is under the cursor, a drag moves the selection.
+
+It used to live in an overlay of its own, drawn outside any ImGui window -
+and ImGui answers a widget drawn outside a window by putting it in an
+implicit fallback window ("Debug##Default"), a 400x400 box that is not the
+picture. The invisible button therefore covered nothing the author could
+click, and *no click in the viewport ever selected anything*.
+
+The ray a click builds is unprojected through the **image's** rectangle, so
+the picture and the pick agree on where the picture is. The rectangle is
+therefore the image's, not the panel's content region: the two are the same
+number only for as long as the image fills the panel.
+
+- A **click** (a press and a release within a few pixels) picks.
+- A **drag** moves the selected entity along the axis whose line passes
+  nearest the cursor, and only when the press started near that entity:
+  the gizmo is at the entity, and a drag that started anywhere else is not
+  a drag of anything. The axis is found by `Gizmo::ClosestPointOnAxis` -
+  the axis most parallel to the *view* is the axis pointing away from the
+  camera, which is the one an author is least likely to mean.
+- The gizmo modes are **1/2/3**, not W/E/R: W and E fly the camera, and a
+  key that flies the camera cannot also choose the tool.
+
+### The editor camera is the author's
+
+The editor camera flies: **WASD** and **Q/E** move it, the right mouse
+button turns it and the scroll wheel zooms it, while the pointer is over
+the 3D view (and no text field has the keyboard).
+
+The camera is driven by the polled input, so it is driven from the frame
+loop - `EditorCamera::OnUpdate` is called there, not by a layer. A camera
+that nobody updates is a camera that does not move, and the editor camera
+was nobody's responsibility until the frame loop took it.
+
+The **scene camera is followed while it is being changed**: the editor
+camera adopts the primary camera entity's transform when that transform
+differs from the last one seen, and is left alone otherwise. Mirroring it
+*every* frame meant that the author could never move the camera - the keys
+moved it and the next frame put it back. The scene camera's rotation is in
+radians (it is a transform) and the editor camera's is in degrees, so the
+mirror converts: copying one into the other without converting turned the
+editor's view fifteen times too fast for every degree the scene camera
+turned.
 
 ### A panel's styles must not outlive the panel
 

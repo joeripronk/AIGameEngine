@@ -173,12 +173,13 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       by the real draw loop (draw calls, triangles, textures bound,
       frustum-culled) and displayed in the editor Properties panel
 - [x] SceneTree click-to-select: `Scene::FindEntityOnRay` (ray-AABB slab +
-      ray-sphere against authored colliders, nearest hit wins) driving
+      ray-sphere against authored colliders, and the mesh's own bounds for
+      the objects that have no collider, nearest hit wins) driving
       `EditorContext::SelectEntityAtRay`, wired to a viewport click release;
       a miss leaves the selection alone
 - [x] Editor keyboard shortcuts as a layer (the Hazel `OnKeyPressed` set):
       Ctrl+N new scene, Ctrl+S save (to the scene the work came from),
-      Ctrl+D duplicate, Delete destroy, W/E/R gizmo mode, F5 play toggle;
+      Ctrl+D duplicate, Delete destroy, 1/2/3 gizmo mode, F5 play toggle;
       held-key autorepeat and typing in a field never fire them
 - [x] Lua input bindings (Hazel ScriptGlue's `Input_IsKeyDown` pattern):
       `GetKeyDown(key)`, `GetKeyReleased(key)`, `GetMousePosition()`,
@@ -560,4 +561,8 @@ across Debug/Release/Dist and clean under ASan+UBSan)
 | The editor camera's projection ignored the panel | ✅ Fixed - the aspect ratio was fixed at 16:9 for the life of the editor while gizmo picking used the real viewport, so every drag picked in the wrong place; zoom level was stored and never used |
 | Release did not compile | ✅ Fixed - `ReverbTests` tripped GCC's `stringop-overflow` false positive on a loop-invariant vector copy at `-O2`, and `-Werror` made it a build failure |
 | The albedo hot-reload test failed on a fast machine | ✅ Fixed - it rewrote a file with identical byte size inside one filesystem timestamp tick, which a size+timestamp signature cannot see; the rewrite now changes the size |
+| The polled input always answered "not pressed" | ✅ Fixed - `Input` asked GLFW for "the current context", which is an OpenGL convention: a Vulkan window has no context, so the handle was null in every application this engine builds and every polled key reported "not pressed". The platform layer now registers the window it opened (`Input::SetNativeWindow`), and the editor camera flies |
+| A click in the viewport never selected anything | ✅ Fixed - the pointer interaction was drawn outside any ImGui window, so ImGui put it in its implicit fallback window ("Debug##Default") - a 400x400 box that is not the picture. The interaction now runs on the viewport image itself, and the ray is unprojected through the image's rectangle |
+| The editor camera could not be moved | ✅ Fixed - nobody called `EditorCamera::OnUpdate`, and the scene camera's transform was mirrored into the editor camera every frame, so the keys moved the camera and the next frame put it back. The camera is driven by the frame loop now, and the scene camera is followed only while it is being changed |
+| The editor's default scene was empty | ✅ Fixed - a mesh's path is not its geometry, and the geometry is imported from the path: the default scene assigned paths after the component was added, so nothing was imported, nothing was drawn and nothing could be picked. The import runs wherever a path is set, and the component remembers the path its geometry came from |
 | The Lua source cache outlived the session | ✅ Fixed - `s_ScriptSourceCache` was only cleared at `Shutdown`, so editing a script and pressing Play again answered with the previous session's file; a session now reads its scripts from disk, and the cache only serves repeated spawns within that session |
