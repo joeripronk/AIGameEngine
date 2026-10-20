@@ -21,6 +21,20 @@ namespace Forge {
 	class Input
 	{
 	public:
+		// The platform window the queries answer for.
+		//
+		// The platform layer sets it when it opens a window and clears it
+		// when the window goes away. It is the platform's own handle, the
+		// same thing `Window::GetNativeWindow` hands out.
+		//
+		// It has to be set explicitly. GLFW's "the current context" is an
+		// OpenGL convention, and a Vulkan window has no context - so asking
+		// GLFW for the current context answered "no window" in every
+		// application this engine builds, and every polled key answered "not
+		// pressed". The camera never moved, and a script's GetKeyDown never
+		// fired, in an editor that looked like it was listening.
+		static void SetNativeWindow(void* window);
+
 		[[nodiscard]]
 		static bool IsKeyPressed(KeyCode key);
 

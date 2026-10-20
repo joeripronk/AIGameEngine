@@ -6,17 +6,37 @@ namespace Forge {
 
 	namespace {
 
-		// The window the queries answer for. GLFW's polling calls take a
-		// window handle, and a null handle means "the current context" - a
-		// convention that quietly stops working the moment a second window
-		// exists, so the handle is resolved here instead and the current
-		// context is checked before it is used.
+		// The platform window the queries answer for, set by the platform
+		// layer when it opens one.
+		void* s_NativeWindow = nullptr;
+
+		// The window the queries answer for.
+		//
+		// GLFW's polling calls take a window handle, and a null handle means
+		// "the current context" - a convention that quietly stops working
+		// the moment a second window exists.
+		//
+		// The current context is also an OpenGL convention: a Vulkan window
+		// has no context and never will, so glfwGetCurrentContext() answers
+		// null in every Vulkan application - which is every application this
+		// engine builds. Asking it for the window therefore meant that every
+		// polled key answered "not pressed", in the editor and in the game.
+		//
+		// The window the input is about is the one the platform layer opened.
 		GLFWwindow* ActiveWindow()
 		{
-			return glfwGetCurrentContext();
+			if (GLFWwindow* current = glfwGetCurrentContext())
+				return current;
+
+			return static_cast<GLFWwindow*>(s_NativeWindow);
 		}
 
 	}  // namespace
+
+	void Input::SetNativeWindow(void* window)
+	{
+		s_NativeWindow = window;
+	}
 
 	bool Input::IsKeyPressed(KeyCode key)
 	{

@@ -3,6 +3,7 @@
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
+#include "Forge/Core/Input.h"
 #include "Forge/Events/ApplicationEvent.h"
 #include "Forge/Events/JoypadEvent.h"
 #include "Forge/Events/KeyEvent.h"
@@ -66,6 +67,12 @@ namespace Forge {
 		s_GLFWWindowCount++;
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
+
+		// The polled input answers for this window. GLFW's "the current
+		// context" is an OpenGL convention, and a Vulkan window has no
+		// context - so without this the engine asked GLFW for a window that
+		// does not exist, and every polled key answered "not pressed".
+		Input::SetNativeWindow(m_Window);
 
 		// The framebuffer size is the window's size in pixels, which is not
 		// the size the window was asked for on a scaled display: a 1600x900
@@ -227,6 +234,9 @@ namespace Forge {
 	{
 		if (!m_Window)
 			return;
+
+		// The window is gone: the polled input has nothing to answer for.
+		Input::SetNativeWindow(nullptr);
 
 		glfwDestroyWindow(m_Window);
 		m_Window = nullptr;
