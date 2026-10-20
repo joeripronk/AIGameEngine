@@ -120,6 +120,27 @@ public:
 	// preview shows the piece the way it spawns - not mirrored into a corner.
 	static void PreviewLocalOffsets(TetrominoType type, glm::vec3 outOffsets[4]);
 
+	// The next-piece preview's tray: where it sits and how big it is.
+	//
+	// The preview is read at a glance, so it belongs *beside* the playfield
+	// and in its plane - a preview drawn on top of the board is not a
+	// preview, it is an obstruction. The tray is laid out in cells, so it
+	// scales with the blocks on the board, and the same tray serves both
+	// view modes: only its depth changes, because the angled well holds the
+	// preview in front of a tray of its own.
+	//
+	// One rule, three users: the preview's blocks, the tray slab under them
+	// and the camera that has to frame both.
+	struct PreviewTray
+	{
+		glm::vec3 Centre = glm::vec3(0.0f);  // the middle of the tray
+		float HalfWidth = 0.0f;              // half the tray's width
+		float HalfHeight = 0.0f;             // half the tray's height
+		float Cell = 0.0f;                   // the size of one cell
+	};
+
+	static PreviewTray GetPreviewTray(bool threeDimensional);
+
 	// A lock as the view saw it. The rules lock a piece in one step; this says
 	// how far it fell and how fast it was moving when it stopped, which is what
 	// the landing animation and the impact shake are made of.

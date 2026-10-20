@@ -44,6 +44,16 @@ private:
 	// mode switch.
 	void LoadBoardDecor();
 
+	// The parent the preview blocks hang from: the scene's own when it has
+	// one, and the game's when it does not. Either way the game places it -
+	// a preview root left at the origin draws the piece in the middle of the
+	// board.
+	void EnsurePreviewRoot();
+
+	// Put the preview where the current mode wants it: beside the playfield,
+	// in its plane (flat view) or in front of its own tray (angled well).
+	void PlacePreviewRoot();
+
 	// Mirror the queued piece into the preview blocks beside the board.
 	void SyncPreview(float dt);
 

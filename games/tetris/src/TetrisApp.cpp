@@ -26,12 +26,10 @@ namespace Tetris {
 
 namespace {
 
-// The preview sits to the right of the playfield. It is laid out on a 4x4
-// footprint - the largest bounding box any rotation of any piece needs - so a
-// piece stays centred in it whatever shape it has.
-constexpr float kPreviewColumns = 4.0f;
-constexpr float kPreviewRows = 4.0f;
-constexpr float kPreviewGap = 2.0f;
+// The preview's blocks: a shade smaller than the blocks on the board, so the
+// preview reads as the same thing at rest. The preview's *place* - the tray it
+// sits in - is the board's rule (BoardView::GetPreviewTray), because the
+// camera has to frame it as well.
 constexpr float kPreviewBlockScale = 0.92f;
 
 const char* kBlockMesh = "resources/models/cube.glb";
@@ -304,6 +302,17 @@ bool TetrisApp::CreateScene()
 
 		CreateDecor();
 	}
+	else if (m_ThreeDimensional)
+	{
+		// The scene holds the *flat* board, and the angled well is the
+		// game's own: it is built over the scene's board, the same way a
+		// mode switch builds it. A game started in 3D that kept the
+		// scene's flat border would have no well to fall into - and no
+		// tray for the preview, which is why the preview had nowhere to
+		// sit.
+		DestroyDecor();
+		CreateDecor();
+	}
 
 	// The game's script lives on an entity the scene names. A scene that
 	// does not have one gets one: the game is not content, and a checkout
@@ -313,6 +322,9 @@ bool TetrisApp::CreateScene()
 		Forge::Entity game = m_Scene->CreateEntity(kGameEntityName);
 		game.AddComponent<Forge::NativeScriptComponent>().ClassName = TetrisGameScript::kClassName;
 	}
+
+	// The preview's parent, in the scene the game just built or loaded.
+	EnsurePreviewRoot();
 
 	ApplyViewLayout();
 
@@ -373,12 +385,6 @@ bool TetrisApp::LoadAuthoredScene()
 			m_DecorEntities.push_back(entity);
 	}
 
-	// The preview root is the parent the preview blocks hang from. It is
-	// the game's own, so the game makes it when the scene does not have
-	// one.
-	if (!m_Scene->FindEntityByName("PreviewRoot"))
-		m_PreviewRoot = m_Scene->CreateEntity("PreviewRoot");
-
 	FG_INFO("Tetris: scene '{0}' loaded", kAuthoredScene);
 	return true;
 }
@@ -415,6 +421,33 @@ void TetrisApp::LoadBoardDecor()
 	}
 }
 
+void TetrisApp::EnsurePreviewRoot()
+{
+	if (!m_Scene)
+		return;
+
+	// The scene may have one - an author can put the preview where they want
+	// it - and the game uses it when it does, so the editor shows the same
+	// thing the game draws.
+	m_PreviewRoot = m_Scene->FindEntityByName("PreviewRoot");
+	if (!m_PreviewRoot)
+		m_PreviewRoot = m_Scene->CreateEntity("PreviewRoot");
+
+	// The root is where the preview's blocks hang, and it is *placed*: an
+	// entity left at the origin puts the preview in the middle of the
+	// board, which is not a preview of anything.
+	PlacePreviewRoot();
+}
+
+void TetrisApp::PlacePreviewRoot()
+{
+	if (!m_PreviewRoot)
+		return;
+
+	m_PreviewRoot.GetComponent<Forge::TransformComponent>().Translation =
+		BoardView::GetPreviewTray(m_ThreeDimensional).Centre;
+}
+
 void TetrisApp::ApplyViewLayout()
 {
 	auto& cameraComponent = m_CameraEntity.GetComponent<Forge::CameraComponent>();
@@ -431,6 +464,12 @@ void TetrisApp::ApplyViewLayout()
 	// Where the camera stands and how far it looks are the window's business:
 	// the mode decides the angle, the window decides the distance.
 	FitViewToViewport();
+
+	// The preview sits beside the playfield, and where it sits is the mode's
+	// business: the flat view keeps it in the board's plane, the angled well
+	// holds it in front of its own tray. The camera was just fitted to frame
+	// it, so the two have to agree.
+	PlacePreviewRoot();
 
 	auto& lightComponent = m_LightEntity.GetComponent<Forge::LightComponent>();
 	if (m_ThreeDimensional)
@@ -486,7 +525,6 @@ void TetrisApp::FitViewToViewport()
 
 	const glm::vec3 centre = BoardView::BoardCentre();
 	const glm::vec3 boardSize = BoardView::BoardSize();
-	const float block = BoardView::BlockSize();
 
 	// What the camera looks at, and what has to be in frame around it: the
 	// playfield with its border or its well walls, and the preview tray beside
@@ -499,12 +537,13 @@ void TetrisApp::FitViewToViewport()
 	const float margin = m_ThreeDimensional ? 1.4f : 0.5f;
 	const float halfHeight = boardSize.y * 0.5f + margin;
 
-	const float previewCentre = centre.x + boardSize.x * 0.5f +
-		block * (kPreviewGap + kPreviewColumns * 0.5f);
-	const float previewHalf = (kPreviewColumns + 0.5f) * block * 0.5f;
+	// The preview tray beside the board is content too: the camera has to
+	// stand far enough back for the piece the player will get next to be in
+	// frame with the board it is going to fall into.
+	const BoardView::PreviewTray tray = BoardView::GetPreviewTray(m_ThreeDimensional);
 	const float halfWidth = std::max(
 		boardSize.x * 0.5f + margin,
-		previewCentre + previewHalf - aim.x);
+		tray.Centre.x + tray.HalfWidth - aim.x);
 
 	// How far back the camera has to stand for that content to fit: the
 	// vertical extent and the horizontal one, whichever needs it further
@@ -550,7 +589,7 @@ void TetrisApp::CreateDecor()
 	const float halfH = boardSize.y * 0.5f;
 	// The preview tray and its blocks are laid out in cells, so they scale with
 	// the block size and stay proportional to the blocks on the board.
-	const float block = BoardView::BlockSize();
+	const BoardView::PreviewTray previewTray = BoardView::GetPreviewTray(m_ThreeDimensional);
 
 	const auto addSlab = [this, centre](const char* name, const glm::vec3& offset, const glm::vec3& scale, const glm::vec3& albedo, float roughness)
 	{
@@ -575,12 +614,12 @@ void TetrisApp::CreateDecor()
 		addSlab("WellFloor", glm::vec3(0.0f, -halfH - 1.2f, -2.0f), glm::vec3(boardSize.x + 1.4f, 0.4f, 2.0f), { 0.18f, 0.20f, 0.24f }, 0.75f);
 		addSlab("WellCeiling", glm::vec3(0.0f, halfH + 1.2f, -2.0f), glm::vec3(boardSize.x + 1.4f, 0.4f, 2.0f), { 0.10f, 0.12f, 0.16f }, 0.75f);
 
+		// The tray the preview sits in: behind the preview blocks, so they
+		// read against it.
 		auto tray = m_Scene->CreateEntity("PreviewTray");
 		auto& trayTransform = tray.GetComponent<Forge::TransformComponent>();
-		trayTransform.Translation =
-			centre + glm::vec3(BoardView::BoardSize().x * 0.5f + block * (kPreviewGap + kPreviewColumns * 0.5f),
-				BoardView::BoardSize().y * 0.5f - 2.0f * block, -0.52f);
-		trayTransform.Scale = glm::vec3((kPreviewColumns + 0.5f) * block, (kPreviewRows + 0.5f) * block, 0.3f);
+		trayTransform.Translation = previewTray.Centre + glm::vec3(0.0f, 0.0f, -0.22f);
+		trayTransform.Scale = glm::vec3(previewTray.HalfWidth * 2.0f, previewTray.HalfHeight * 2.0f, 0.3f);
 		tray.AddComponent<Forge::MeshComponent>().ModelPath = kBlockMesh;
 		auto& trayMaterial = tray.AddComponent<Forge::PBRMaterialComponent>();
 		trayMaterial.Albedo = { 0.11f, 0.13f, 0.17f };
@@ -598,13 +637,6 @@ void TetrisApp::CreateDecor()
 		addSlab("BoardBorderTop", glm::vec3(0.0f, halfH + border, borderZ), glm::vec3(boardSize.x + border * 2.0f, border, 0.3f), borderColour, 0.6f);
 		addSlab("BoardBorderFloor", glm::vec3(0.0f, -halfH - border, borderZ), glm::vec3(boardSize.x + border * 2.0f, border, 0.3f), borderColour, 0.6f);
 	}
-
-	m_PreviewRoot = m_Scene->CreateEntity("NextPiecePreview");
-	auto& previewTransform = m_PreviewRoot.GetComponent<Forge::TransformComponent>();
-	previewTransform.Translation =
-		centre + glm::vec3(BoardView::BoardSize().x * 0.5f + block * (kPreviewGap + kPreviewColumns * 0.5f),
-			BoardView::BoardSize().y * 0.5f - 2.0f * block, -0.3f);
-	m_DecorEntities.push_back(m_PreviewRoot);
 }
 
 void TetrisApp::DestroyDecor()
@@ -622,9 +654,9 @@ void TetrisApp::DestroyDecor()
 	}
 	m_DecorEntities.clear();
 
-	// The preview root is part of the decor; its blocks are recreated by
-	// SyncPreview against the new root on the next frame.
-	m_PreviewRoot = Forge::Entity();
+	// The preview root is not decor: it is the parent the preview blocks
+	// hang from, and it outlives a mode switch. Only its *place* changes
+	// with the mode, and ApplyViewLayout puts it there.
 }
 
 void TetrisApp::ToggleViewMode()

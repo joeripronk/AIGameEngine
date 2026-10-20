@@ -286,6 +286,36 @@ glm::vec3 BoardView::CellToWorld(uint32_t col, uint32_t row)
 		0.0f);
 }
 
+BoardView::PreviewTray BoardView::GetPreviewTray(bool threeDimensional)
+{
+	// The tray's cells: four by four, two cells clear of the board.
+	constexpr float kPreviewColumns = 4.0f;
+	constexpr float kPreviewRows = 4.0f;
+	constexpr float kPreviewGap = 2.0f;
+
+	const glm::vec3 centre = BoardCentre();
+	const glm::vec3 size = BoardSize();
+	const float block = BlockSize();
+
+	PreviewTray tray;
+	tray.Cell = block;
+	tray.HalfWidth = (kPreviewColumns + 0.5f) * block * 0.5f;
+	tray.HalfHeight = (kPreviewRows + 0.5f) * block * 0.5f;
+
+	// Beside the playfield, near its top: the piece is read at a glance, so
+	// it sits where the eye goes next - off to the side of the board, not on
+	// top of it.
+	tray.Centre = centre + glm::vec3(
+		size.x * 0.5f + block * (kPreviewGap + kPreviewColumns * 0.5f),
+		size.y * 0.5f - 2.0f * block,
+		// The flat view keeps the preview in the board's own plane. The
+		// angled well holds it in front of a tray of its own, so it sits
+		// further back than the board's blocks.
+		threeDimensional ? -0.3f : 0.0f);
+
+	return tray;
+}
+
 void BoardView::PreviewLocalOffsets(TetrominoType type, glm::vec3 outOffsets[4])
 {
 	glm::ivec2 blocks[4];

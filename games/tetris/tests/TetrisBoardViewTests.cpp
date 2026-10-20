@@ -251,6 +251,48 @@ TEST_CASE("The preview lays the queued piece out the way it spawns", "[tetris][v
 		REQUIRE(shown.size() == 4);
 	}
 }
+
+TEST_CASE("The preview tray sits beside the playfield", "[tetris][view][preview]")
+{
+	const BoardView::PreviewTray flat = BoardView::GetPreviewTray(false);
+	const BoardView::PreviewTray angled = BoardView::GetPreviewTray(true);
+
+	const glm::vec3 centre = BoardView::BoardCentre();
+	const glm::vec3 size = BoardView::BoardSize();
+
+	// Beside the board, not on it. A preview drawn on the playfield is not
+	// a preview - it is an obstruction - and the tray's near edge is clear
+	// of the playfield's far edge.
+	REQUIRE(flat.Centre.x - flat.HalfWidth > centre.x + size.x * 0.5f);
+	REQUIRE(angled.Centre.x == Catch::Approx(flat.Centre.x));
+
+	// The flat view keeps the preview in the board's own plane, so the two
+	// read as one picture. The angled well holds it in front of a tray of
+	// its own, so it sits further back.
+	REQUIRE(flat.Centre.z == Catch::Approx(centre.z));
+	REQUIRE(angled.Centre.z < flat.Centre.z);
+
+	// The tray's cells are the board's cells: a preview block is the size of
+	// a board block.
+	REQUIRE(flat.Cell == Catch::Approx(BoardView::BlockSize()));
+
+	// Every piece fits in the tray, in either mode: the preview is the
+	// piece the player gets next, and it has to be readable.
+	for (uint8_t t = 0; t < static_cast<uint8_t>(TetrominoType::Count); ++t)
+	{
+		const TetrominoType type = static_cast<TetrominoType>(t);
+		INFO("piece index " << static_cast<int>(t));
+
+		glm::vec3 offsets[4];
+		BoardView::PreviewLocalOffsets(type, offsets);
+
+		for (const glm::vec3& offset : offsets)
+		{
+			REQUIRE(std::abs(offset.x) <= flat.HalfWidth);
+			REQUIRE(std::abs(offset.y) <= flat.HalfHeight);
+		}
+	}
+}
 TEST_CASE("The falling piece eases into its next cell", "[tetris][view]")
 {
 	RunningView fixture;
