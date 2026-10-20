@@ -1268,6 +1268,16 @@ What is not content - the rules, the board's state - the game builds
 itself, and the engine knows nothing about either. A game with no scene
 file builds one in code, so the game still runs on its own.
 
+The game's rules are a **native script the scene names**: the scene holds
+`ClassName: TetrisGame`, the game registers that name against its type,
+and the scene's runtime creates it - the same path a Lua script takes.
+The window reads the state through the script and never owns it.
+
+The editor is a different binary and does not have the game, so the
+entity is inert there - the same rule every native script follows. A
+scene that names a script the running binary does not have is a scene
+that cannot run that script, and saying so is the honest answer.
+
 Opening a project opens the scene it names, and saving a scene records it
 in the project: a project that does not know its own scene is a project
 the editor cannot come back to.

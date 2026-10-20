@@ -324,7 +324,7 @@ void BoardView::PreviewLocalOffsets(TetrominoType type, glm::vec3 outOffsets[4])
 	}
 }
 
-bool BoardView::Initialize(Forge::Ref<Forge::Scene> scene, const std::string& blockMeshPath)
+bool BoardView::Initialize(Forge::Scene* scene, const std::string& blockMeshPath)
 {
 	if (!scene)
 	{

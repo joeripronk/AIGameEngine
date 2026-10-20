@@ -1,6 +1,6 @@
 Scene: Untitled
 Entities:
-  - Entity: 9759063336786383745
+  - Entity: 15891702008599610812
     TagComponent:
       Tag: MainCamera
     TransformComponent:
@@ -15,7 +15,7 @@ Entities:
       AspectRatio: 1.7777778
       Projection: Perspective
       OrthographicSize: 10
-  - Entity: 16447537701899395329
+  - Entity: 6725152904564157609
     TagComponent:
       Tag: DirectionalLight
     TransformComponent:
@@ -32,7 +32,16 @@ Entities:
       Quadratic: 0.032
       CutOff: 0.976296
       OuterCutOff: 0.95371693
-  - Entity: 6136453645834296751
+  - Entity: 5995414383501719608
+    TagComponent:
+      Tag: GameController
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    NativeScriptComponent:
+      ClassName: TetrisGame
+  - Entity: 10711354772432720584
     TagComponent:
       Tag: BoardBackdrop
     TransformComponent:
@@ -50,7 +59,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 651389063035296435
+  - Entity: 11685907874428591
     TagComponent:
       Tag: BoardBorderLeft
     TransformComponent:
@@ -68,7 +77,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 4140502294377092339
+  - Entity: 9090277597239510954
     TagComponent:
       Tag: BoardBorderRight
     TransformComponent:
@@ -86,7 +95,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 1657083761012243766
+  - Entity: 2280921628180154621
     TagComponent:
       Tag: BoardBorderTop
     TransformComponent:
@@ -104,7 +113,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 14477390969998169820
+  - Entity: 2496233190915916766
     TagComponent:
       Tag: BoardBorderFloor
     TransformComponent:

@@ -17,6 +17,7 @@
 #include "Forge/Scene/Components.h"
 #include "Forge/Scene/Entity.h"
 #include "TetrisBoardView.h"
+#include "TetrisGameScript.h"
 
 #include <cstdio>
 #include <string>
@@ -81,6 +82,17 @@ int main(int argc, char** argv)
 		component.Direction = glm::normalize(glm::vec3(0.20f, 0.20f, 0.95f));
 		component.Color = glm::vec3(1.0f, 0.95f, 0.9f);
 		component.Intensity = 1.25f;
+	}
+
+	// --- The game's script ---
+	//
+	// The scene names the game's C++ the way it names a Lua script: by the
+	// name the game registered it under. The editor is a different binary
+	// and does not have the game, so the entity is inert there - the same
+	// rule every native script follows.
+	{
+		Entity game = editor.CreateEntity("GameController");
+		game.AddComponent<NativeScriptComponent>().ClassName = Tetris::TetrisGameScript::kClassName;
 	}
 
 	// --- The board ---

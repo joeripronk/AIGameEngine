@@ -10,6 +10,7 @@
 #include "Forge/Events/ApplicationEvent.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Scene/Components.h"
+#include "Forge/Scripting/NativeScriptRegistry.h"
 #include "Forge/Scene/SceneSerializer.h"
 
 #include <algorithm>
@@ -66,6 +67,11 @@ constexpr float kFireChancePerShake = 0.1f;
 // already arrived.
 constexpr float kPreviewFireGlow = 0.9f;
 
+// The entity the scene names the game's script on. The board view creates
+// entities of its own - the state, the board, the piece - and this is the one
+// that runs the rules.
+constexpr const char* kGameEntityName = "GameController";
+
 // Euler radians for a camera transform whose -Z axis points from `eye` at
 // `target`. Scene::RenderScene builds the view matrix as
 // inverse(translate * toMat4(quat(rotation))) with rotation (pitch, yaw, 0),
@@ -117,6 +123,12 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 		return;
 	}
 
+	// The game's script is C++ in this binary, so the name the scene gives
+	// it is resolved here. A name that is already taken keeps the type that
+	// answered for it, and this is the first registration of it.
+	if (!Forge::RegisterNativeScript<TetrisGameScript>(TetrisGameScript::kClassName))
+		FG_ERROR("Tetris: the game script could not be registered under '{0}'", TetrisGameScript::kClassName);
+
 	if (!CreateScene())
 	{
 		FG_ERROR("Tetris: could not build the scene; nothing to play");
@@ -124,11 +136,18 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 		return;
 	}
 
-	if (!m_BoardView.Initialize(m_Scene, kBlockMesh))
+	// The scene's runtime starts the scripts, and the game's script is one
+	// of them: its OnCreate attaches the board to the scene, and its
+	// OnUpdate advances the rules. The window reads the state; it does not
+	// drive it.
+	m_Scene->OnRuntimeStart();
+
+	m_GameScript = FindGameScript();
+	if (!m_GameScript)
 	{
 		// A failure here would otherwise look like a game that starts and then
 		// does nothing, so say so and stop rather than showing an empty window.
-		FG_ERROR("Tetris: could not attach the board view to the scene");
+		FG_ERROR("Tetris: the scene has no game script; nothing to play");
 		Close();
 		return;
 	}
@@ -148,7 +167,7 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 
 	// Input and overlay are combined into a single layer so the window
 	// receives events and pushes ImGui calls from one object.
-	m_InputOverlayLayer = std::make_unique<InputOverlayLayer>(m_BoardView.GetManager());
+	m_InputOverlayLayer = std::make_unique<InputOverlayLayer>(GetBoard().GetManager());
 	m_InputOverlayLayer->SetViewToggledCallback([this] { ToggleViewMode(); });
 	m_InputOverlayLayer->SetMusicToggledCallback([this] { ToggleMusic(); });
 	m_InputOverlayLayer->SetMusicSkippedCallback([this](int delta) { SkipMusic(delta); });
@@ -182,7 +201,10 @@ TetrisApp::~TetrisApp()
 	// sound in a running game, not for outliving the app that owns it.
 	m_Music.Shutdown();
 
-	m_BoardView.Shutdown();
+	// The runtime stops first: the game's script releases the board's
+	// entities on its way out, and they belong to the scene.
+	if (m_Scene)
+		m_Scene->OnRuntimeStop();
 
 	for (auto& [key, entity] : m_PreviewBlocks)
 	{
@@ -283,9 +305,35 @@ bool TetrisApp::CreateScene()
 		CreateDecor();
 	}
 
+	// The game's script lives on an entity the scene names. A scene that
+	// does not have one gets one: the game is not content, and a checkout
+	// without it is not a broken game.
+	if (!m_Scene->FindEntityByName(kGameEntityName))
+	{
+		Forge::Entity game = m_Scene->CreateEntity(kGameEntityName);
+		game.AddComponent<Forge::NativeScriptComponent>().ClassName = TetrisGameScript::kClassName;
+	}
+
 	ApplyViewLayout();
 
 	return true;
+}
+
+TetrisGameScript* TetrisApp::FindGameScript() const
+{
+	Forge::Entity entity = m_Scene->FindEntityByName(kGameEntityName);
+	if (!entity || !entity.HasComponent<Forge::NativeScriptComponent>())
+		return nullptr;
+
+	const auto& native = entity.GetComponent<Forge::NativeScriptComponent>();
+
+	// The name is checked before the cast: a scene that named a different
+	// script has no game in it, and casting that to the game's script would
+	// be a lie the game would then believe.
+	if (native.ClassName != TetrisGameScript::kClassName || !native.Instance)
+		return nullptr;
+
+	return static_cast<TetrisGameScript*>(native.Instance);
 }
 
 bool TetrisApp::LoadAuthoredScene()
@@ -642,7 +690,7 @@ void TetrisApp::ShutdownImGui()
 
 void TetrisApp::SyncPreview(float dt)
 {
-	const TetrisGameState& state = m_BoardView.GetManager().GetState();
+	const TetrisGameState& state = GetBoard().GetManager().GetState();
 
 	// Four blocks of whatever is queued, laid out in its rotation-0 shape.
 	TetrominoType shown = TetrominoType::Count;
@@ -733,8 +781,8 @@ void TetrisApp::SyncPreview(float dt)
 
 void TetrisApp::ApplyImpactShake(float dt)
 {
-	const BoardView::Impact impact = m_BoardView.GetLastImpact();
-	const int clearedLines = static_cast<int>(m_BoardView.GetLastClearedRows().size());
+	const BoardView::Impact impact = GetBoard().GetLastImpact();
+	const int clearedLines = static_cast<int>(GetBoard().GetLastClearedRows().size());
 	const bool lineCleared = clearedLines > 0;
 
 	if (impact.Occurred || lineCleared)
@@ -753,7 +801,7 @@ void TetrisApp::ApplyImpactShake(float dt)
 			m_ShakePhase = 0.0f;
 
 			// The strike charges the fire meter by the same amount it shakes.
-			m_BoardView.GetManager().AddFireChance(amplitude * kFireChancePerShake);
+			GetBoard().GetManager().AddFireChance(amplitude * kFireChancePerShake);
 		}
 	}
 
@@ -820,29 +868,31 @@ void TetrisApp::Run()
 		const float frameTime = time - lastFrameTime;
 		lastFrameTime = time;
 
-		// Advance the game and mirror it into the scene before anything draws.
-		m_BoardView.Update(frameTime);
+		// Advance the game and mirror it into the scene before anything
+		// draws. The scene's runtime update is what runs the scripts, and the
+		// game's script is what advances the rules.
+		m_Scene->OnUpdateRuntime(Forge::Timestep(frameTime));
 
 		// DIAGNOSTIC ONLY: start the game headless (no key to press), so the
 		// board fills, lines clear and blocks are created and destroyed.
 		if (std::getenv("FG_AUTOSTART") && m_FrameCount == 0)
-			m_BoardView.GetManager().StartGame();
+			GetBoard().GetManager().StartGame();
 
 		// DIAGNOSTIC ONLY: force the falling piece to be a fire block.
 		if (std::getenv("FG_FORCE_FIRE"))
-			m_BoardView.GetManager().GetState().CurrentPiece.IsFire = true;
+			GetBoard().GetManager().GetState().CurrentPiece.IsFire = true;
 
 		// DIAGNOSTIC ONLY: fill the board so a capture shows every tile at once.
 		// Seeded after an Update so StartGame() has already cleared the board.
 		if (std::getenv("FG_SEED_BOARD") && m_FrameCount == 0)
 		{
 			const int rows = std::getenv("FG_SEED_ROWS") ? std::atoi(std::getenv("FG_SEED_ROWS")) : 6;
-			TetrisGameState& seeded = m_BoardView.GetManager().GetState();
+			TetrisGameState& seeded = GetBoard().GetManager().GetState();
 			for (uint32_t row = 0; row < static_cast<uint32_t>(rows); ++row)
 				for (uint32_t col = 0; col < seeded.Width; ++col)
 					seeded.Board[row * seeded.Width + col] =
 						static_cast<uint8_t>((row + col) % 7 + 1);
-			m_BoardView.Update(frameTime);
+			GetBoard().Update(frameTime);
 		}
 		// DIAGNOSTIC ONLY: fill the bottom rows so a falling piece lands on the
 		// stack, locks and clears them - a line clear with its reward, with the
@@ -850,7 +900,7 @@ void TetrisApp::Run()
 		if (std::getenv("FG_SEED_BOTTOM_ROWS") && m_FrameCount == 0)
 		{
 			const int rows = std::atoi(std::getenv("FG_SEED_BOTTOM_ROWS"));
-			TetrisGameState& seeded = m_BoardView.GetManager().GetState();
+			TetrisGameState& seeded = GetBoard().GetManager().GetState();
 			for (int r = 0; r < rows; ++r)
 			{
 				const uint32_t row = seeded.Height - 1 - static_cast<uint32_t>(r);
@@ -858,7 +908,7 @@ void TetrisApp::Run()
 					seeded.Board[row * seeded.Width + col] =
 						static_cast<uint8_t>((row + col) % 7 + 1);
 			}
-			m_BoardView.Update(frameTime);
+			GetBoard().Update(frameTime);
 		}
 		// DIAGNOSTIC ONLY: FG_ALL_TEX=<path> gives every board block the same
 		// tile, so a capture separates "the UVs do not address the tile" from
@@ -978,7 +1028,7 @@ void TetrisApp::Run()
 		// Music runs outside the render branch on purpose: a minimised window
 		// still has to drain finished sounds, or the theme keeps playing with
 		// nothing on screen to pause it.
-		m_Music.Update(m_BoardView.GetManager().GetState());
+		m_Music.Update(GetBoard().GetManager().GetState());
 		SyncPreview(frameTime);
 		if (!IsMinimized())
 		{
@@ -1065,8 +1115,8 @@ void TetrisApp::Run()
 	}
 
 	FG_INFO("Tetris: final score {0}, {1} lines cleared",
-		m_BoardView.GetManager().GetState().Score,
-		m_BoardView.GetManager().GetState().LinesCleared);
+		GetBoard().GetManager().GetState().Score,
+		GetBoard().GetManager().GetState().LinesCleared);
 }
 
 }  // namespace Tetris

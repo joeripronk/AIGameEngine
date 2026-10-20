@@ -5,9 +5,11 @@ using Catch::Approx;
 #include "TetrisManager.h"
 #include "TetrisTypes.h"
 #include "TetrisComponents.h"
+#include "TetrisGameScript.h"
 #include "TetrisInputLayer.h"
 
 #include "Forge/Core/InputMap.h"
+#include "Forge/Scripting/NativeScriptRegistry.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/SceneSerializer.h"
@@ -1585,4 +1587,41 @@ TEST_CASE("The game ships a scene the editor can open", "[tetris][scene]")
 	Forge::Entity backdrop = scene->FindEntityByName("BoardBackdrop");
 	REQUIRE(backdrop.HasComponent<Forge::MeshComponent>());
 	REQUIRE(backdrop.GetComponent<Forge::MeshComponent>().ModelPath == "resources/models/cube.glb");
+
+	// The game's C++ is named the way a Lua script is: by a name the scene
+	// holds. The game resolves it against the registry it registered the
+	// type in; the editor, which is a different binary, has no such name.
+	Forge::Entity controller = scene->FindEntityByName("GameController");
+	REQUIRE(controller);
+	REQUIRE(controller.HasComponent<Forge::NativeScriptComponent>());
+	REQUIRE(controller.GetComponent<Forge::NativeScriptComponent>().ClassName == "TetrisGame");
+}
+
+TEST_CASE("The scene's script is the game's rules, and they advance", "[tetris][scene][script]")
+{
+	// The scene names the script, the script holds the rules, and the
+	// scene's runtime runs it: the game is driven by the scene it ships.
+	Forge::RegisterNativeScript<Tetris::TetrisGameScript>("TetrisGame");
+
+	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+	Forge::Entity controller = scene->CreateEntity("GameController");
+	controller.AddComponent<Forge::NativeScriptComponent>().ClassName = "TetrisGame";
+
+	// The runtime start creates the script, and its OnCreate attaches the
+	// board to the scene.
+	scene->OnRuntimeStart();
+
+	Forge::Entity state = scene->FindEntityByName("TetrisGame");
+	REQUIRE(state);
+	REQUIRE(state.HasComponent<Tetris::TetrisGameComponent>());
+
+	// The rules advance when the scene updates: the piece falls, so the
+	// board's state changes with the frames.
+	scene->OnUpdateRuntime(Forge::Timestep(0.5f));
+
+	Forge::Entity piece = scene->FindEntityByName("CurrentPiece");
+	REQUIRE(piece);
+	REQUIRE(piece.HasComponent<Tetris::TetrisPieceComponent>());
+
+	scene->OnRuntimeStop();
 }

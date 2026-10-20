@@ -53,7 +53,7 @@ struct RunningView
 		Forge::Log::Init();
 		// The block model is not needed headless: no mesh is ever loaded unless
 		// something renders, and the tests never do.
-		REQUIRE(view.Initialize(scene));
+		REQUIRE(view.Initialize(scene.get()));
 		view.Update(0.0f);  // first update starts the game
 	}
 };
@@ -156,7 +156,7 @@ TEST_CASE("Shutdown destroys everything the view created", "[tetris][view]")
 	Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
 
 	BoardView view;
-	REQUIRE(view.Initialize(scene));
+	REQUIRE(view.Initialize(scene.get()));
 	view.Update(0.0f);
 	REQUIRE(CountBlockEntities(*scene) == 4);
 

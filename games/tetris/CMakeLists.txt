@@ -31,6 +31,8 @@ target_sources(ForgeTetris
         src/TetrisBoardView.h
         src/TetrisBoardView.cpp
         src/TetrisComponents.h
+        src/TetrisGameScript.h
+        src/TetrisGameScript.cpp
         src/TetrisInputLayer.h
         src/TetrisInputLayer.cpp
         src/TetrisInputOverlayLayer.h
@@ -116,6 +118,9 @@ target_sources(ForgeTetrisTests
         # link, and the point of the split is which dependencies each file has.
         src/TetrisManager.cpp
         src/TetrisBoardView.cpp
+        # The game's script: the scene names it, and the scene's runtime
+        # runs it, so a test can drive the whole thing headless.
+        src/TetrisGameScript.cpp
         # Compiled in for the input bindings - they are pure, and a mapping
         # that quietly did nothing would be invisible from the game.
         src/TetrisInputLayer.cpp
@@ -172,6 +177,7 @@ target_sources(TetrisSceneAuthor
     PRIVATE
         tools/AuthorScene.cpp
         src/TetrisBoardView.cpp
+        src/TetrisGameScript.cpp
         src/TetrisManager.cpp
 )
 

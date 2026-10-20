@@ -11,6 +11,10 @@
 #include <string>
 #include <vector>
 
+namespace Forge {
+	class Scene;
+}
+
 namespace Tetris {
 
 // Presents the game into an engine Scene.
@@ -72,7 +76,12 @@ public:
 	// Update() does anything; returns false when there is no scene, so a caller
 	// that ignored a failure gets a game that quietly never starts rather than
 	// a crash.
-	bool Initialize(Forge::Ref<Forge::Scene> scene, const std::string& blockMeshPath = "resources/models/cube.glb");
+	//
+	// The scene is a plain pointer, and deliberately so: the view lives inside
+	// the game's script, which lives inside the scene, so the scene outlives
+	// it by construction. A shared pointer would need the scene to own
+	// itself, and a scene that owns itself is a cycle.
+	bool Initialize(Forge::Scene* scene, const std::string& blockMeshPath = "resources/models/cube.glb");
 
 	// Start the game, advance it by dt, and mirror the result into the scene.
 	void Update(float dt);
@@ -89,7 +98,7 @@ public:
 	bool IsInitialized() const { return m_Initialized; }
 	TetrisManager& GetManager() { return m_Manager; }
 	const TetrisManager& GetManager() const { return m_Manager; }
-	Forge::Ref<Forge::Scene> GetScene() const { return m_Scene; }
+	Forge::Scene* GetScene() const { return m_Scene; }
 
 	// --- Playfield placement, in world units ---
 	//
@@ -214,7 +223,9 @@ private:
 	static constexpr uint64_t kSlotKeyBase = 0x1000000000000000ULL;
 	static uint64_t SlotKey(uint32_t slot);
 
-	Forge::Ref<Forge::Scene> m_Scene;
+	// The scene the board's entities live in. See Initialize() for why this
+	// is a plain pointer.
+	Forge::Scene* m_Scene = nullptr;
 	TetrisManager m_Manager;
 
 	Forge::Entity m_GameEntity;     // TetrisGameComponent

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "TetrisBoardView.h"
+#include "TetrisGameScript.h"
 #include "TetrisInputOverlayLayer.h"
 #include "TetrisMusic.h"
 
@@ -85,7 +86,17 @@ private:
 	void SkipMusic(int delta);
 
 	Forge::Ref<Forge::Scene> m_Scene;
-	BoardView m_BoardView;
+
+	// The game's rules, in the script the scene names. The window reads the
+	// state through it and never owns it: the scene says which script runs,
+	// and the game says what that script means.
+	TetrisGameScript* m_GameScript = nullptr;
+
+	// The board the game's script owns.
+	BoardView& GetBoard() { return m_GameScript->GetBoardView(); }
+
+	// The script the scene named, or nullptr when the scene has none.
+	TetrisGameScript* FindGameScript() const;
 
 	// The theme on the Music bus, driven by the game state each frame.
 	TetrisMusic m_Music;
