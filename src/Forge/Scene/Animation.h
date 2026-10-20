@@ -40,6 +40,31 @@ namespace Forge {
 	{
 		Linear,  // straight from one keyframe to the next
 		Smooth,  // eased: the change starts and ends slowly
+		Curve,   // the shape the author made
+	};
+
+	// A curve: the shape a value is interpolated along.
+	//
+	// The points are pairs, and the value between two of them is
+	// interpolated. A curve shapes a track's interpolation - the same
+	// "ease out" for every track that wants it, drawn once.
+	struct Curve
+	{
+		struct Point
+		{
+			float Time = 0.0f;
+			float Value = 0.0f;
+		};
+
+		std::vector<Point> points;
+
+		// The value of the curve at a point.
+		//
+		// Before the first point the first point's value holds, and after
+		// the last one the last one's. A curve with no points is the
+		// straight line, which is what an author who has not drawn one
+		// means.
+		[[nodiscard]] float Evaluate(float time) const;
 	};
 
 	// A keyframe: a time and the value the property has then.
@@ -58,6 +83,11 @@ namespace Forge {
 		AnimatedProperty property = AnimatedProperty::Translation;
 		Interpolation interpolation = Interpolation::Linear;
 		std::vector<AnimationKeyframe> keys;
+
+		// The shape the interpolation takes, when the interpolation is a
+		// curve. The curve is in the space between two keyframes: 0 is the
+		// first keyframe and 1 is the second.
+		Curve curve;
 	};
 
 	// A clip: the tracks, and whether it loops.

@@ -57,6 +57,33 @@ namespace Forge {
 		return false;
 	}
 
+	float Curve::Evaluate(float time) const
+	{
+		// A curve with no points is the straight line.
+		if (points.empty())
+			return time;
+
+		if (time <= points.front().Time)
+			return points.front().Value;
+		if (time >= points.back().Time)
+			return points.back().Value;
+
+		// The points around the time, in the curve's own order.
+		size_t next = 1;
+		while (next < points.size() && points[next].Time <= time)
+			++next;
+
+		const Point& from = points[next - 1];
+		const Point& to = points[next];
+
+		const float span = to.Time - from.Time;
+		if (span <= 0.0f)
+			return to.Value;
+
+		const float alpha = (time - from.Time) / span;
+		return from.Value + (to.Value - from.Value) * alpha;
+	}
+
 	namespace Animation {
 
 		glm::vec3 EvaluateTrack(const AnimationTrack& track, float time)
@@ -93,6 +120,12 @@ namespace Forge {
 				// Smoothstep: the change starts and ends slowly, which is
 				// what a movement that has to look like it has weight does.
 				alpha = alpha * alpha * (3.0f - 2.0f * alpha);
+			}
+			else if (track.interpolation == Interpolation::Curve)
+			{
+				// The author's shape: the same "ease out" for every track
+				// that wants it, drawn once.
+				alpha = track.curve.Evaluate(alpha);
 			}
 
 			return from.value + (to.value - from.value) * alpha;

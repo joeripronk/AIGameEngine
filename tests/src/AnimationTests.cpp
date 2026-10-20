@@ -1,6 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include "Forge/Scene/Animation.h"
+
+#include <cstdio>
 #include "Forge/Scene/Components.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
@@ -248,6 +251,100 @@ TEST_CASE("An animation survives a round trip through a scene file", "[scene][an
 		REQUIRE(animation.Clip.tracks[1].property == AnimatedProperty::LightIntensity);
 		REQUIRE(animation.Clip.tracks[1].interpolation == Interpolation::Smooth);
 		REQUIRE(animation.Clip.tracks[1].keys[0].value == glm::vec3(1.0f));
+	}
+
+	std::remove(path.c_str());
+}
+
+TEST_CASE("A curve is the shape a value is interpolated along", "[scene][animation][curve]")
+{
+	Curve curve;
+	curve.points.push_back({ 0.0f, 0.0f });
+	curve.points.push_back({ 1.0f, 1.0f });
+
+	// A curve with two points is the straight line.
+	REQUIRE(curve.Evaluate(0.0f) == Catch::Approx(0.0f));
+	REQUIRE(curve.Evaluate(0.5f) == Catch::Approx(0.5f));
+	REQUIRE(curve.Evaluate(1.0f) == Catch::Approx(1.0f));
+
+	// Before the first point and after the last one, the value holds.
+	REQUIRE(curve.Evaluate(-1.0f) == Catch::Approx(0.0f));
+	REQUIRE(curve.Evaluate(2.0f) == Catch::Approx(1.0f));
+
+	// A curve with no points is the straight line as well: it is what an
+	// author who has not drawn one means.
+	Curve empty;
+	REQUIRE(empty.Evaluate(0.25f) == Catch::Approx(0.25f));
+
+	// A shape: fast at the start, slow at the end.
+	Curve easeOut;
+	easeOut.points.push_back({ 0.0f, 0.0f });
+	easeOut.points.push_back({ 0.25f, 0.6f });
+	easeOut.points.push_back({ 1.0f, 1.0f });
+
+	REQUIRE(easeOut.Evaluate(0.25f) > 0.25f);
+	REQUIRE(easeOut.Evaluate(0.5f) > 0.5f);
+}
+
+TEST_CASE("A track can be shaped by a curve", "[scene][animation][curve]")
+{
+	AnimationTrack track;
+	track.keys.push_back({ 0.0f, glm::vec3(0.0f) });
+	track.keys.push_back({ 1.0f, glm::vec3(10.0f) });
+	track.interpolation = Interpolation::Curve;
+
+	// With no curve the track is the straight line.
+	REQUIRE(Animation::EvaluateTrack(track, 0.5f).x == Catch::Approx(5.0f));
+
+	// With one, the curve shapes the way between the keyframes: the value
+	// moves quickly at the start, the way an ease-out does.
+	track.curve.points.push_back({ 0.0f, 0.0f });
+	track.curve.points.push_back({ 0.25f, 0.6f });
+	track.curve.points.push_back({ 1.0f, 1.0f });
+
+	REQUIRE(Animation::EvaluateTrack(track, 0.25f).x > 2.5f);
+	REQUIRE(Animation::EvaluateTrack(track, 0.5f).x > 5.0f);
+	REQUIRE(Animation::EvaluateTrack(track, 1.0f).x == Catch::Approx(10.0f));
+}
+
+TEST_CASE("A curve survives a round trip through a scene file", "[scene][animation][curve]")
+{
+	const std::string path = "test_animation_curve.forge";
+
+	{
+		Ref<Scene> scene = CreateRef<Scene>();
+		Entity entity = scene->CreateEntity("Animated");
+
+		AnimationClip clip;
+		AnimationTrack track;
+		track.property = AnimatedProperty::Translation;
+		track.interpolation = Interpolation::Curve;
+		track.keys.push_back({ 0.0f, glm::vec3(0.0f) });
+		track.keys.push_back({ 1.0f, glm::vec3(1.0f) });
+		track.curve.points.push_back({ 0.0f, 0.0f });
+		track.curve.points.push_back({ 1.0f, 1.0f });
+		clip.tracks.push_back(track);
+
+		entity.AddComponent<AnimationComponent>(clip);
+
+		SceneSerializer serializer(scene);
+		REQUIRE(serializer.Serialize(path));
+	}
+
+	{
+		Ref<Scene> scene = CreateRef<Scene>();
+		SceneSerializer serializer(scene);
+		REQUIRE(serializer.Deserialize(path));
+
+		Entity entity = scene->FindEntityByName("Animated");
+		REQUIRE(entity);
+		REQUIRE(entity.HasComponent<AnimationComponent>());
+
+		const AnimationComponent& animation = entity.GetComponent<AnimationComponent>();
+		REQUIRE(animation.Clip.tracks.size() == 1);
+		REQUIRE(animation.Clip.tracks[0].interpolation == Interpolation::Curve);
+		REQUIRE(animation.Clip.tracks[0].curve.points.size() == 2);
+		REQUIRE(animation.Clip.tracks[0].curve.points[1].Time == Catch::Approx(1.0f));
 	}
 
 	std::remove(path.c_str());

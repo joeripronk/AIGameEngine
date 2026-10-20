@@ -407,6 +407,10 @@ entity.AddComponent<AnimationComponent>(clip);
 - The evaluation is pure and unit-tested; the clip travels in both scene
   formats (the authoring YAML and the runtime binary), and the runtime
   payload writes its counts with the data, because its length is not fixed.
+- **A track can be shaped by a curve.** A `Curve` is a list of points, and
+  the same "ease out" drawn once can be the interpolation of every track
+  that wants it. The curve is in the space between two keyframes: 0 is the
+  first keyframe and 1 is the second.
 
 ### Cameras
 

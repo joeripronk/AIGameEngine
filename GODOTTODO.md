@@ -227,7 +227,7 @@ on a layer, and it collides with the layers its mask names.
   a pair that does not agree does not collide. The rule is a pure function
   of the two masks.
 
-### 3. [ ] A curve for the animation's interpolation
+### 3. [x] A curve for the animation's interpolation
 
 **Godot has** `Curve` and `Gradient`: a value that is interpolated along a
 shape the author draws.

@@ -415,7 +415,8 @@ namespace Forge {
 				out << YAML::BeginMap;
 				out << YAML::Key << "Property" << YAML::Value << AnimatedPropertyName(track.property);
 				out << YAML::Key << "Interpolation" << YAML::Value
-					<< (track.interpolation == Interpolation::Smooth ? "Smooth" : "Linear");
+					<< (track.interpolation == Interpolation::Smooth ? "Smooth"
+						: track.interpolation == Interpolation::Curve ? "Curve" : "Linear");
 				out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
 
 				for (const AnimationKeyframe& key : track.keys)
@@ -427,6 +428,21 @@ namespace Forge {
 				}
 
 				out << YAML::EndSeq;
+
+				// The curve: the shape the interpolation takes.
+				if (!track.curve.points.empty())
+				{
+					out << YAML::Key << "Curve" << YAML::Value << YAML::BeginSeq;
+					for (const Curve::Point& point : track.curve.points)
+					{
+						out << YAML::BeginMap;
+						out << YAML::Key << "Time" << YAML::Value << point.Time;
+						out << YAML::Key << "Value" << YAML::Value << point.Value;
+						out << YAML::EndMap;
+					}
+					out << YAML::EndSeq;
+				}
+
 				out << YAML::EndMap;
 			}
 
@@ -580,7 +596,23 @@ namespace Forge {
 					if (HasNode(trackNode, "Interpolation"))
 					{
 						const std::string interpolation = trackNode["Interpolation"].as<std::string>();
-						track.interpolation = interpolation == "Smooth" ? Interpolation::Smooth : Interpolation::Linear;
+						if (interpolation == "Smooth")
+							track.interpolation = Interpolation::Smooth;
+						else if (interpolation == "Curve")
+							track.interpolation = Interpolation::Curve;
+						else
+							track.interpolation = Interpolation::Linear;
+					}
+
+					if (HasNode(trackNode, "Curve"))
+					{
+						for (const YAML::Node& pointNode : trackNode["Curve"])
+						{
+							Curve::Point point;
+							point.Time = GetFloat(pointNode, "Time", 0.0f);
+							point.Value = GetFloat(pointNode, "Value", 0.0f);
+							track.curve.points.push_back(point);
+						}
 					}
 
 					if (HasNode(trackNode, "Keys"))
