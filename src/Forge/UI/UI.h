@@ -10,11 +10,27 @@ namespace Forge::UI {
 	// out (the Hazel ScopedStyleColor).
 	//
 	// ImGui's push/pop is a stack discipline, and a hand-written pair is only
-	// correct on the path that reaches the pop: one `return` between them -
-	// the notification panel, an early-out on a collapsed panel - leaves the
-	// colour pushed, and ImGui asserts on the unmatched pop at the end of the
-	// frame. The colour then also leaks into every later window. Owning the
-	// push and the pop in one object makes the early return impossible.
+	// correct on the path that reaches the pop: one `return` between them
+	// leaves the colour pushed, and ImGui asserts on the unmatched pop at the
+	// end of the frame. The colour then also leaks into every later window.
+	// Owning the push and the pop in one object makes the early return
+	// impossible.
+	//
+	// **The scope must end before the window it is used in ends.** ImGui
+	// records the style stack depth when a window begins, and End() asserts
+	// that the stack is back where it started - so a colour still pushed
+	// when End() runs is the "Missing PopStyleColor()" assert. In Debug that
+	// aborts the process, and in a shipping build the colour leaks into
+	// every later window. Declaring the object at the top of the function
+	// that draws the window puts it on the wrong side of that line, so the
+	// scope belongs in a block of its own:
+	//
+	//     ImGui::Begin("Name");
+	//     {
+	//         Forge::UI::ScopedStyleColor color(ImGuiCol_Text, tint);
+	//         ImGui::TextUnformatted("text");
+	//     }
+	//     ImGui::End();
 	//
 	// The `predicate` form exists because the common case is a colour chosen by
 	// a condition: the object stays in scope either way, so there is no branch

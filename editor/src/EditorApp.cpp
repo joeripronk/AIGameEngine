@@ -440,12 +440,18 @@ namespace Forge {
 
 		ImGui::Begin("##Notification", nullptr, flags);
 
-		// Scoped, so the Dismiss early-return below cannot leave the colour
-		// pushed into the next window drawn this frame.
-		Forge::UI::ScopedStyleColor color(ImGuiCol_Text, m_NotificationIsError
-			? ImVec4(1.0f, 0.45f, 0.45f, 1.0f)
-			: ImVec4(0.55f, 0.9f, 0.6f, 1.0f));
-		ImGui::TextUnformatted(m_Notification.c_str());
+		// Scoped, and the scope ends before End(): ImGui records the
+		// style-colour stack depth when a window begins, and End() asserts
+		// that the stack is back where it started. A colour still pushed
+		// when End() runs is the "Missing PopStyleColor()" assert - in
+		// Debug the editor aborts, and in a shipping build the colour
+		// leaks into every later window.
+		{
+			Forge::UI::ScopedStyleColor color(ImGuiCol_Text, m_NotificationIsError
+				? ImVec4(1.0f, 0.45f, 0.45f, 1.0f)
+				: ImVec4(0.55f, 0.9f, 0.6f, 1.0f));
+			ImGui::TextUnformatted(m_Notification.c_str());
+		}
 
 		if (ImGui::Button("Dismiss"))
 		{

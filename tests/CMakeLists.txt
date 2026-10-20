@@ -99,3 +99,13 @@ set_tests_properties(StartupCheck PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 120
 )
+
+# Editor notification check: makes the editor report something and asks
+# whether it is still alive. A panel that pushes a style colour and outlives
+# the window it is drawn in aborts the editor, and nothing else in the suite
+# draws one. Skips gracefully where no window is possible, so it is CI-safe.
+add_test(NAME NotificationCheck COMMAND bash "${CMAKE_SOURCE_DIR}/tests/integration/notification_check.sh" $<TARGET_FILE:ForgeEditor>)
+set_tests_properties(NotificationCheck PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 120
+)

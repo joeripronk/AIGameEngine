@@ -602,6 +602,34 @@ The editor must be fully controllable by AI agents:
   camera only while simulating); `Pause`/`Step` are orthogonal to the
   mode, `Stop` clears both. F5 toggles play, F9 toggles simulate
 
+### A panel's styles must not outlive the panel
+
+ImGui records the style stack depth when a window begins, and `End()`
+asserts that the stack is back where it started. A style colour scoped to
+the *function* that draws the window is still pushed when `End()` runs, and
+ImGui aborts the process: `Missing PopStyleColor()`.
+
+The scope therefore belongs in a block of its own, ending before the
+window's `End()`:
+
+```cpp
+ImGui::Begin("Name");
+{
+    Forge::UI::ScopedStyleColor color(ImGuiCol_Text, tint);
+    ImGui::TextUnformatted("text");
+}
+ImGui::End();
+```
+
+The editor's notification panel is the one that got this wrong, and the
+cost was that **every** report the editor made killed it: opening a
+project, opening a scene, saving, an asset changing on disk. The unit
+tests never draw a panel and the startup check only asks whether the
+editor survives its idle loop, so nothing caught it until a person opened
+a project. `tests/integration/notification_check.sh` (a `NotificationCheck`
+ctest) makes the editor report something and asks whether it is still
+alive - the check that would have caught it.
+
 ### Editor API for AI Agents
 
 The editor model lives in `Forge::EditorContext` (window-independent, fully
