@@ -22,6 +22,15 @@ layout(binding = 0) uniform CameraData
     vec4 u_CameraPosition;
     vec4 u_AmbientLight;
     vec4 u_SSAOParams;
+
+    // The scene's point lights: the lamps that colour a scene from inside
+    // it. The count is fixed because the lights travel in this buffer, so
+    // the engine picks the ones that make the show and tells the shader how
+    // many there are.
+    vec4 u_PointLightPosition[8];    // xyz = world position, w = unused
+    vec4 u_PointLightColor[8];       // rgb = colour, a = intensity
+    vec4 u_PointLightAttenuation[8]; // x = constant, y = linear, z = quadratic
+    vec4 u_PointLightParams;         // x = how many lights there are
 } u_Camera;
 
 // Set 0, binding 1: per-object data.
@@ -158,6 +167,43 @@ vec3 SampleEnvSpecular(vec3 R, float roughness, vec3 irradianceAtR)
     return mix(sharp, irradianceAtR, roughness);
 }
 
+// A point light's contribution to a surface.
+//
+// A lamp is not the sun: it falls off with distance, and it lights one
+// surface at a time. The falloff is the classic point-light attenuation,
+// 1 / (constant + linear * d + quadratic * d^2), and the light itself
+// carries those three numbers.
+//
+// The diffuse term is Lambert and the highlight is a cheap Blinn-Phong: a
+// lamp on a shiny block has to glint, or a light show is a wash.
+vec3 PointLightContribution(int index, vec3 N, vec3 V, vec3 albedo, float metallic, float roughness)
+{
+    vec4 position = u_Camera.u_PointLightPosition[index];
+    vec4 color = u_Camera.u_PointLightColor[index];
+    vec4 attenuation = u_Camera.u_PointLightAttenuation[index];
+
+    vec3 toLight = position.xyz - vWorldPosition;
+    float distance = length(toLight);
+    if (distance < 0.0001)
+        return vec3(0.0);
+
+    vec3 L = toLight / distance;
+    float NdotL = max(dot(N, L), 0.0);
+    if (NdotL <= 0.0)
+        return vec3(0.0);
+
+    float denominator = attenuation.x + attenuation.y * distance + attenuation.z * distance * distance;
+    float falloff = 1.0 / max(denominator, 0.0001);
+
+    vec3 H = normalize(V + L);
+    float gloss = mix(64.0, 4.0, roughness);
+    float specular = pow(max(dot(N, H), 0.0), gloss) * mix(0.04, 1.0, metallic);
+
+    vec3 diffuse = (1.0 - metallic) * albedo / PI;
+
+    return (diffuse + specular) * color.rgb * color.a * falloff * NdotL;
+}
+
 void main()
 {
     vec3 albedo = u_Object.u_Albedo.rgb * texture(sampler2D(u_AlbedoTexture, u_AlbedoSampler), vUV).rgb;
@@ -202,7 +248,16 @@ void main()
 
     vec3 ambient = u_Camera.u_AmbientLight.rgb * albedo * ao;
 
-    vec3 color = ambient + radiance * NdotL * shadow + envSpecularContrib + diffuseIBL + emissive;
+    // The lamps: each one adds its own falloff-weighted light, and the
+    // count says how many there are - the rest of the array is not read.
+    vec3 pointRadiance = vec3(0.0);
+    int pointLightCount = int(u_Camera.u_PointLightParams.x);
+    for (int i = 0; i < pointLightCount; ++i)
+    {
+        pointRadiance += PointLightContribution(i, N, V, albedo, metallic, roughness);
+    }
+
+    vec3 color = ambient + radiance * NdotL * shadow + envSpecularContrib + diffuseIBL + emissive + pointRadiance;
 
     oColor = vec4(color, 1.0);
 }

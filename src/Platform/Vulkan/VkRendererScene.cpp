@@ -41,6 +41,14 @@ namespace {
 		glm::vec4 CameraPosition;
 		glm::vec4 AmbientLight;
 		glm::vec4 SSAOParams;
+
+		// The scene's point lights. The arrays are the shader's, in the
+		// shader's order: position, colour, attenuation, and then the count
+		// of how many of them there are.
+		glm::vec4 PointLightPosition[kMaxPointLights];
+		glm::vec4 PointLightColor[kMaxPointLights];
+		glm::vec4 PointLightAttenuation[kMaxPointLights];
+		glm::vec4 PointLightParams;
 	};
 
 	struct ObjectData
@@ -105,7 +113,7 @@ namespace {
 
 	// The payloads must match the shader blocks byte for byte, or the shader
 	// reads the wrong members.
-	static_assert(sizeof(CameraData) == 208, "CameraData must match pbr.frag CameraData (2*mat4 + 5*vec4)");
+	static_assert(sizeof(CameraData) == 608, "CameraData must match pbr.frag CameraData (2*mat4 + 5*vec4 + 3*8*vec4 + 1*vec4)");
 	static_assert(sizeof(ObjectData) == 176, "ObjectData must match ObjectData in pbr.vert/pbr.frag (2*mat4 + 3*vec4)");
 	static_assert(sizeof(ShadowMapParams) == 16, "ShadowMapParams must match ShadowMapParams in pbr.frag (2*vec2)");
 	static_assert(sizeof(SsaoParams) == 88, "SsaoParams must match SSAOParams in ssao.frag (mat4 + 4*float + vec2)");
@@ -274,6 +282,21 @@ void VkRenderer::WriteCameraUniforms(const CameraParams& camera)
 	// x is not read: the shadow bias travels in ShadowMapParams, where the
 	// texel size it has to be scaled by lives.
 	data.SSAOParams = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+
+	// The lamps. Only the ones there are written; the rest stay zero, and
+	// the count says how many the shader is to read.
+	const uint32_t lightCount = camera.PointLightCount < kMaxPointLights
+		? camera.PointLightCount
+		: kMaxPointLights;
+	for (uint32_t i = 0; i < lightCount; ++i)
+	{
+		const PointLight& light = camera.PointLights[i];
+		data.PointLightPosition[i] = glm::vec4(light.Position, 0.0f);
+		data.PointLightColor[i] = glm::vec4(light.Color, light.Intensity);
+		data.PointLightAttenuation[i] = glm::vec4(light.Constant, light.Linear, light.Quadratic, 0.0f);
+	}
+	data.PointLightParams = glm::vec4(static_cast<float>(lightCount), 0.0f, 0.0f, 0.0f);
+
 	std::memcpy(m_CameraUboData, &data, sizeof(data));
 }
 

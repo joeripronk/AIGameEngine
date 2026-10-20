@@ -7,6 +7,7 @@
 #include "Forge/Renderer/Camera.h"
 #include "Forge/Renderer/Mesh.h"
 #include "Forge/Renderer/CpuMesh.h"
+#include "Forge/Renderer/PointLights.h"
 #include "Forge/Scene/Components.h"
 
 #include "Platform/Vulkan/VkRenderer.h"
@@ -98,6 +99,15 @@ namespace Forge {
 		cameraParams.LightColor = lightColor;
 		cameraParams.LightIntensity = lightIntensity;
 		cameraParams.AmbientLight = { 0.03f, 0.03f, 0.04f };
+
+		// The scene's point lights, the same ones the scene camera is drawn
+		// with: a lamp that lights the game but not the editor's viewport is
+		// a lamp the author cannot see.
+		const PointLightSet pointLights = SelectPointLights(CollectPointLights(*scene));
+		for (uint32_t i = 0; i < pointLights.Count; ++i)
+			cameraParams.PointLights[i] = pointLights.Lights[i];
+		cameraParams.PointLightCount = pointLights.Count;
+
 		renderer.BeginScene(cameraParams);
 
 		auto drawEntity = [&](const Ref<Mesh>& mesh, const Ref<Texture>& albedoTexture,

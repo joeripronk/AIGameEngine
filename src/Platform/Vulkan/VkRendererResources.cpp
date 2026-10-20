@@ -27,6 +27,13 @@ namespace {
 		glm::vec4 CameraPosition;
 		glm::vec4 AmbientLight;
 		glm::vec4 SSAOParams;
+
+		// The scene's point lights: position, colour and attenuation for
+		// each of them, and then how many of them there are.
+		glm::vec4 PointLightPosition[kMaxPointLights];
+		glm::vec4 PointLightColor[kMaxPointLights];
+		glm::vec4 PointLightAttenuation[kMaxPointLights];
+		glm::vec4 PointLightParams;
 	};
 
 	struct ObjectData
@@ -40,7 +47,7 @@ namespace {
 
 	// The uniform payloads must match the shader blocks byte for byte, or
 	// the shader reads the wrong members.
-	static_assert(sizeof(CameraData) == 208, "CameraData must match pbr.frag CameraData (2*mat4 + 5*vec4)");
+	static_assert(sizeof(CameraData) == 608, "CameraData must match pbr.frag CameraData (2*mat4 + 5*vec4 + 3*8*vec4 + 1*vec4)");
 	static_assert(sizeof(ObjectData) == 176, "ObjectData must match ObjectData in pbr.vert/pbr.frag (2*mat4 + 3*vec4)");
 
 }  // namespace

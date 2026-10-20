@@ -33,6 +33,7 @@ target_sources(ForgeTests
         src/AssetWatcherTests.cpp
         src/ProfilerTests.cpp
         src/TestSceneTests.cpp
+        src/PointLightTests.cpp
         src/RendererTests.cpp
         src/PhysicsTests.cpp
         src/ScriptingTests.cpp

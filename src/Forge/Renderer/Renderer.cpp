@@ -15,6 +15,7 @@
 #include "Forge/Renderer/Camera.h"
 #include "Forge/Renderer/RendererStats.h"
 #include "Forge/Renderer/ShadowCamera.h"
+#include "Forge/Renderer/PointLights.h"
 #include "Forge/Math/Math.h"
 
 #include "Forge/Assets/AssetWatcher.h"
@@ -339,6 +340,15 @@ namespace {
 		cameraParams.LightColor = lightColor;
 		cameraParams.LightIntensity = lightIntensity;
 		cameraParams.AmbientLight = { 0.03f, 0.03f, 0.04f };
+
+		// The scene's point lights: the lamps that colour a scene from
+		// inside it. The brightest are the ones that make the show, so
+		// those are the ones the shader is given when the scene holds more
+		// lights than the shader can take.
+		const PointLightSet pointLights = SelectPointLights(CollectPointLights(*scene));
+		for (uint32_t i = 0; i < pointLights.Count; ++i)
+			cameraParams.PointLights[i] = pointLights.Lights[i];
+		cameraParams.PointLightCount = pointLights.Count;
 
 		const float mapResolution = static_cast<float>(renderer.GetShadowMapSizeValue()) * s_RenderScale;
 		const ShadowCamera shadowCamera = BuildShadowCamera(shadowBoxes, lightDirection, mapResolution);

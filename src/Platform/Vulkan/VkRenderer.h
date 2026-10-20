@@ -17,6 +17,8 @@
 #include "Platform/Vulkan/Pipeline/ShaderModule.h"
 #include "Platform/Vulkan/Pipeline/VertexLayout.h"
 
+#include "Forge/Renderer/PointLights.h"
+
 #include <vk_mem_alloc.h>
 
 #include <glm/glm.hpp>
@@ -114,6 +116,12 @@ namespace Forge {
 				float LightIntensity = 1.0f;
 				glm::vec3 AmbientLight = { 0.03f, 0.03f, 0.04f };
 				glm::vec2 ShadowBias = glm::vec2(0.0f);
+
+				// The scene's point lights: the lamps that colour a scene
+				// from inside it. The count is fixed because the lights
+				// travel in the frame's uniform buffer.
+				std::array<PointLight, kMaxPointLights> PointLights{};
+				uint32_t PointLightCount = 0;
 			};
 
 			struct ObjectParams
