@@ -22,6 +22,7 @@ namespace Forge {
 
 		IDComponent() = default;
 		IDComponent(const IDComponent&) = default;
+		IDComponent& operator=(const IDComponent&) = default;
 		IDComponent(const UUID& id) : ID(id) {}
 	};
 
@@ -31,6 +32,7 @@ namespace Forge {
 
 		TagComponent() = default;
 		TagComponent(const TagComponent&) = default;
+		TagComponent& operator=(const TagComponent&) = default;
 		TagComponent(const std::string& tag)
 			: Tag(tag) {}
 	};
@@ -43,6 +45,7 @@ namespace Forge {
 
 		TransformComponent() = default;
 		TransformComponent(const TransformComponent&) = default;
+		TransformComponent& operator=(const TransformComponent&) = default;
 		TransformComponent(const glm::vec3& translation)
 			: Translation(translation) {}
 
@@ -85,6 +88,7 @@ namespace Forge {
 
 		CameraComponent() = default;
 		CameraComponent(const CameraComponent&) = default;
+		CameraComponent& operator=(const CameraComponent&) = default;
 
 		// (Re)build the projection matrix from the stored parameters.
 		void UpdateProjection()
@@ -107,6 +111,7 @@ namespace Forge {
 
 		ScriptComponent() = default;
 		ScriptComponent(const ScriptComponent&) = default;
+		ScriptComponent& operator=(const ScriptComponent&) = default;
 	};
 
 	// A native script is C++ code that belongs to an entity.
@@ -167,6 +172,7 @@ namespace Forge {
 
 		RigidbodyComponent() = default;
 		RigidbodyComponent(const RigidbodyComponent&) = default;
+		RigidbodyComponent& operator=(const RigidbodyComponent&) = default;
 	};
 
 	struct BoxColliderComponent
@@ -184,6 +190,7 @@ namespace Forge {
 
 		BoxColliderComponent() = default;
 		BoxColliderComponent(const BoxColliderComponent&) = default;
+		BoxColliderComponent& operator=(const BoxColliderComponent&) = default;
 	};
 
 	struct SphereColliderComponent
@@ -201,6 +208,7 @@ namespace Forge {
 
 		SphereColliderComponent() = default;
 		SphereColliderComponent(const SphereColliderComponent&) = default;
+		SphereColliderComponent& operator=(const SphereColliderComponent&) = default;
 	};
 
 	// 3D Rendering
@@ -252,6 +260,7 @@ namespace Forge {
 
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;
+		MeshComponent& operator=(const MeshComponent&) = default;
 	};
 
 	// A mesh drawn many times: one mesh, many transforms, one draw call.
@@ -277,6 +286,7 @@ namespace Forge {
 
 		MultiMeshComponent() = default;
 		MultiMeshComponent(const MultiMeshComponent&) = default;
+		MultiMeshComponent& operator=(const MultiMeshComponent&) = default;
 	};
 
 	struct PBRMaterialComponent
@@ -292,6 +302,7 @@ namespace Forge {
 
 		PBRMaterialComponent() = default;
 		PBRMaterialComponent(const PBRMaterialComponent&) = default;
+		PBRMaterialComponent& operator=(const PBRMaterialComponent&) = default;
 	};
 
 	struct LightComponent
@@ -316,6 +327,7 @@ namespace Forge {
 
 		LightComponent() = default;
 		LightComponent(const LightComponent&) = default;
+		LightComponent& operator=(const LightComponent&) = default;
 	};
 
 	struct EnvironmentMapComponent
@@ -325,6 +337,7 @@ namespace Forge {
 
 		EnvironmentMapComponent() = default;
 		EnvironmentMapComponent(const EnvironmentMapComponent&) = default;
+		EnvironmentMapComponent& operator=(const EnvironmentMapComponent&) = default;
 		EnvironmentMapComponent(const std::string& path) : Path(path) {}
 	};
 
@@ -370,6 +383,7 @@ namespace Forge {
 
 		AudioSourceComponent() = default;
 		AudioSourceComponent(const AudioSourceComponent&) = default;
+		AudioSourceComponent& operator=(const AudioSourceComponent&) = default;
 		AudioSourceComponent(const std::string& path) : SourcePath(path) {}
 	};
 
@@ -397,6 +411,7 @@ namespace Forge {
 
 		AnimationComponent() = default;
 		AnimationComponent(const AnimationComponent&) = default;
+		AnimationComponent& operator=(const AnimationComponent&) = default;
 		explicit AnimationComponent(const AnimationClip& clip) : Clip(clip) {}
 	};
 

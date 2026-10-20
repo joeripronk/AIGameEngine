@@ -39,7 +39,6 @@ private:
 	int32_t m_LastScore = -1;
 	int32_t m_LastLines = -1;
 	int32_t m_LastLevel = -1;
-	float m_LastFireChance = 0.0f;
 
 	// Reward toast: the "Nice".."Epic" label shown at a line clear, flashing
 	// and shaking harder for more lines. m_RewardTimer counts it down. With a

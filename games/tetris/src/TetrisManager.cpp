@@ -774,7 +774,7 @@ uint32_t TetrisManager::CompactStack(const TetrisPiece& settled)
 			body.push_back(index);
 	}
 	std::sort(body.begin(), body.end(),
-		[width = m_State.Width](uint32_t a, uint32_t b) { return a > b; });
+		[](uint32_t a, uint32_t b) { return a > b; });
 
 	for (const uint32_t fromIndex : body)
 	{

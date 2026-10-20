@@ -3,7 +3,20 @@
 #include "Forge/Audio/AudioEngine.h"
 
 #define MINIAUDIO_IMPLEMENTATION
+// miniaudio is a third-party header, and its inline backends carry
+// parameters they do not use - the OpenSL ES one, which is Android's
+// audio backend, warns about two of them. The warning is about the
+// vendored code, not about this engine's, so it is silenced here rather
+// than in the build's flags: a flag would silence it everywhere,
+// including where it would be worth hearing.
+#if defined(__clang__)
+	#pragma clang diagnostic push
+	#pragma clang diagnostic ignored "-Wunused-parameter"
+#endif
 #include <miniaudio.h>
+#if defined(__clang__)
+	#pragma clang diagnostic pop
+#endif
 
 #include <algorithm>
 #include <cmath>

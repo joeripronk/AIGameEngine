@@ -20,7 +20,7 @@ constexpr float kEighthSeconds = 0.25f * (120.0f / 132.0f);
 // not sixteen. A sixteen-slot drum grid over a 2/4 bar is a half-bar out of
 // phase with the tune, which is a groove that fights the music.
 constexpr uint32_t kEighthsPerBar = 4;
-constexpr uint32_t kSixteenthsPerBar = 8;
+[[maybe_unused]] constexpr uint32_t kSixteenthsPerBar = 8;
 constexpr uint32_t kMelodyBars = 16;
 
 // The song is twenty-eight bars: the sixteen-bar folk melody, an intro, a
@@ -29,7 +29,7 @@ constexpr uint32_t kMelodyBars = 16;
 // seconds at 132 BPM - long enough to develop, short enough to bake at start.
 constexpr uint32_t kBarCount = 28;
 constexpr uint32_t kMelodyFirstBar = 4;
-constexpr uint32_t kMelodySecondBar = 24;  // the reprise in the outro
+[[maybe_unused]] constexpr uint32_t kMelodySecondBar = 24;  // the reprise in the outro
 
 // --- Mix ---
 

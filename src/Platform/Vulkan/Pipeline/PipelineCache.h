@@ -53,7 +53,7 @@ namespace Forge { namespace Vulkan {
 	// with the parsed payload, queried by every pipeline creation, dumped
 	// back to the file at shutdown.
 	class Device;
-	class DeviceFunctions;
+	struct DeviceFunctions;
 
 	class PipelineCache
 	{

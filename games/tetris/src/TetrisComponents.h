@@ -34,6 +34,7 @@ struct TetrisGameComponent
 
 	TetrisGameComponent() = default;
 	TetrisGameComponent(const TetrisGameComponent&) = default;
+	TetrisGameComponent& operator=(const TetrisGameComponent&) = default;
 };
 
 // The board itself: every cell, 0 = empty.
@@ -45,6 +46,7 @@ struct TetrisBoardComponent
 
 	TetrisBoardComponent() = default;
 	TetrisBoardComponent(const TetrisBoardComponent&) = default;
+	TetrisBoardComponent& operator=(const TetrisBoardComponent&) = default;
 };
 
 // The falling piece, as one entity rather than one per block.
@@ -59,6 +61,7 @@ struct TetrisPieceComponent
 
 	TetrisPieceComponent() = default;
 	TetrisPieceComponent(const TetrisPieceComponent&) = default;
+	TetrisPieceComponent& operator=(const TetrisPieceComponent&) = default;
 };
 
 // Score read-out.
@@ -73,6 +76,7 @@ struct TetrisDisplayComponent
 
 	TetrisDisplayComponent() = default;
 	TetrisDisplayComponent(const TetrisDisplayComponent&) = default;
+	TetrisDisplayComponent& operator=(const TetrisDisplayComponent&) = default;
 };
 
 }  // namespace Tetris
