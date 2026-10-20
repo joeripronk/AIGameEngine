@@ -1480,7 +1480,40 @@ camera sees the fronts, so the rig hangs in front of the board - and the
 flat view keeps a strip of headroom for it, because a lamp cut in half by
 the frame's edge is a lamp the player cannot see.
 
-## Audio System
+## Android
+
+The engine runs on a phone. The build is the engine's own CMake with the
+NDK's toolchain file, and the package around it is built by Gradle
+(`android/`, `tools/build-android.sh`, `docs/Android.md`).
+
+**A phone has no window to create.** The system's surface *is* the window,
+and the engine's window for it (`Forge::AndroidWindow`) creates nothing: it
+reports what the system says. The Vulkan surface is made from the system's
+window with the loader's Android surface extension, behind one name
+(`PlatformSurface.h`) so the renderer does not branch on the platform.
+
+**The polled input has no window to ask.** On a desktop the queries ask
+GLFW; on a phone there is no GLFW, so the platform keeps the state and
+reports it (`Forge::Input::SetKeyPressed`), and the queries answer from
+that. With neither a window nor a platform state, the queries report
+nothing - a headless tool gets a false, not a stale answer.
+
+**A file in a package is not a file.** The engine reads its files by path,
+so the assets are written out of the package into the app's own directory
+on the first run, and the engine runs from there.
+
+**The entry point is the system's.** The system's glue calls
+`ANativeActivity_onCreate` and the app's entry point is `android_main` -
+the same place the desktop's `main` is, and the game includes it the same
+way. It is a *definition* in a header the game includes: the system looks
+the symbol up by name, and a static archive's member is only linked when
+something asks for it.
+
+**The editor, the runtime and the tests are not built for a phone.** They
+are desktop programs. The game is the target, and it is built as the
+package's shared library.
+
+### Audio System
 
 Audio is **optional**. A machine with no output device still runs the game: the
 engine logs a warning and every playback call returns false.

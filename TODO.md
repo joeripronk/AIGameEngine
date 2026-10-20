@@ -299,6 +299,14 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       primary camera's frustum corners; culled entities counted, not drawn)
 - [x] Renderer draw statistics (`RendererStatistics`: draw calls, triangles
       submitted, textures bound, frustum-culled) read from the real draw loop
+- [x] Android build target: the engine's CMake with the NDK's toolchain
+      file, a Gradle package around it (`android/`), and a platform layer
+      for the parts a phone does differently - the system's surface instead
+      of a window, the system's events instead of GLFW's, the assets written
+      out of the package, and the system's entry point. The game is the
+      target (`libForgeTetris.so`, arm64-v8a, API 34); the editor, the
+      runtime and the tests are desktop programs and are not built there.
+      See `docs/Android.md` and `tools/build-android.sh`
 - [x] Point lights (`LightComponent::Type::Point`): up to eight lamps per
       frame, read from the scene's lights and uploaded in the frame's uniform
       buffer, shaded in `pbr.frag` with the classic distance falloff. A
