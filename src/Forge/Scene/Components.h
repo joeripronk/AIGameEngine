@@ -128,6 +128,16 @@ namespace Forge {
 
 	struct RigidbodyComponent
 	{
+		// The layers the body is on, and the layers it collides with.
+		//
+		// Every body is on a layer, and it collides with the layers its mask
+		// names - the other way round as well, so a pair that does not agree
+		// does not collide. A game with a player, a world and a set of
+		// triggers needs exactly that: the triggers are on a layer the
+		// player's mask does not name, and the player never walks into them.
+		uint32_t CollisionLayer = 1;
+		uint32_t CollisionMask = 1;
+
 		enum class BodyType { Static = 0, Dynamic, Kinematic };
 		BodyType Type = BodyType::Static;
 		bool FixedRotation = false;

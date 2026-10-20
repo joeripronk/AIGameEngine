@@ -174,6 +174,18 @@ namespace Forge {
 
 	// Represents a physics body in the simulation.
 	//
+	// Whether two bodies may collide: each one has to be on a layer the
+	// other's mask names.
+	//
+	// The rule is a pure function of the two masks, so it is testable
+	// without a world: a pair that does not agree does not collide, and
+	// agreeing on one side only is not enough.
+	[[nodiscard]] inline bool CollisionLayersAgree(uint32_t aLayer, uint32_t aMask,
+		uint32_t bLayer, uint32_t bMask)
+	{
+		return (aLayer & bMask) != 0 && (bLayer & aMask) != 0;
+	}
+
 	// A body is exactly one of:
 	//   Static    - never moves; infinite mass; no collision response on it.
 	//   Kinematic  - moved only by its own Velocity, ignores forces and gravity,
@@ -198,9 +210,16 @@ namespace Forge {
 		bool IsSleeping;
 		float SleepTime; // Accumulated sleep time (seconds)
 
+
 		// Collision shape
 		enum class ShapeType { Box, Sphere };
 		ShapeType Shape;
+
+		// The layers the body is on, and the layers it collides with. A pair
+		// that does not agree on both sides does not collide.
+		uint32_t CollisionLayer = 1;
+		uint32_t CollisionMask = 1;
+
 		glm::vec3 BoxSize; // For box shapes
 		float SphereRadius; // For sphere shapes
 		glm::vec3 Offset; // Offset from entity transform

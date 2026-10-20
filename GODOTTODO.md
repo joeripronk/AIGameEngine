@@ -215,7 +215,7 @@ direction per axis.
   changed becomes an event, so the map is fed the way it is fed by the
   keyboard.
 
-### 2. [ ] Collision layers and masks
+### 2. [x] Collision layers and masks
 
 **Godot has** `collision_layer` and `collision_mask` on every body: a body is
 on a layer, and it collides with the layers its mask names.

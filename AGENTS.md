@@ -1727,6 +1727,24 @@ Forge::Character::Move(position, velocity * dt, shape, settings, obstacles);
   it resolves the move against the world's *static* geometry: the dynamic
   bodies are moved by the physics and are not part of it.
 
+### Collision layers and masks
+
+Every body is on a layer, and it collides with the layers its mask names -
+the other way round as well, so agreeing on one side only is not enough.
+A game with a player, a world and a set of triggers needs exactly that:
+the triggers are on a layer the player's mask does not name, and the
+player never walks into them.
+
+```cpp
+rigidbody.CollisionLayer = 1;   // the player
+rigidbody.CollisionMask  = 3;   // the world (1) and the triggers (2)
+```
+
+`CollisionLayersAgree` is the rule, and it is a pure function of the two
+masks - so it is testable without a world, and the detection and the
+response both ask it (a body that does not collide with another one is not
+pushed by it either).
+
 ### Continuous collision detection
 
 Discrete detection only tests overlaps at step boundaries, so a fast body passes

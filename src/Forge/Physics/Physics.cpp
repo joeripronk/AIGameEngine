@@ -57,7 +57,8 @@ namespace Forge {
 		  InverseMass(0.0f), Restitution(collider.Restitution), Friction(collider.Friction),
 		  IsStatic(rb.Type == RigidbodyComponent::BodyType::Static),
 		  IsKinematic(rb.Type == RigidbodyComponent::BodyType::Kinematic),
-		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box)
+		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Box),
+		  CollisionLayer(rb.CollisionLayer), CollisionMask(rb.CollisionMask)
 	{
 		BoxSize = collider.Size;
 		SphereRadius = 0.0f;
@@ -85,7 +86,8 @@ namespace Forge {
 		  InverseMass(0.0f), Restitution(collider.Restitution), Friction(collider.Friction),
 		  IsStatic(rb.Type == RigidbodyComponent::BodyType::Static),
 		  IsKinematic(rb.Type == RigidbodyComponent::BodyType::Kinematic),
-		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Sphere)
+		  FixedRotation(rb.FixedRotation), IsSleeping(false), SleepTime(0.0f), Shape(ShapeType::Sphere),
+		  CollisionLayer(rb.CollisionLayer), CollisionMask(rb.CollisionMask)
 	{
 		BoxSize = glm::vec3(0.0f);
 		SphereRadius = collider.Radius;
@@ -450,6 +452,15 @@ namespace Forge {
 				if (bodyA->IsStatic && bodyB->IsStatic)
 					continue;
 
+				// The layers have to agree: each body has to be on a layer the
+				// other's mask names. A trigger on a layer the player's mask
+				// does not name is not something the player walks into.
+				if (!CollisionLayersAgree(bodyA->CollisionLayer, bodyA->CollisionMask,
+					bodyB->CollisionLayer, bodyB->CollisionMask))
+				{
+					continue;
+				}
+
 				// Spheres use exact sphere-sphere overlap; everything else falls
 				// back to the axis-aligned box test.
 				const bool touching = bodyA->Shape == PhysicsBody::ShapeType::Sphere &&
@@ -559,6 +570,15 @@ namespace Forge {
 				// Skip if both are static
 				if (bodyA->IsStatic && bodyB->IsStatic)
 					continue;
+
+				// The layers have to agree, here as in the detection: a body
+				// that does not collide with another one is not pushed by it
+				// either.
+				if (!CollisionLayersAgree(bodyA->CollisionLayer, bodyA->CollisionMask,
+					bodyB->CollisionLayer, bodyB->CollisionMask))
+				{
+					continue;
+				}
 
 				// Check AABB overlap
 				glm::vec3 minA = bodyA->GetAABBBottomLeft();

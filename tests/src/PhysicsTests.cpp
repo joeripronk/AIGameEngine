@@ -1456,3 +1456,83 @@ TEST_CASE("Destroying an entity releases its body", "[physics][removal]")
     REQUIRE_NOTHROW(scene.OnPhysicsStop());
     Forge::Physics::Shutdown();
 }
+
+TEST_CASE("Two bodies collide only when their layers agree", "[physics][collision][layers]")
+{
+    // The rule is a pure function of the two masks, so it is checked
+    // without a world.
+    //
+    // Every body is on a layer, and it collides with the layers its mask
+    // names: the other way round as well, so agreeing on one side only is
+    // not enough.
+    REQUIRE(Forge::CollisionLayersAgree(1, 1, 1, 1));
+
+    // The player is on layer 1 and collides with layer 1; the trigger is
+    // on layer 2, which the player's mask does not name.
+    REQUIRE_FALSE(Forge::CollisionLayersAgree(1, 1, 2, 2));
+
+    // The same the other way round: the trigger does not collide with the
+    // player either.
+    REQUIRE_FALSE(Forge::CollisionLayersAgree(2, 2, 1, 1));
+
+    // The player names the trigger's layer in its mask, and the trigger
+    // names the player's: they collide.
+    REQUIRE(Forge::CollisionLayersAgree(1, 3, 2, 1));
+
+    // The player names the trigger's layer but the trigger does not name
+    // the player's: one side agreeing is not enough.
+    REQUIRE_FALSE(Forge::CollisionLayersAgree(1, 3, 2, 2));
+}
+
+TEST_CASE("A body's layers come from its rigidbody", "[physics][layers]")
+{
+    Forge::RigidbodyComponent rb;
+    rb.Type = Forge::RigidbodyComponent::BodyType::Dynamic;
+    rb.CollisionLayer = 4;
+    rb.CollisionMask = 12;
+
+    Forge::BoxColliderComponent collider;
+    collider.Size = glm::vec3(1.0f);
+
+    Forge::PhysicsBody body(1, rb, collider, Forge::Physics::GetGravityY());
+
+    REQUIRE(body.CollisionLayer == 4);
+    REQUIRE(body.CollisionMask == 12);
+}
+
+TEST_CASE("Bodies on layers that do not agree never touch", "[physics][collision][layers]")
+{
+    ResetContactLogs();
+    Forge::Physics::Init();
+    Forge::Physics::SetGravityY(0.0f);
+
+    // A floor on the first layer, and a box that overlaps it on the second:
+    // the box's mask does not name the floor's layer, so the two never
+    // touch.
+    auto* ground = MakeStaticBox(1, glm::vec3(0.0f), glm::vec3(10.0f, 1.0f, 10.0f));
+    ground->CollisionLayer = 1;
+    ground->CollisionMask = 1;
+
+    auto* box = MakeDynamicBoxAt(2, glm::vec3(0.0f, 0.6f, 0.0f), glm::vec3(1.0f));
+    box->CollisionLayer = 2;
+    box->CollisionMask = 2;
+
+    Forge::Physics::AddBody(ground);
+    Forge::Physics::AddBody(box);
+    Forge::Physics::SetCollisionCallback(box, OnContactA);
+
+    Forge::Physics::Update(0.016f);
+
+    REQUIRE(g_ContactLogA.Enters == 0);
+    REQUIRE(Forge::Physics::GetActiveContacts().empty());
+
+    // The box's mask names the floor's layer, and the floor's names the
+    // box's: now they touch.
+    box->CollisionMask = 1;
+    ground->CollisionMask = 2;
+
+    Forge::Physics::Update(0.016f);
+    REQUIRE(g_ContactLogA.Enters == 1);
+
+    Forge::Physics::Shutdown();
+}
