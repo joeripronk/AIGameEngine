@@ -39,6 +39,8 @@ target_sources(ForgeCore
         Forge/Core/FileSystem.cpp
         Forge/Core/KeyCodes.h
         Forge/Core/MouseCodes.h
+        Forge/Core/JoypadCodes.h
+        Forge/Core/JoypadCodes.cpp
         Forge/Core/KeyNames.h
         Forge/Core/KeyNames.cpp
         Forge/Core/Input.h

@@ -21,8 +21,8 @@ namespace Forge {
 		Alt     = 1 << 2,
 	};
 
-	// One binding of an action: a key or a mouse button, and the modifiers
-	// it requires.
+	// One binding of an action: a key, a mouse button, a gamepad button or a
+	// gamepad axis, and the modifiers it requires.
 	//
 	// The modifiers a binding asks for must be among the ones held, which
 	// is Godot's rule: a binding that asks for none fires whatever else is
@@ -30,17 +30,32 @@ namespace Forge {
 	// held, with or without shift on top of it.
 	struct InputBinding
 	{
-		enum class Kind : uint8_t { Key, MouseButton };
+		enum class Kind : uint8_t { Key, MouseButton, JoypadButton, JoypadAxis };
 
 		Kind kind = Kind::Key;
-		uint16_t code = 0;     // a KeyCode or a MouseCode
+		uint16_t code = 0;     // a KeyCode, a MouseCode, a button or an axis
 		uint8_t modifiers = 0; // the InputModifier bits
+
+		// Which pad a gamepad binding belongs to. A button on another pad
+		// is another button.
+		int8_t joystick = 0;
+
+		// Which way an axis binding counts: +1 for the positive direction,
+		// -1 for the negative one. A stick pushed left is the same action as
+		// a key pressed left, and the sign is what tells them apart.
+		int8_t direction = 1;
+
+		// How far an axis has to move before it counts. A stick that rests
+		// a little off centre is not a player pressing something.
+		float deadzone = 0.15f;
 
 		[[nodiscard]] bool IsKey() const { return kind == Kind::Key; }
 		[[nodiscard]] bool IsMouseButton() const { return kind == Kind::MouseButton; }
+		[[nodiscard]] bool IsJoypadButton() const { return kind == Kind::JoypadButton; }
+		[[nodiscard]] bool IsJoypadAxis() const { return kind == Kind::JoypadAxis; }
 
 		// The binding's name as it is written in a remap file:
-		// "Ctrl+Shift+A", "MouseLeft".
+		// "Ctrl+Shift+A", "MouseLeft", "Pad0:A", "Pad0:LeftX+".
 		[[nodiscard]] std::string ToString() const;
 	};
 
@@ -78,6 +93,13 @@ namespace Forge {
 		// already there: a binding that is added twice would fire twice.
 		[[nodiscard]] static bool AddKey(const std::string& action, KeyCode key, uint8_t modifiers = 0);
 		[[nodiscard]] static bool AddMouseButton(const std::string& action, MouseCode button, uint8_t modifiers = 0);
+
+		// A gamepad's buttons and axes. The joystick is the index of the
+		// pad; the axis's direction says which way it counts, and the
+		// deadzone is how far it has to move before it counts at all.
+		[[nodiscard]] static bool AddJoypadButton(const std::string& action, int joystick, int button);
+		[[nodiscard]] static bool AddJoypadAxis(const std::string& action, int joystick, int axis,
+			int direction = 1, float deadzone = 0.15f);
 
 		// Removes every binding of the action that uses the code, whatever
 		// its modifiers. False when there was none.

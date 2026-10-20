@@ -2,7 +2,9 @@
 #include "Forge/Core/InputMap.h"
 
 #include "Forge/Core/FileSystem.h"
+#include "Forge/Core/JoypadCodes.h"
 #include "Forge/Core/KeyNames.h"
+#include "Forge/Events/JoypadEvent.h"
 #include "Forge/Events/KeyEvent.h"
 #include "Forge/Events/MouseEvent.h"
 
@@ -39,6 +41,19 @@ namespace Forge {
 		std::set<uint16_t> s_DownMouseButtons;
 		uint8_t s_Modifiers = 0;
 
+		// The gamepads: the buttons that are down, and where the axes rest.
+		// The key is the pad and the control, so a pad's button and an
+		// axis never collide.
+		std::set<uint64_t> s_DownPadButtons;
+		std::map<uint64_t, float> s_PadAxes;
+
+		// The key a pad's control is remembered under: the pad and the
+		// control in one number, so a button and an axis never collide.
+		uint64_t PadKey(int joystick, int control)
+		{
+			return (static_cast<uint64_t>(joystick) << 32) | static_cast<uint64_t>(control);
+		}
+
 		uint8_t ModifierBitFor(uint16_t key)
 		{
 			switch (key)
@@ -70,6 +85,36 @@ namespace Forge {
 		}
 
 		// Does the binding match what is held right now?
+		bool BindingIsDown(const InputBinding& binding);
+
+		// How strongly a binding is held: a button is all the way or not at
+		// all, and an axis is how far it is past the deadzone.
+		float BindingStrength(const InputBinding& binding)
+		{
+			if (binding.IsJoypadAxis())
+			{
+				const auto axis = s_PadAxes.find(PadKey(binding.joystick, binding.code));
+				if (axis == s_PadAxes.end())
+					return 0.0f;
+
+				const float value = std::abs(axis->second);
+				if (value < binding.deadzone)
+					return 0.0f;
+
+				// The direction decides which way the axis counts: a stick
+				// pushed left is the negative action, not a weak positive
+				// one.
+				if (binding.direction < 0.0f && axis->second > 0.0f)
+					return 0.0f;
+				if (binding.direction > 0.0f && axis->second < 0.0f)
+					return 0.0f;
+
+				return std::min(1.0f, (value - binding.deadzone) / (1.0f - binding.deadzone));
+			}
+
+			return BindingIsDown(binding) ? 1.0f : 0.0f;
+		}
+
 		bool BindingIsDown(const InputBinding& binding)
 		{
 			if (binding.IsKey())
@@ -77,9 +122,28 @@ namespace Forge {
 				if (s_DownKeys.find(binding.code) == s_DownKeys.end())
 					return false;
 			}
-			else
+			else if (binding.IsMouseButton())
 			{
 				if (s_DownMouseButtons.find(binding.code) == s_DownMouseButtons.end())
+					return false;
+			}
+			else if (binding.IsJoypadButton())
+			{
+				// The pad the binding names is the one the event came from:
+				// a button on another pad is another button.
+				if (s_DownPadButtons.find(PadKey(binding.joystick, binding.code)) == s_DownPadButtons.end())
+					return false;
+			}
+			else
+			{
+				// An axis counts when it is past the deadzone, in the
+				// direction the binding names.
+				const auto axis = s_PadAxes.find(PadKey(binding.joystick, binding.code));
+				if (axis == s_PadAxes.end())
+					return false;
+				if (std::abs(axis->second) < binding.deadzone)
+					return false;
+				if (binding.direction > 0 ? axis->second <= 0.0f : axis->second >= 0.0f)
 					return false;
 			}
 
@@ -143,6 +207,24 @@ namespace Forge {
 			if (binding.modifiers & static_cast<uint8_t>(InputModifier::Alt))
 				result += "Alt+";
 
+			if (binding.IsJoypadButton())
+			{
+				result += "Pad" + std::to_string(static_cast<int>(binding.joystick)) + ":";
+				const char* name = Joypad::ButtonName(binding.code);
+				result += name ? name : std::to_string(static_cast<int>(binding.code));
+				return result;
+			}
+
+			if (binding.IsJoypadAxis())
+			{
+				result += "Pad" + std::to_string(static_cast<int>(binding.joystick)) + ":";
+				const char* name = Joypad::AxisName(binding.code);
+				result += name ? name : std::to_string(static_cast<int>(binding.code));
+				// The sign says which way the axis counts.
+				result += binding.direction < 0 ? "-" : "+";
+				return result;
+			}
+
 			const char* name = binding.IsKey()
 				? KeyName(static_cast<KeyCode>(binding.code))
 				: MouseButtonName(static_cast<MouseCode>(binding.code));
@@ -183,7 +265,12 @@ namespace Forge {
 				else if (modifier == "Alt")
 					modifiers |= static_cast<uint8_t>(InputModifier::Alt);
 				else
-					return false;  // not a modifier: the '+' is part of the name
+				{
+					// Not a modifier: the '+' belongs to the name. A gamepad
+					// axis is written "Pad0:LeftX+", and the sign says which
+					// way the axis counts.
+					break;
+				}
 
 				start = plus + 1;
 			}
@@ -191,6 +278,49 @@ namespace Forge {
 			const std::string name = text.substr(start);
 			if (name.empty())
 				return false;
+
+			// A gamepad binding: "Pad0:A" for a button, "Pad0:LeftX+" for
+			// an axis and the way it counts. The pad's number is between
+			// the "Pad" and the colon, so it can be more than one digit.
+			const size_t colon = name.find(':');
+			if (name.size() > 4 && name.compare(0, 3, "Pad") == 0 && colon != std::string::npos && colon > 3)
+			{
+				const std::string pad = name.substr(3, colon - 3);
+				const std::string control = name.substr(colon + 1);
+
+				int joystick = 0;
+				try
+				{
+					joystick = std::stoi(pad);
+				}
+				catch (const std::exception&)
+				{
+					return false;
+				}
+
+				// A trailing '+' or '-' says which way an axis counts.
+				if (!control.empty() && (control.back() == '+' || control.back() == '-'))
+				{
+					const int direction = control.back() == '-' ? -1 : 1;
+					const std::string axisName = control.substr(0, control.size() - 1);
+					int axis = 0;
+					if (!Joypad::AxisFromName(axisName, axis))
+						return false;
+					out.kind = InputBinding::Kind::JoypadAxis;
+					out.code = static_cast<uint16_t>(axis);
+					out.joystick = static_cast<int8_t>(joystick);
+					out.direction = static_cast<int8_t>(direction);
+					return true;
+				}
+
+				int button = 0;
+				if (!Joypad::ButtonFromName(control, button))
+					return false;
+				out.kind = InputBinding::Kind::JoypadButton;
+				out.code = static_cast<uint16_t>(button);
+				out.joystick = static_cast<int8_t>(joystick);
+				return true;
+			}
 
 			KeyCode key = 0;
 			if (KeyFromName(name, key))
@@ -313,6 +443,59 @@ namespace Forge {
 		return true;
 	}
 
+	bool InputMap::AddJoypadButton(const std::string& action, int joystick, int button)
+	{
+		const auto it = s_Actions.find(action);
+		if (it == s_Actions.end())
+			return false;
+
+		InputBinding binding;
+		binding.kind = InputBinding::Kind::JoypadButton;
+		binding.code = static_cast<uint16_t>(button);
+		binding.joystick = static_cast<int8_t>(joystick);
+
+		for (const InputBinding& existing : it->second.bindings)
+		{
+			if (existing.kind == binding.kind && existing.code == binding.code &&
+				existing.joystick == binding.joystick)
+			{
+				return false;
+			}
+		}
+
+		it->second.bindings.push_back(binding);
+		RefreshActions();
+		return true;
+	}
+
+	bool InputMap::AddJoypadAxis(const std::string& action, int joystick, int axis,
+		int direction, float deadzone)
+	{
+		const auto it = s_Actions.find(action);
+		if (it == s_Actions.end())
+			return false;
+
+		InputBinding binding;
+		binding.kind = InputBinding::Kind::JoypadAxis;
+		binding.code = static_cast<uint16_t>(axis);
+		binding.joystick = static_cast<int8_t>(joystick);
+		binding.direction = direction < 0 ? -1 : 1;
+		binding.deadzone = std::clamp(deadzone, 0.0f, 0.9f);
+
+		for (const InputBinding& existing : it->second.bindings)
+		{
+			if (existing.kind == binding.kind && existing.code == binding.code &&
+				existing.joystick == binding.joystick && existing.direction == binding.direction)
+			{
+				return false;
+			}
+		}
+
+		it->second.bindings.push_back(binding);
+		RefreshActions();
+		return true;
+	}
+
 	bool InputMap::RemoveBinding(const std::string& action, uint16_t code)
 	{
 		const auto it = s_Actions.find(action);
@@ -410,7 +593,16 @@ namespace Forge {
 
 	float InputMap::GetActionStrength(const std::string& action)
 	{
-		return IsActionPressed(action) ? 1.0f : 0.0f;
+		const ActionState* state = FindAction(action);
+		if (!state)
+			return 0.0f;
+
+		// The strongest binding wins: an action bound to a key and to a
+		// stick is held as hard as the harder of the two.
+		float strength = 0.0f;
+		for (const InputBinding& binding : state->bindings)
+			strength = std::max(strength, BindingStrength(binding));
+		return strength;
 	}
 
 	float InputMap::GetAxis(const std::string& negativeAction, const std::string& positiveAction)
@@ -438,6 +630,22 @@ namespace Forge {
 		{
 			const auto& keyEvent = static_cast<const KeyReleasedEvent&>(event);
 			s_DownKeys.erase(static_cast<uint16_t>(keyEvent.GetKeyCode()));
+			break;
+		}
+		case EventType::JoypadButton:
+		{
+			const auto& padEvent = static_cast<const JoypadButtonEvent&>(event);
+			const uint64_t key = PadKey(padEvent.GetJoystick(), padEvent.GetButton());
+			if (padEvent.IsPressed())
+				s_DownPadButtons.insert(key);
+			else
+				s_DownPadButtons.erase(key);
+			break;
+		}
+		case EventType::JoypadAxis:
+		{
+			const auto& padEvent = static_cast<const JoypadAxisEvent&>(event);
+			s_PadAxes[PadKey(padEvent.GetJoystick(), padEvent.GetAxis())] = padEvent.GetValue();
 			break;
 		}
 		case EventType::MouseButtonPressed:
@@ -528,6 +736,8 @@ namespace Forge {
 				InputBinding binding;
 				if (BindingFromString(bindingText, binding))
 					bindings.push_back(binding);
+				else
+					FG_CORE_WARN("InputMap: could not read the binding '{0}'", bindingText);
 			}
 
 			parsed.emplace_back(name, bindings);
@@ -562,6 +772,8 @@ namespace Forge {
 		s_ActionOrder.clear();
 		s_DownKeys.clear();
 		s_DownMouseButtons.clear();
+		s_DownPadButtons.clear();
+		s_PadAxes.clear();
 		s_Modifiers = 0;
 	}
 

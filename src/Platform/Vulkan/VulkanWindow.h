@@ -40,6 +40,20 @@ namespace Forge {
 		}
 
 	private:
+		// Reads the gamepads and turns what changed into events, so the
+		// input map is fed the same way it is fed by the keyboard.
+		void PollGamepads();
+
+		// How many pads are looked at, and how many controls each has.
+		static constexpr int kMaxGamepads = 4;
+		static constexpr int kMaxButtons = 16;
+		static constexpr int kMaxAxes = 8;
+
+		// Where the pads were last frame. A control that has not moved is
+		// not an event.
+		float m_LastAxisValues[kMaxGamepads][kMaxAxes] = {};
+		bool m_LastButtonStates[kMaxGamepads][kMaxButtons] = {};
+
 		struct WindowData
 		{
 			std::string Title;

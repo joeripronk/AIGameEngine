@@ -17,6 +17,7 @@ namespace Forge {
 		WindowClose, WindowResize, WindowFocus, WindowLostFocus, WindowMoved, WindowDrop,
 		AppTick, AppUpdate, AppRender,
 		KeyPressed, KeyReleased, KeyTyped,
+		JoypadButton, JoypadAxis,
 		MouseButtonPressed, MouseButtonReleased, MouseMoved, MouseScrolled
 	};
 

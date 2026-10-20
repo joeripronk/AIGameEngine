@@ -195,6 +195,51 @@ however far away it is.
 
 ---
 
+## Round two - what a game hits after the first hour
+
+The first round was what a game needs to exist at all. This round is what it
+needs once it is a game: the things a second player, a second kind of
+collision or a second look at the world requires.
+
+### 1. [x] Gamepads in the input map
+
+**Godot has** `InputMap` with joypad buttons and axes, a deadzone and a
+direction per axis.
+
+**Forge has** keys and mouse buttons.
+
+**Done when**
+- An action can be bound to a pad's button or to one of its axes, the axis
+  says which way it counts, and a stick that rests off centre is not a
+  player pressing something. The pads are read by the window layer and what
+  changed becomes an event, so the map is fed the way it is fed by the
+  keyboard.
+
+### 2. [ ] Collision layers and masks
+
+**Godot has** `collision_layer` and `collision_mask` on every body: a body is
+on a layer, and it collides with the layers its mask names.
+
+**Forge has** every body colliding with every body.
+
+**Done when**
+- A body says which layers it is on and which layers it collides with, and
+  a pair that does not agree does not collide. The rule is a pure function
+  of the two masks.
+
+### 3. [ ] A curve for the animation's interpolation
+
+**Godot has** `Curve` and `Gradient`: a value that is interpolated along a
+shape the author draws.
+
+**Forge has** linear and smooth interpolation, and nothing else.
+
+**Done when**
+- A curve is a list of points, and the animation's tracks can use one
+  instead of the two built-in shapes.
+
+---
+
 ## Notes on what was deliberately not taken
 
 - **A 2D engine** (`CanvasItem`, sprites, tilemaps): a whole renderer, a

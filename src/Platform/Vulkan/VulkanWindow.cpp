@@ -4,6 +4,7 @@
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
 #include "Forge/Events/ApplicationEvent.h"
+#include "Forge/Events/JoypadEvent.h"
 #include "Forge/Events/KeyEvent.h"
 #include "Forge/Events/MouseEvent.h"
 
@@ -241,6 +242,50 @@ namespace Forge {
 			return;
 
 		glfwPollEvents();
+
+		// The pads are read after the events, so the frame's input is the
+		// state the pads are in now - not the state they were in when the
+		// last frame was drawn.
+		PollGamepads();
+	}
+
+	void VulkanWindow::PollGamepads()
+	{
+		for (int pad = 0; pad < kMaxGamepads; ++pad)
+		{
+			if (!glfwJoystickPresent(pad))
+				continue;
+
+			GLFWgamepadstate state{};
+			if (!glfwGetGamepadState(pad, &state))
+				continue;
+
+			// The axes: a stick that rests a little off centre is not the
+			// player doing anything, but the value still has to be reported
+			// - the input map's deadzone is the one that decides what counts.
+			for (int axis = 0; axis < kMaxAxes && axis <= GLFW_GAMEPAD_AXIS_LAST; ++axis)
+			{
+				const float value = state.axes[axis];
+				if (value == m_LastAxisValues[pad][axis])
+					continue;
+
+				m_LastAxisValues[pad][axis] = value;
+				JoypadAxisEvent event(pad, axis, value);
+				m_Data.EventCallback(event);
+			}
+
+			// The buttons.
+			for (int button = 0; button < kMaxButtons && button <= GLFW_GAMEPAD_BUTTON_LAST; ++button)
+			{
+				const bool pressed = state.buttons[button] == GLFW_PRESS;
+				if (pressed == m_LastButtonStates[pad][button])
+					continue;
+
+				m_LastButtonStates[pad][button] = pressed;
+				JoypadButtonEvent event(pad, button, pressed);
+				m_Data.EventCallback(event);
+			}
+		}
 	}
 
 	void VulkanWindow::SetVSync(bool enabled)

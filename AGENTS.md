@@ -196,6 +196,12 @@ transient state ("just pressed") and then reads the window. Every application
 calls it instead of the window directly, so there is one place where a frame
 starts.
 
+A gamepad is bound the same way a key is: the window layer reads the pads
+and turns what changed into events, so the map is fed the way it is fed by
+the keyboard. An axis binding says which way it counts (`Pad0:LeftX+`), and
+a stick that rests a little off centre is not a player pressing something -
+the deadzone is the map's rule, not the pad's.
+
 ### Files
 
 `FileSystem` is the only thing that opens a file:

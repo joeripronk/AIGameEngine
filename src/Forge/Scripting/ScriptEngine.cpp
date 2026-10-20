@@ -5,6 +5,7 @@
 #include "Forge/Core/FileSystem.h"
 #include "Forge/Core/Input.h"
 #include "Forge/Core/InputMap.h"
+#include "Forge/Core/JoypadCodes.h"
 #include "Forge/Core/KeyNames.h"
 
 #include "Forge/Scene/Scene.h"
@@ -1044,6 +1045,43 @@ namespace Forge {
 		// A script that sets up its own actions: AddAction("jump") and
 		// BindKey("jump", "Space"). The key is named, not numbered, so the
 		// script says what a person would say.
+		int LuaBindJoypadButton(lua_State* L)
+		{
+			const char* action = luaL_checkstring(L, 1);
+			const int joystick = static_cast<int>(luaL_checkinteger(L, 2));
+			const char* buttonName = luaL_checkstring(L, 3);
+
+			int button = 0;
+			if (!Joypad::ButtonFromName(buttonName, button))
+			{
+				FG_CORE_ERROR("[Lua] BindJoypadButton: no button named '{0}'", buttonName);
+				lua_pushboolean(L, false);
+				return 1;
+			}
+
+			lua_pushboolean(L, InputMap::AddJoypadButton(action, joystick, button));
+			return 1;
+		}
+
+		int LuaBindJoypadAxis(lua_State* L)
+		{
+			const char* action = luaL_checkstring(L, 1);
+			const int joystick = static_cast<int>(luaL_checkinteger(L, 2));
+			const char* axisName = luaL_checkstring(L, 3);
+			const int direction = static_cast<int>(luaL_optinteger(L, 4, 1));
+
+			int axis = 0;
+			if (!Joypad::AxisFromName(axisName, axis))
+			{
+				FG_CORE_ERROR("[Lua] BindJoypadAxis: no axis named '{0}'", axisName);
+				lua_pushboolean(L, false);
+				return 1;
+			}
+
+			lua_pushboolean(L, InputMap::AddJoypadAxis(action, joystick, axis, direction));
+			return 1;
+		}
+
 		int LuaAddAction(lua_State* L)
 		{
 			lua_pushboolean(L, InputMap::AddAction(luaL_checkstring(L, 1)));
@@ -1125,6 +1163,8 @@ namespace Forge {
 		lua_register(L, "GetActionAxis", LuaGetActionAxis);
 		lua_register(L, "AddAction", LuaAddAction);
 		lua_register(L, "BindKey", LuaBindKey);
+		lua_register(L, "BindJoypadButton", LuaBindJoypadButton);
+		lua_register(L, "BindJoypadAxis", LuaBindJoypadAxis);
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
 		lua_register(L, "PlaySound", LuaPlaySound);
 		lua_register(L, "StopSound", LuaStopSound);

@@ -1,7 +1,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Forge/Core/InputMap.h"
+#include "Forge/Core/JoypadCodes.h"
 #include "Forge/Core/KeyNames.h"
+#include "Forge/Events/JoypadEvent.h"
 #include "Forge/Events/KeyEvent.h"
 #include "Forge/Events/MouseEvent.h"
 
@@ -342,4 +344,112 @@ TEST_CASE("The key names round trip", "[core][input]")
 	REQUIRE(button == Mouse::ButtonLeft);
 	REQUIRE_FALSE(MouseButtonFromName("NotAButton", button));
 	REQUIRE(std::string(MouseButtonName(Mouse::ButtonRight)) == "MouseRight");
+}
+
+TEST_CASE("A gamepad's button is an action's binding", "[core][input][gamepad]")
+{
+	InputMapFixture fixture;
+
+	REQUIRE(InputMap::AddAction("jump"));
+	REQUIRE(InputMap::AddJoypadButton("jump", 0, Joypad::A));
+
+	// Nothing pressed yet.
+	REQUIRE_FALSE(InputMap::IsActionPressed("jump"));
+
+	InputMap::OnEvent(JoypadButtonEvent(0, Joypad::A, true));
+	REQUIRE(InputMap::IsActionPressed("jump"));
+	REQUIRE(InputMap::IsActionJustPressed("jump"));
+
+	InputMap::BeginFrame();
+	REQUIRE(InputMap::IsActionPressed("jump"));
+	REQUIRE_FALSE(InputMap::IsActionJustPressed("jump"));
+
+	// A button on another pad is another button: the action that binds
+	// pad 1's button is not the one that binds pad 0's.
+	REQUIRE(InputMap::AddAction("jump2"));
+	REQUIRE(InputMap::AddJoypadButton("jump2", 1, Joypad::A));
+
+	InputMap::OnEvent(JoypadButtonEvent(1, Joypad::A, true));
+	REQUIRE(InputMap::IsActionPressed("jump2"));
+	REQUIRE(InputMap::IsActionPressed("jump"));
+
+	// Releasing pad 0's button releases the action bound to it, and leaves
+	// the other pad's action alone.
+	InputMap::OnEvent(JoypadButtonEvent(0, Joypad::A, false));
+	REQUIRE_FALSE(InputMap::IsActionPressed("jump"));
+	REQUIRE(InputMap::IsActionJustReleased("jump"));
+	REQUIRE(InputMap::IsActionPressed("jump2"));
+}
+
+TEST_CASE("A gamepad's axis is an action's binding, past the deadzone", "[core][input][gamepad]")
+{
+	InputMapFixture fixture;
+
+	REQUIRE(InputMap::AddAction("move_right"));
+	REQUIRE(InputMap::AddAction("move_left"));
+	REQUIRE(InputMap::AddJoypadAxis("move_right", 0, Joypad::LeftX, 1));
+	REQUIRE(InputMap::AddJoypadAxis("move_left", 0, Joypad::LeftX, -1));
+
+	// A stick that rests a little off centre is not a player pressing
+	// something.
+	InputMap::OnEvent(JoypadAxisEvent(0, Joypad::LeftX, 0.05f));
+	REQUIRE_FALSE(InputMap::IsActionPressed("move_right"));
+	REQUIRE_FALSE(InputMap::IsActionPressed("move_left"));
+
+	// Pushed to the right: the right action, and only that one.
+	InputMap::OnEvent(JoypadAxisEvent(0, Joypad::LeftX, 0.8f));
+	REQUIRE(InputMap::IsActionPressed("move_right"));
+	REQUIRE_FALSE(InputMap::IsActionPressed("move_left"));
+	REQUIRE(InputMap::GetActionStrength("move_right") > 0.0f);
+	REQUIRE(InputMap::GetActionStrength("move_right") < 1.0f);
+
+	// And the axis makes an axis.
+	REQUIRE(InputMap::GetAxis("move_left", "move_right") > 0.0f);
+
+	// Pushed to the left: the other action, and the axis is negative.
+	InputMap::OnEvent(JoypadAxisEvent(0, Joypad::LeftX, -0.8f));
+	REQUIRE(InputMap::IsActionPressed("move_left"));
+	REQUIRE_FALSE(InputMap::IsActionPressed("move_right"));
+	REQUIRE(InputMap::GetAxis("move_left", "move_right") < 0.0f);
+}
+
+TEST_CASE("A gamepad's bindings survive a round trip through a file", "[core][input][gamepad]")
+{
+	InputMapFixture fixture;
+
+	const char* path = "test_inputmap_gamepad.txt";
+
+	REQUIRE(InputMap::AddAction("jump"));
+	REQUIRE(InputMap::AddJoypadButton("jump", 0, Joypad::A));
+	REQUIRE(InputMap::AddAction("move_right"));
+	REQUIRE(InputMap::AddJoypadAxis("move_right", 1, Joypad::LeftX, 1));
+	REQUIRE(InputMap::AddAction("move_left"));
+	REQUIRE(InputMap::AddJoypadAxis("move_left", 1, Joypad::LeftX, -1));
+
+	REQUIRE(InputMap::SaveToFile(path));
+
+	InputMap::Clear();
+	REQUIRE(InputMap::LoadFromFile(path));
+
+	// The buttons and the axes come back, with the pad they belong to and
+	// the way the axis counts.
+	const std::vector<InputBinding> jump = InputMap::GetBindings("jump");
+	REQUIRE(jump.size() == 1);
+	REQUIRE(jump[0].IsJoypadButton());
+	REQUIRE(jump[0].joystick == 0);
+	REQUIRE(jump[0].code == Joypad::A);
+
+	const std::vector<InputBinding> right = InputMap::GetBindings("move_right");
+	REQUIRE(right.size() == 1);
+	REQUIRE(right[0].IsJoypadAxis());
+	REQUIRE(right[0].joystick == 1);
+	REQUIRE(right[0].code == Joypad::LeftX);
+	REQUIRE(right[0].direction == 1);
+
+	const std::vector<InputBinding> left = InputMap::GetBindings("move_left");
+	REQUIRE(left.size() == 1);
+	REQUIRE(left[0].direction == -1);
+
+	InputMap::Clear();
+	std::remove(path);
 }
