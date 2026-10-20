@@ -282,7 +282,7 @@ namespace Forge {
 			// image. Acquired after the close, the acquire blocks on a
 			// surface that is gone, and the quit event sits in the queue
 			// behind it forever - the editor spins after the window closes.
-			GetWindowScope()->OnUpdate();
+			PollEvents();
 			ExecuteMainThreadQueue();
 			if (!IsRunning())
 				break;

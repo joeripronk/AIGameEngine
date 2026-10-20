@@ -156,6 +156,46 @@ so gameplay code never names `GLFW_KEY_*`; their values *are* GLFW's, and
 CoreTests asserts the whole enum against it, because one transcription error is
 a key that silently does nothing.
 
+### The input action map
+
+A key code in gameplay code is a binding written into the source. The
+`InputMap` is where the binding lives instead: an action is a *name*, and the
+name is what the game asks about.
+
+```cpp
+Forge::InputMap::AddAction("move_left");
+Forge::InputMap::AddKey("move_left", Forge::Key::A);
+Forge::InputMap::IsActionPressed("move_left");     // held
+Forge::InputMap::IsActionJustPressed("move_left"); // this frame
+Forge::InputMap::GetAxis("move_left", "move_right");
+```
+
+The map is fed by the **events**, not by polling: a press *is* an event, and
+"just pressed" is a transition rather than a comparison with the previous
+frame. That makes the answers exact and makes them testable with no window at
+all - `InputMapTests` drives the map with key events and no window exists.
+
+The rules of the map:
+
+- **The modifiers a binding asks for must be held.** A binding that asks for
+  none fires whatever else is held down - holding shift must not stop the
+  movement key from working - and a binding that asks for control fires when
+  control is held, with or without shift on top of it. This is Godot's rule;
+  the stricter one (the modifiers must match exactly) has a defect that shows
+  up in a game: holding shift while the movement key is down would *release*
+  the action.
+- **A repeat is not a new press.** The operating system's auto-repeat sends
+  the key again; an action that fired on the repeat would fire many times for
+  one press.
+- **The map is saved and loaded as text**, so a remap survives a restart and a
+  player can change it without the game being recompiled. `KeyNames.h` is the
+  two-way table between a key and the name a person can read.
+
+`Application::PollEvents` is where a frame's events begin: it clears the
+transient state ("just pressed") and then reads the window. Every application
+calls it instead of the window directly, so there is one place where a frame
+starts.
+
 ### Files
 
 `FileSystem` is the only thing that opens a file:

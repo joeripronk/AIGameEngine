@@ -15,6 +15,14 @@ function M.OnCreate(entity)
     M.MouseDownRight = GetMouseButtonDown(1)  -- Mouse::ButtonRight
     M.MouseUpLeft = GetMouseButtonUp(0)
 
+    -- The input action map: a script asks for an action by name, and sets
+    -- up its own actions when it wants them.
+    AddAction("probe_jump")
+    M.BoundKey = BindKey("probe_jump", "Space")
+    M.ActionPressed = IsActionPressed("probe_jump")
+    M.ActionJustPressed = IsActionJustPressed("probe_jump")
+    M.ActionAxis = GetActionAxis("probe_left", "probe_right")
+
     local x, y = GetMousePosition()
     M.MouseX = x
     M.MouseY = y

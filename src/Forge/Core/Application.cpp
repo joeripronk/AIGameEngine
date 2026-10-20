@@ -3,6 +3,7 @@
 #include "Forge/Core/Layer.h"
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Debug/Instrumentor.h"
+#include "Forge/Core/InputMap.h"
 #include "Forge/Core/Time.h"
 
 #include <algorithm>
@@ -102,6 +103,11 @@ namespace Forge {
 
 	void Application::OnEvent(Event& e)
 	{
+		// The input action map is fed by the events: a press is an event,
+		// and the map's answers ("is 'jump' held?", "was 'jump' pressed
+		// this frame?") are exact because of it.
+		InputMap::OnEvent(e);
+
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(FG_BIND_EVENT_FN(Application::OnWindowClose));
 		dispatcher.Dispatch<WindowResizeEvent>(FG_BIND_EVENT_FN(Application::OnWindowResize));
@@ -112,6 +118,19 @@ namespace Forge {
 			if (e.Handled)
 				break;
 		}
+	}
+
+	void Application::PollEvents()
+	{
+		if (!m_Window)
+			return;
+
+		// The transient state is cleared before the events are read: the
+		// events that arrive now are this frame's, and the ones from the
+		// frame that ended are not.
+		InputMap::BeginFrame();
+
+		m_Window->OnUpdate();
 	}
 
 	void Application::PushLayer(Layer* layer)
@@ -147,7 +166,7 @@ namespace Forge {
 					layer->OnUpdate(timestep);
 			}
 
-			m_Window->OnUpdate();
+			PollEvents();
 
 			ExecuteMainThreadQueue();
 		}

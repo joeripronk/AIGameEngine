@@ -4,6 +4,8 @@
 #include "Forge/Core/Time.h"
 #include "Forge/Core/FileSystem.h"
 #include "Forge/Core/Input.h"
+#include "Forge/Core/InputMap.h"
+#include "Forge/Core/KeyNames.h"
 
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Components.h"
@@ -1012,6 +1014,62 @@ namespace Forge {
 			return 1;
 		}
 
+		// The input action map: a script asks for an action by name, never
+		// for a key code, so the binding between the two is data the game
+		// owns and the player can change.
+		int LuaIsActionPressed(lua_State* L)
+		{
+			lua_pushboolean(L, InputMap::IsActionPressed(luaL_checkstring(L, 1)));
+			return 1;
+		}
+
+		int LuaIsActionJustPressed(lua_State* L)
+		{
+			lua_pushboolean(L, InputMap::IsActionJustPressed(luaL_checkstring(L, 1)));
+			return 1;
+		}
+
+		int LuaIsActionJustReleased(lua_State* L)
+		{
+			lua_pushboolean(L, InputMap::IsActionJustReleased(luaL_checkstring(L, 1)));
+			return 1;
+		}
+
+		int LuaGetActionAxis(lua_State* L)
+		{
+			lua_pushnumber(L, InputMap::GetAxis(luaL_checkstring(L, 1), luaL_checkstring(L, 2)));
+			return 1;
+		}
+
+		// A script that sets up its own actions: AddAction("jump") and
+		// BindKey("jump", "Space"). The key is named, not numbered, so the
+		// script says what a person would say.
+		int LuaAddAction(lua_State* L)
+		{
+			lua_pushboolean(L, InputMap::AddAction(luaL_checkstring(L, 1)));
+			return 1;
+		}
+
+		int LuaBindKey(lua_State* L)
+		{
+			const char* action = luaL_checkstring(L, 1);
+			const char* keyName = luaL_checkstring(L, 2);
+
+			KeyCode key = 0;
+			if (!KeyFromName(keyName, key))
+			{
+				// A key the engine does not know is a mistake in the script,
+				// and a silent no-op is the failure that costs the longest to
+				// find: the action is there and never fires.
+				FG_CORE_ERROR("[Lua] BindKey: no key named '{0}'", keyName);
+				lua_pushboolean(L, false);
+				return 1;
+			}
+
+			lua_pushboolean(L, InputMap::AddKey(action, key));
+			return 1;
+		}
+
 	}
 
 	void ScriptEngine::Init()
@@ -1061,6 +1119,12 @@ namespace Forge {
 		lua_register(L, "GetMousePosition", LuaGetMousePosition);
 		lua_register(L, "GetMouseButtonDown", LuaGetMouseButtonDown);
 		lua_register(L, "GetMouseButtonUp", LuaGetMouseButtonUp);
+		lua_register(L, "IsActionPressed", LuaIsActionPressed);
+		lua_register(L, "IsActionJustPressed", LuaIsActionJustPressed);
+		lua_register(L, "IsActionJustReleased", LuaIsActionJustReleased);
+		lua_register(L, "GetActionAxis", LuaGetActionAxis);
+		lua_register(L, "AddAction", LuaAddAction);
+		lua_register(L, "BindKey", LuaBindKey);
 		lua_register(L, "SpawnPrefab", LuaSpawnPrefab);
 		lua_register(L, "PlaySound", LuaPlaySound);
 		lua_register(L, "StopSound", LuaStopSound);

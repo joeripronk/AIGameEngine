@@ -52,6 +52,15 @@ namespace Forge {
 
 		Window& GetWindow() { return *m_Window; }
 
+		// Read the window's events and dispatch them. Every frame's events
+		// arrive here, so this is also where the input action map's
+		// transient state is cleared: "just pressed" describes the frame
+		// that is starting, not the one that ended.
+		//
+		// The applications call this instead of the window directly, so
+		// there is one place where a frame's events begin.
+		void PollEvents();
+
 		void Close();
 
 		static Application& Get() { return *s_Instance; }

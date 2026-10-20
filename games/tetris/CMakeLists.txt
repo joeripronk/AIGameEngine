@@ -116,8 +116,8 @@ target_sources(ForgeTetrisTests
         # link, and the point of the split is which dependencies each file has.
         src/TetrisManager.cpp
         src/TetrisBoardView.cpp
-        # Compiled in for MapKey only - the key bindings are pure, and a
-        # mapping that quietly did nothing would be invisible from the game.
+        # Compiled in for the input bindings - they are pure, and a mapping
+        # that quietly did nothing would be invisible from the game.
         src/TetrisInputLayer.cpp
         # The input layer now forwards to the overlay so a paused/reset action
         # refreshes the HUD; tests link ImGui to keep that object resolvable.

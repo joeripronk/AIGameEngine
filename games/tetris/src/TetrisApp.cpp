@@ -134,6 +134,13 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 	// failure: the game plays silently.
 	m_Music.Start();
 
+	// The input map is the game's bindings: the actions it listens for and
+	// the keys they answer to. A remap file can replace them before the
+	// game starts; the defaults are put in place here so the game is
+	// playable either way.
+	if (!SetupInputMap())
+		FG_ERROR("Tetris: the input map refused an action; the game is not playable");
+
 	// Input and overlay are combined into a single layer so the window
 	// receives events and pushes ImGui calls from one object.
 	m_InputOverlayLayer = std::make_unique<InputOverlayLayer>(m_BoardView.GetManager());
@@ -932,7 +939,7 @@ void TetrisApp::Run()
 			Forge::Renderer::PresentSwapchainImage(swapchainImage);
 		}
 
-		GetWindowScope()->OnUpdate();
+		PollEvents();
 		ExecuteMainThreadQueue();
 
 		++m_FrameCount;

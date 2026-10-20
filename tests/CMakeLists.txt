@@ -13,6 +13,7 @@ target_include_directories(ForgeTests
 target_sources(ForgeTests
     PRIVATE
         src/CoreTests.cpp
+        src/InputMapTests.cpp
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp

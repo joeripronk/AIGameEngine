@@ -767,6 +767,18 @@ TEST_CASE("Lua input bindings answer the headless contract", "[scripting][input]
     REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "MouseY", mouseValue));
     REQUIRE(mouseValue == 0.0);
 
+    // The input action map: a script sets up its own actions and asks about
+    // them by name. With nothing pressed, an action is not pressed - and the
+    // answers are plain values the script can hand back, not nil.
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "BoundKey", flag));
+    REQUIRE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "ActionPressed", flag));
+    REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptBool(entity, "ActionJustPressed", flag));
+    REQUIRE_FALSE(flag);
+    REQUIRE(Forge::ScriptEngine::GetScriptNumber(entity, "ActionAxis", mouseValue));
+    REQUIRE(mouseValue == 0.0);
+
     Forge::ScriptEngine::OnRuntimeStop();
     Forge::ScriptEngine::Shutdown();
 }

@@ -39,8 +39,12 @@ target_sources(ForgeCore
         Forge/Core/FileSystem.cpp
         Forge/Core/KeyCodes.h
         Forge/Core/MouseCodes.h
+        Forge/Core/KeyNames.h
+        Forge/Core/KeyNames.cpp
         Forge/Core/Input.h
         Forge/Core/Input.cpp
+        Forge/Core/InputMap.h
+        Forge/Core/InputMap.cpp
         Forge/Core/Layer.h
         Forge/Core/Layer.cpp
         Forge/Core/LayerStack.h

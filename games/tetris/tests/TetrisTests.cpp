@@ -7,6 +7,8 @@ using Catch::Approx;
 #include "TetrisComponents.h"
 #include "TetrisInputLayer.h"
 
+#include "Forge/Core/InputMap.h"
+#include "Forge/Events/KeyEvent.h"
 #include "Forge/Core/KeyCodes.h"
 
 // As in fgpch.h: no OpenGL headers on a Vulkan engine. This file includes
@@ -1311,42 +1313,121 @@ TEST_CASE("Restart clears a game over", "[tetris][gameover]")
 // Input mapping
 // ---------------------------------------------------------------------------
 
-TEST_CASE("Keys map to the actions they are documented as", "[tetris][input]")
+TEST_CASE("The default bindings are the keys the game is played with", "[tetris][input]")
 {
-	REQUIRE(MapKey(Forge::Key::Left) == Action::MoveLeft);
-	REQUIRE(MapKey(Forge::Key::Right) == Action::MoveRight);
-	REQUIRE(MapKey(Forge::Key::Down) == Action::SoftDrop);
-	REQUIRE(MapKey(Forge::Key::Space) == Action::HardDrop);
-	REQUIRE(MapKey(Forge::Key::Up) == Action::RotateCW);
-	REQUIRE(MapKey(Forge::Key::P) == Action::TogglePause);
-	REQUIRE(MapKey(Forge::Key::R) == Action::Restart);
+	Forge::InputMap::Clear();
+	REQUIRE(SetupInputMap());
 
-	REQUIRE(MapKey(Forge::Key::A) == Action::MoveLeft);
-	REQUIRE(MapKey(Forge::Key::D) == Action::MoveRight);
-	REQUIRE(MapKey(Forge::Key::S) == Action::SoftDrop);
-	REQUIRE(MapKey(Forge::Key::W) == Action::RotateCW);
-	REQUIRE(MapKey(Forge::Key::X) == Action::RotateCW);
-	REQUIRE(MapKey(Forge::Key::Z) == Action::RotateCCW);
+	// The keys the game is documented to answer to are bound to the actions
+	// they mean. The binding is data, in the engine's input map, so this is
+	// a question about the map and not about a switch in the code.
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Left).size() == 1);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Left)[0] == InputAction::MoveLeft);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Right)[0] == InputAction::MoveRight);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Down)[0] == InputAction::SoftDrop);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Space)[0] == InputAction::HardDrop);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Up)[0] == InputAction::RotateCW);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::P)[0] == InputAction::TogglePause);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::R)[0] == InputAction::Restart);
+
+	// The WASD keys are the same actions.
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::A)[0] == InputAction::MoveLeft);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::D)[0] == InputAction::MoveRight);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::S)[0] == InputAction::SoftDrop);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::W)[0] == InputAction::RotateCW);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::X)[0] == InputAction::RotateCW);
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::Z)[0] == InputAction::RotateCCW);
+
+	Forge::InputMap::Clear();
+}
+
+TEST_CASE("Every arrow key is bound", "[tetris][input]")
+{
+	Forge::InputMap::Clear();
+	REQUIRE(SetupInputMap());
+
+	// The runtime's old input path polled from GLFW_KEY_SPACE upwards, so all
+	// three arrows - the keys the game is played with - never reached it.
+	REQUIRE_FALSE(Forge::InputMap::GetActionsForKey(Forge::Key::Left).empty());
+	REQUIRE_FALSE(Forge::InputMap::GetActionsForKey(Forge::Key::Right).empty());
+	REQUIRE_FALSE(Forge::InputMap::GetActionsForKey(Forge::Key::Down).empty());
+	REQUIRE_FALSE(Forge::InputMap::GetActionsForKey(Forge::Key::Up).empty());
+
+	Forge::InputMap::Clear();
+}
+
+TEST_CASE("A key the game does not bind means nothing", "[tetris][input]")
+{
+	Forge::InputMap::Clear();
+	REQUIRE(SetupInputMap());
+
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::F12).empty());
+
+	Forge::InputMap::Clear();
+}
+
+TEST_CASE("The rules know the actions, not the keys", "[tetris][input]")
+{
+	REQUIRE(RuleActionFor(InputAction::MoveLeft) == Action::MoveLeft);
+	REQUIRE(RuleActionFor(InputAction::MoveRight) == Action::MoveRight);
+	REQUIRE(RuleActionFor(InputAction::SoftDrop) == Action::SoftDrop);
+	REQUIRE(RuleActionFor(InputAction::HardDrop) == Action::HardDrop);
+	REQUIRE(RuleActionFor(InputAction::RotateCW) == Action::RotateCW);
+	REQUIRE(RuleActionFor(InputAction::RotateCCW) == Action::RotateCCW);
+	REQUIRE(RuleActionFor(InputAction::TogglePause) == Action::TogglePause);
+	REQUIRE(RuleActionFor(InputAction::Restart) == Action::Restart);
 
 	// V switches the 2D/3D view. That is presentation, not a rule, so it must
 	// reach the app as a callback and never arrive as a rules action.
-	REQUIRE(MapKey(Forge::Key::V) == Action::None);
+	REQUIRE(RuleActionFor(InputAction::ToggleView) == Action::None);
+	REQUIRE(RuleActionFor(InputAction::ToggleMusic) == Action::None);
+	REQUIRE(RuleActionFor("not_an_action") == Action::None);
 }
 
-TEST_CASE("Every arrow key is mapped", "[tetris][input]")
+TEST_CASE("A key press reaches the rules through the input map", "[tetris][input]")
 {
-	// The runtime's old input path polled from GLFW_KEY_SPACE upwards, so all
-	// three arrows - the keys the game is played with - never reached it.
-	REQUIRE(MapKey(Forge::Key::Left) != Action::None);
-	REQUIRE(MapKey(Forge::Key::Right) != Action::None);
-	REQUIRE(MapKey(Forge::Key::Down) != Action::None);
-	REQUIRE(MapKey(Forge::Key::Up) != Action::None);
+	Forge::InputMap::Clear();
+	REQUIRE(SetupInputMap());
+
+	TetrisManager manager;
+	manager.StartGame();
+
+	InputLayer layer(manager);
+
+	// The piece starts in the middle of the board.
+	const glm::ivec2 before = manager.GetState().CurrentPiece.Position;
+
+	// A key press is an event; the event is what the game is played with.
+	Forge::KeyPressedEvent pressed(Forge::Key::A, 0);
+	layer.OnEvent(pressed);
+
+	// The rules moved the piece: the whole chain - the event, the map, the
+	// action, the rules - is one path, and this is where it is checked.
+	REQUIRE(manager.GetState().CurrentPiece.Position.x == before.x - 1);
+
+	// And the key that goes up ends the movement.
+	Forge::KeyReleasedEvent released(Forge::Key::A);
+	layer.OnEvent(released);
+
+	Forge::InputMap::Clear();
 }
 
-TEST_CASE("An unmapped key does nothing", "[tetris][input]")
+TEST_CASE("The bindings can be changed without the rules changing", "[tetris][input]")
 {
-	REQUIRE(MapKey(Forge::Key::F12) == Action::None);
-	REQUIRE(MapKey(-1) == Action::None);
+	Forge::InputMap::Clear();
+	REQUIRE(SetupInputMap());
+
+	// The player moves with J instead of A.
+	REQUIRE(Forge::InputMap::RemoveBinding(InputAction::MoveLeft, Forge::Key::A));
+	REQUIRE(Forge::InputMap::AddKey(InputAction::MoveLeft, Forge::Key::J));
+
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::A).empty());
+	REQUIRE(Forge::InputMap::GetActionsForKey(Forge::Key::J)[0] == InputAction::MoveLeft);
+
+	// The rule did not change: it is still the move-left action.
+	REQUIRE(RuleActionFor(Forge::InputMap::GetActionsForKey(Forge::Key::J)[0]) == Action::MoveLeft);
+
+	Forge::InputMap::Clear();
 }
 
 // ---------------------------------------------------------------------------

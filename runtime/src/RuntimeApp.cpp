@@ -194,7 +194,7 @@ namespace Forge {
 				Renderer::PresentSwapchainImage(swapchainImage);
 			}
 
-			GetWindowScope()->OnUpdate();
+			PollEvents();
 			ExecuteMainThreadQueue();
 
 			// Auto-exit after a few seconds when running headless (no window
