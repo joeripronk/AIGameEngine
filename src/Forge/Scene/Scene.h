@@ -54,6 +54,10 @@ namespace Forge {
 		void OnSimulationStop();
 
 		void OnUpdateRuntime(Timestep ts);
+
+		// Advances the animations on the entities that have them and writes
+		// their values onto the entities.
+		void UpdateAnimations(Timestep ts);
 		void OnUpdateSimulation(Timestep ts);
 		void OnUpdateEditor(Timestep ts);
 		void OnViewportResize(uint32_t width, uint32_t height);

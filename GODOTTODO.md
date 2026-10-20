@@ -63,7 +63,7 @@ destructive, and there is no way back to the state before the mistake.
 
 ## P1 - the things a game needs once it has a world
 
-### 3. [ ] A keyframe animation system (`Forge/Scene/AnimationComponent.h`)
+### 3. [x] A keyframe animation system (`Forge/Scene/AnimationComponent.h`)
 
 **Godot has** `AnimationPlayer`, `AnimationLibrary`, `AnimationTree`: tracks
 of keyframed properties over time, played back, looped, blended and driven by

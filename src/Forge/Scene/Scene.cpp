@@ -4,6 +4,8 @@
 #include "Forge/Scene/Entity.h"
 
 #include "Forge/Scene/Components.h"
+
+#include <cmath>
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
@@ -178,6 +180,11 @@ namespace Forge {
 			// that ended during the previous frame does not hold its handle.
 			UpdateAudioSources();
 
+			// The animations advance before the scripts run, so a script that
+			// moves an entity overrides the animation rather than the other
+			// way round.
+			UpdateAnimations(ts);
+
 			// Update scripts
 			{
 				// C# Entity OnUpdate
@@ -240,6 +247,45 @@ namespace Forge {
 		// calls Renderer::RenderScene. Doing it here re-opened the command list
 		// the application had already opened, closed it, and then recorded the
 		// real frame into a closed list.
+	}
+
+	void Scene::UpdateAnimations(Timestep ts)
+	{
+		// The animations advance with the frame and write their values onto
+		// the entity. The order matters: a script that moves an entity and
+		// an animation that moves the same entity disagree, and the one that
+		// is applied last wins - so the animation is applied first and the
+		// script afterwards, which is the order a reader expects.
+		auto view = m_Registry.view<AnimationComponent>();
+		for (auto e : view)
+		{
+			Entity entity = { e, this };
+			AnimationComponent& animation = view.get<AnimationComponent>(e);
+
+			if (animation.Playing)
+			{
+				animation.Time += ts * animation.Speed;
+
+				const float length = Animation::ClipLength(animation.Clip);
+				if (length > 0.0f && animation.Time > length)
+				{
+					if (animation.Clip.loop)
+					{
+						// A looping clip starts again. The remainder is kept,
+						// so a clip that is a little longer than the frame
+						// does not lose the time it overshot by.
+						animation.Time = std::fmod(animation.Time, length);
+					}
+					else
+					{
+						animation.Time = length;
+						animation.Playing = false;
+					}
+				}
+			}
+
+			Animation::Apply(entity, animation.Clip, animation.Time);
+		}
 	}
 
 	void Scene::OnUpdateSimulation(Timestep ts)

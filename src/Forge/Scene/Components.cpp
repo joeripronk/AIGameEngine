@@ -40,6 +40,7 @@ namespace Forge {
 			FG_REGISTER_ENGINE_COMPONENT(LightComponent)
 			FG_REGISTER_ENGINE_COMPONENT(EnvironmentMapComponent)
 			FG_REGISTER_ENGINE_COMPONENT(AudioSourceComponent)
+			FG_REGISTER_ENGINE_COMPONENT(AnimationComponent)
 
 #undef FG_REGISTER_ENGINE_COMPONENT
 			return true;

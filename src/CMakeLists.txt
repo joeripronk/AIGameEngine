@@ -72,6 +72,8 @@ target_sources(ForgeCore
         Forge/Renderer/Mesh.cpp
         Forge/Renderer/Texture.h
         Forge/Renderer/Texture.cpp
+        Forge/Scene/Animation.h
+        Forge/Scene/Animation.cpp
         Forge/Scene/Components.h
         Forge/Scene/Components.cpp
         Forge/Scene/Entity.h

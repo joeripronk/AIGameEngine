@@ -2,6 +2,7 @@
 
 #include "Forge/Core/UUID.h"
 #include "Forge/Renderer/Texture.h"
+#include "Forge/Scene/Animation.h"
 #include "Forge/Audio/AudioEngine.h"
 
 #include <glm/glm.hpp>
@@ -288,6 +289,33 @@ namespace Forge {
 		AudioSourceComponent() = default;
 		AudioSourceComponent(const AudioSourceComponent&) = default;
 		AudioSourceComponent(const std::string& path) : SourcePath(path) {}
+	};
+
+	// A keyframed animation played on the entity.
+	//
+	// The clip is the data - the tracks, the keyframes, the times - and the
+	// component is the player: it holds the time the clip is at and whether
+	// it is playing. The scene advances the time and writes the values onto
+	// the entity every frame.
+	struct AnimationComponent
+	{
+		// The clip that is played. A clip with no tracks is inert: the
+		// entity is left as it is.
+		AnimationClip Clip;
+
+		// Where the clip is, in seconds.
+		float Time = 0.0f;
+
+		// Whether the clip advances. A clip that has run out and does not
+		// loop stops playing and holds its last value.
+		bool Playing = true;
+
+		// How fast the clip runs. Negative runs it backwards.
+		float Speed = 1.0f;
+
+		AnimationComponent() = default;
+		AnimationComponent(const AnimationComponent&) = default;
+		explicit AnimationComponent(const AnimationClip& clip) : Clip(clip) {}
 	};
 
 	// Registers every engine component with the TypeRegistry (idempotent).

@@ -360,6 +360,42 @@ namespace Forge {
 			out << YAML::EndMap;
 		}
 
+		if (entity.HasComponent<AnimationComponent>())
+		{
+			const AnimationComponent& animation = entity.GetComponent<AnimationComponent>();
+
+			out << YAML::Key << "AnimationComponent";
+			out << YAML::BeginMap;
+			out << YAML::Key << "Time" << YAML::Value << animation.Time;
+			out << YAML::Key << "Playing" << YAML::Value << animation.Playing;
+			out << YAML::Key << "Speed" << YAML::Value << animation.Speed;
+			out << YAML::Key << "Loop" << YAML::Value << animation.Clip.loop;
+			out << YAML::Key << "Tracks" << YAML::Value << YAML::BeginSeq;
+
+			for (const AnimationTrack& track : animation.Clip.tracks)
+			{
+				out << YAML::BeginMap;
+				out << YAML::Key << "Property" << YAML::Value << AnimatedPropertyName(track.property);
+				out << YAML::Key << "Interpolation" << YAML::Value
+					<< (track.interpolation == Interpolation::Smooth ? "Smooth" : "Linear");
+				out << YAML::Key << "Keys" << YAML::Value << YAML::BeginSeq;
+
+				for (const AnimationKeyframe& key : track.keys)
+				{
+					out << YAML::BeginMap;
+					out << YAML::Key << "Time" << YAML::Value << key.time;
+					out << YAML::Key << "Value" << YAML::Value << EncodeVec3(key.value);
+					out << YAML::EndMap;
+				}
+
+				out << YAML::EndSeq;
+				out << YAML::EndMap;
+			}
+
+			out << YAML::EndSeq;
+			out << YAML::EndMap;
+		}
+
 		out << YAML::EndMap; // Entity
 	}
 
@@ -432,6 +468,49 @@ namespace Forge {
 			tc.Translation = DecodeVec3(transformComponent["Translation"], tc.Translation);
 			tc.Rotation = DecodeVec3(transformComponent["Rotation"], tc.Rotation);
 			tc.Scale = DecodeVec3(transformComponent["Scale"], tc.Scale);
+		}
+
+		if (HasNode(entityNode, "AnimationComponent"))
+		{
+			auto animationNode = entityNode["AnimationComponent"];
+			auto& animation = deserializedEntity.AddComponent<AnimationComponent>();
+
+			animation.Time = GetFloat(animationNode, "Time", 0.0f);
+			animation.Playing = GetBool(animationNode, "Playing", true);
+			animation.Speed = GetFloat(animationNode, "Speed", 1.0f);
+			animation.Clip.loop = GetBool(animationNode, "Loop", true);
+
+			if (HasNode(animationNode, "Tracks"))
+			{
+				for (const YAML::Node& trackNode : animationNode["Tracks"])
+				{
+					AnimationTrack track;
+
+					AnimatedProperty property = AnimatedProperty::Translation;
+					if (HasNode(trackNode, "Property"))
+						(void)AnimatedPropertyFromName(trackNode["Property"].as<std::string>(), property);
+					track.property = property;
+
+					if (HasNode(trackNode, "Interpolation"))
+					{
+						const std::string interpolation = trackNode["Interpolation"].as<std::string>();
+						track.interpolation = interpolation == "Smooth" ? Interpolation::Smooth : Interpolation::Linear;
+					}
+
+					if (HasNode(trackNode, "Keys"))
+					{
+						for (const YAML::Node& keyNode : trackNode["Keys"])
+						{
+							AnimationKeyframe key;
+							key.time = GetFloat(keyNode, "Time", 0.0f);
+							key.value = DecodeVec3(keyNode["Value"], glm::vec3(0.0f));
+							track.keys.push_back(key);
+						}
+					}
+
+					animation.Clip.tracks.push_back(track);
+				}
+			}
 		}
 
 		if (HasNode(entityNode, "CameraComponent"))
@@ -686,6 +765,10 @@ namespace Forge {
 		// bump was not needed.
 		constexpr uint32_t FlagCameraProjection = BIT(12);
 		constexpr uint32_t FlagPBRAlbedoTexture = BIT(13);
+		// The animation is a component of its own, and its payload is a
+		// variable-length one: the number of tracks and the number of keys
+		// are written with it, so the reader knows how much to read.
+		constexpr uint32_t FlagAnimation = BIT(14);
 
 		uint32_t GetComponentFlags(Entity entity)
 		{
@@ -708,6 +791,7 @@ namespace Forge {
 			flags |= (entity.HasComponent<PBRMaterialComponent>()
 				&& !entity.GetComponent<PBRMaterialComponent>().AlbedoTexturePath.empty())
 				? FlagPBRAlbedoTexture : 0;
+			flags |= entity.HasComponent<AnimationComponent>() ? FlagAnimation : 0;
 			return flags;
 		}
 
@@ -863,6 +947,32 @@ namespace Forge {
 				Write<bool>(stream, audio.Spatial);
 				Write<float>(stream, audio.MinDistance);
 				Write<float>(stream, audio.MaxDistance);
+			}
+
+			if (entity.HasComponent<AnimationComponent>())
+			{
+				// The animation's payload is a variable-length one, so the
+				// counts are written with it: the reader knows how much to
+				// read without guessing.
+				const AnimationComponent& animation = entity.GetComponent<AnimationComponent>();
+				Write<float>(stream, animation.Time);
+				Write<bool>(stream, animation.Playing);
+				Write<float>(stream, animation.Speed);
+				Write<bool>(stream, animation.Clip.loop);
+				Write<uint32_t>(stream, (uint32_t)animation.Clip.tracks.size());
+
+				for (const AnimationTrack& track : animation.Clip.tracks)
+				{
+					Write<int>(stream, (int)track.property);
+					Write<int>(stream, (int)track.interpolation);
+					Write<uint32_t>(stream, (uint32_t)track.keys.size());
+
+					for (const AnimationKeyframe& key : track.keys)
+					{
+						Write<float>(stream, key.time);
+						WriteVec3(stream, key.value);
+					}
+				}
 			}
 		}
 	}
@@ -1027,6 +1137,40 @@ namespace Forge {
 				Read<bool>(stream, audio.Spatial);
 				Read<float>(stream, audio.MinDistance);
 				Read<float>(stream, audio.MaxDistance);
+			}
+
+			if (flags & FlagAnimation)
+			{
+				auto& animation = entity.AddComponent<AnimationComponent>();
+				Read<float>(stream, animation.Time);
+				Read<bool>(stream, animation.Playing);
+				Read<float>(stream, animation.Speed);
+				Read<bool>(stream, animation.Clip.loop);
+
+				uint32_t trackCount = 0;
+				Read<uint32_t>(stream, trackCount);
+				for (uint32_t t = 0; t < trackCount; ++t)
+				{
+					AnimationTrack track;
+					int property = (int)AnimatedProperty::Translation;
+					Read<int>(stream, property);
+					track.property = (AnimatedProperty)property;
+					int interpolation = (int)Interpolation::Linear;
+					Read<int>(stream, interpolation);
+					track.interpolation = (Interpolation)interpolation;
+
+					uint32_t keyCount = 0;
+					Read<uint32_t>(stream, keyCount);
+					for (uint32_t k = 0; k < keyCount; ++k)
+					{
+						AnimationKeyframe key;
+						Read<float>(stream, key.time);
+						key.value = ReadVec3(stream);
+						track.keys.push_back(key);
+					}
+
+					animation.Clip.tracks.push_back(track);
+				}
 			}
 		}
 

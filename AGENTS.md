@@ -352,6 +352,38 @@ That is why the tetris blocks are a painted plate (`kBlockMetallic = 0.35`,
 `kBlockRoughness = 0.45`) and not a mirror: the map has to reach the diffuse
 term to read as the block's own surface.
 
+### Animations
+
+An animation is a set of tracks: a property, a list of keyframes and how the
+values between them are interpolated. A component plays a clip on an entity,
+and the scene advances the time and writes the values onto the entity every
+frame.
+
+```cpp
+AnimationClip clip;
+AnimationTrack track;
+track.property = AnimatedProperty::Translation;
+track.keys.push_back({ 0.0f, glm::vec3(0.0f) });
+track.keys.push_back({ 1.0f, glm::vec3(0.0f, 2.0f, 0.0f) });
+clip.tracks.push_back(track);
+
+entity.AddComponent<AnimationComponent>(clip);
+```
+
+- **The property list is the engine's.** A track names what it animates, and
+  the engine has to know how to write that value onto the entity. A property
+  that is not on the list cannot be animated, and saying so is better than an
+  animation that silently does nothing.
+- **A value holds outside the keyframes.** Before the first keyframe the
+  first keyframe's value holds, and after the last one the last one's: an
+  animation that moves a light from 0 to 1 and back must not turn the light
+  off between the keys.
+- **The animation is applied before the scripts run**, so a script that moves
+  an entity overrides the animation rather than the other way round.
+- The evaluation is pure and unit-tested; the clip travels in both scene
+  formats (the authoring YAML and the runtime binary), and the runtime
+  payload writes its counts with the data, because its length is not fixed.
+
 ### Cameras
 
 `CameraComponent::ProjectionType` is perspective or orthographic, with
