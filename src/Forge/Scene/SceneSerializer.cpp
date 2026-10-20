@@ -437,7 +437,7 @@ namespace Forge {
 		if (HasNode(entityNode, "CameraComponent"))
 		{
 			auto cameraNode = entityNode["CameraComponent"];
-			auto& camera = deserializedEntity.AddComponent<CameraComponent>();
+			auto& camera = deserializedEntity.AddOrReplaceComponent<CameraComponent>();
 			camera.Primary = GetBool(cameraNode, "Primary", true);
 			camera.FieldOfView = GetFloat(cameraNode, "FieldOfView", camera.FieldOfView);
 			camera.NearClip = GetFloat(cameraNode, "NearClip", camera.NearClip);
@@ -457,11 +457,11 @@ namespace Forge {
 		}
 
 		if (HasNode(entityNode, "ScriptComponent"))
-			deserializedEntity.AddComponent<ScriptComponent>().ClassName = GetString(entityNode["ScriptComponent"], "ClassName");
+			deserializedEntity.AddOrReplaceComponent<ScriptComponent>().ClassName = GetString(entityNode["ScriptComponent"], "ClassName");
 
 		if (HasNode(entityNode, "RigidbodyComponent"))
 		{
-			auto& rb = deserializedEntity.AddComponent<RigidbodyComponent>();
+			auto& rb = deserializedEntity.AddOrReplaceComponent<RigidbodyComponent>();
 			rb.Type = (RigidbodyComponent::BodyType)GetInt(entityNode["RigidbodyComponent"], "BodyType", 0);
 			rb.FixedRotation = GetBool(entityNode["RigidbodyComponent"], "FixedRotation", false);
 		}
@@ -469,7 +469,7 @@ namespace Forge {
 		if (HasNode(entityNode, "BoxColliderComponent"))
 		{
 			auto colliderNode = entityNode["BoxColliderComponent"];
-			auto& bc = deserializedEntity.AddComponent<BoxColliderComponent>();
+			auto& bc = deserializedEntity.AddOrReplaceComponent<BoxColliderComponent>();
 			bc.Offset = DecodeVec3(colliderNode["Offset"], bc.Offset);
 			bc.Size = DecodeVec3(colliderNode["Size"], bc.Size);
 			bc.Density = GetFloat(colliderNode, "Density", bc.Density);
@@ -480,7 +480,7 @@ namespace Forge {
 		if (HasNode(entityNode, "SphereColliderComponent"))
 		{
 			auto colliderNode = entityNode["SphereColliderComponent"];
-			auto& sc = deserializedEntity.AddComponent<SphereColliderComponent>();
+			auto& sc = deserializedEntity.AddOrReplaceComponent<SphereColliderComponent>();
 			sc.Offset = DecodeVec3(colliderNode["Offset"], sc.Offset);
 			sc.Radius = GetFloat(colliderNode, "Radius", sc.Radius);
 			sc.Density = GetFloat(colliderNode, "Density", sc.Density);
@@ -491,7 +491,7 @@ namespace Forge {
 		if (HasNode(entityNode, "LightComponent"))
 		{
 			auto lightNode = entityNode["LightComponent"];
-			auto& light = deserializedEntity.AddComponent<LightComponent>();
+			auto& light = deserializedEntity.AddOrReplaceComponent<LightComponent>();
 			light.Type = (decltype(light.Type))GetInt(lightNode, "Type", (int)light.Type);
 			light.Color = DecodeVec3(lightNode["Color"], light.Color);
 			light.Intensity = GetFloat(lightNode, "Intensity", light.Intensity);
@@ -506,7 +506,7 @@ namespace Forge {
 		if (HasNode(entityNode, "PBRMaterialComponent"))
 		{
 			auto materialNode = entityNode["PBRMaterialComponent"];
-			auto& pbr = deserializedEntity.AddComponent<PBRMaterialComponent>();
+			auto& pbr = deserializedEntity.AddOrReplaceComponent<PBRMaterialComponent>();
 			pbr.Albedo = DecodeVec3(materialNode["Albedo"], pbr.Albedo);
 			pbr.Metallic = GetFloat(materialNode, "Metallic", pbr.Metallic);
 			pbr.Roughness = GetFloat(materialNode, "Roughness", pbr.Roughness);
@@ -519,7 +519,7 @@ namespace Forge {
 		if (HasNode(entityNode, "MeshComponent"))
 		{
 			auto meshNode = entityNode["MeshComponent"];
-			auto& mesh = deserializedEntity.AddComponent<MeshComponent>();
+			auto& mesh = deserializedEntity.AddOrReplaceComponent<MeshComponent>();
 			mesh.ModelPath = GetString(meshNode, "ModelPath");
 			mesh.Scale = DecodeVec3(meshNode["Scale"], mesh.Scale);
 
@@ -533,14 +533,14 @@ namespace Forge {
 
 		if (HasNode(entityNode, "EnvironmentMapComponent"))
 		{
-			deserializedEntity.AddComponent<EnvironmentMapComponent>().Path =
+			deserializedEntity.AddOrReplaceComponent<EnvironmentMapComponent>().Path =
 				GetString(entityNode["EnvironmentMapComponent"], "Path");
 		}
 
 		if (HasNode(entityNode, "AudioSourceComponent"))
 		{
 			auto audioNode = entityNode["AudioSourceComponent"];
-			auto& audio = deserializedEntity.AddComponent<AudioSourceComponent>();
+			auto& audio = deserializedEntity.AddOrReplaceComponent<AudioSourceComponent>();
 			audio.SourcePath = GetString(audioNode, "SourcePath");
 			audio.Volume = GetFloat(audioNode, "Volume", audio.Volume);
 			audio.Pitch = GetFloat(audioNode, "Pitch", audio.Pitch);
@@ -1055,6 +1055,127 @@ namespace Forge {
 		}
 
 		return true;
+	}
+
+	std::vector<std::string> SceneSerializer::GetStateComponents(const std::string& state)
+	{
+		std::vector<std::string> names;
+		if (state.empty())
+			return names;
+
+		YAML::Node data;
+		try
+		{
+			data = YAML::Load(state);
+		}
+		catch (const YAML::Exception&)
+		{
+			return names;
+		}
+
+		YAML::Node entityNode = data["Entity"];
+		if (!entityNode)
+			return names;
+
+		for (const auto& entry : entityNode)
+		{
+			const std::string key = entry.first.as<std::string>();
+			// The identity is not a component.
+			if (key != "Entity")
+				names.push_back(key);
+		}
+
+		return names;
+	}
+
+	bool SceneSerializer::ApplyEntityState(Entity entity, const std::string& state)
+	{
+		if (!entity || state.empty())
+			return false;
+
+		YAML::Node data;
+		try
+		{
+			data = YAML::Load(state);
+		}
+		catch (const YAML::Exception& e)
+		{
+			FG_CORE_ERROR("ApplyEntityState: '{0}'", e.what());
+			return false;
+		}
+
+		YAML::Node entityNode = data["Entity"];
+		if (!entityNode || !IsEntityNode(entityNode))
+			return false;
+
+		DeserializeEntityComponents(entity, entityNode);
+		return true;
+	}
+
+	std::string SceneSerializer::SerializeEntityToString(Entity entity)
+	{
+		if (!entity || !entity.HasComponent<IDComponent>())
+		{
+			FG_CORE_ERROR("SerializeEntityToString: entity is invalid");
+			return {};
+		}
+
+		YAML::Emitter out;
+		out << YAML::BeginMap;
+		out << YAML::Key << "Entity" << YAML::Value;
+		SerializeEntity(out, entity);
+		out << YAML::EndMap;
+
+		return out.c_str();
+	}
+
+	Entity SceneSerializer::DeserializeEntityFromString(Scene* scene, const std::string& text)
+	{
+		if (!scene || text.empty())
+			return {};
+
+		YAML::Node data;
+		try
+		{
+			data = YAML::Load(text);
+		}
+		catch (const YAML::Exception& e)
+		{
+			FG_CORE_ERROR("DeserializeEntityFromString: '{0}'", e.what());
+			return {};
+		}
+
+		YAML::Node entityNode = data["Entity"];
+		if (!entityNode || !IsEntityNode(entityNode))
+		{
+			FG_CORE_ERROR("DeserializeEntityFromString: no recognisable entity components");
+			return {};
+		}
+
+		// The identity in the text is the entity's own, so an undone edit
+		// restores the entity that was edited - the scripts that name it by
+		// UUID keep naming it.
+		uint64_t uuidValue = 0;
+		if (HasNode(entityNode, "Entity"))
+		{
+			try
+			{
+				uuidValue = entityNode["Entity"].as<uint64_t>();
+			}
+			catch (const YAML::Exception&)
+			{
+				uuidValue = 0;
+			}
+		}
+		const UUID uuid(uuidValue);
+
+		std::string name = "Entity";
+		if (HasNode(entityNode, "TagComponent"))
+			name = entityNode["TagComponent"]["Tag"].as<std::string>();
+
+		Entity entity = uuidValue != 0 ? scene->CreateEntityWithUUID(uuid, name) : scene->CreateEntity(name);
+		DeserializeEntityComponents(entity, entityNode);
+		return entity;
 	}
 
 	bool SceneSerializer::IsEntityFile(const std::string& filepath)

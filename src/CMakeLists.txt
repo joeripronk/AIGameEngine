@@ -86,6 +86,10 @@ target_sources(ForgeCore
         Forge/Editor/EditorContext.cpp
         Forge/Editor/Gizmo.h
         Forge/Editor/Gizmo.cpp
+        Forge/Editor/UndoStack.h
+        Forge/Editor/UndoStack.cpp
+        Forge/Editor/EditorCommands.h
+        Forge/Editor/EditorCommands.cpp
         Forge/Assets/AssetRegistry.h
         Forge/Assets/AssetRegistry.cpp
         Forge/Assets/AssetImporter.h

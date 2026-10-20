@@ -14,6 +14,7 @@ target_sources(ForgeTests
     PRIVATE
         src/CoreTests.cpp
         src/InputMapTests.cpp
+        src/UndoStackTests.cpp
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp

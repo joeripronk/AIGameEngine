@@ -1,6 +1,8 @@
 #include "fgpch.h"
 #include "Forge/Editor/EditorContext.h"
 
+#include "Forge/Editor/EditorCommands.h"
+
 #include "Forge/Scene/Scene.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
@@ -26,6 +28,9 @@ namespace Forge {
 		Stop();
 		m_Scene = CreateRef<Scene>();
 		m_SelectedEntity = {};
+		// The commands of the old scene would undo changes to a scene that
+		// is not there any more.
+		m_UndoStack.Clear();
 	}
 
 	bool EditorContext::OpenScene(const std::string& path)
@@ -38,6 +43,7 @@ namespace Forge {
 		Stop();
 		m_Scene = scene;
 		m_SelectedEntity = {};
+		m_UndoStack.Clear();
 		return true;
 	}
 
@@ -74,7 +80,14 @@ namespace Forge {
 
 	Entity EditorContext::CreateEntity(const std::string& name)
 	{
-		return m_Scene->CreateEntity(name);
+		Entity entity = m_Scene->CreateEntity(name);
+		if (entity)
+		{
+			// The entity did not exist before, so the "before" state is
+			// empty: the undo takes it away again.
+			RecordEntityStateChange(entity, {}, "Create Entity");
+		}
+		return entity;
 	}
 
 	void EditorContext::DestroyEntity(Entity entity)
@@ -87,12 +100,30 @@ namespace Forge {
 		if (m_SelectedEntity == entity)
 			m_SelectedEntity = {};
 
+		// The state of the entity is kept, so the undo brings it back - with
+		// the components it had and the identity it had.
+		const std::string before = SceneSerializer::SerializeEntityToString(entity);
+		const UUID uuid = entity.GetUUID();
+
 		m_Scene->DestroyEntity(entity);
+
+		if (!before.empty())
+		{
+			auto command = std::make_unique<EntityStateCommand>(m_Scene.get(), uuid, before, std::string(),
+				[this](Entity target, const std::string& component) { return RemoveComponentQuietly(target, component); });
+			command->SetDescription("Delete Entity");
+			m_UndoStack.Push(std::move(command));
+		}
 	}
 
 	Entity EditorContext::DuplicateEntity(Entity entity)
 	{
-		return m_Scene->DuplicateEntity(entity);
+		Entity copy = m_Scene->DuplicateEntity(entity);
+		if (copy)
+		{
+			RecordEntityStateChange(copy, {}, "Duplicate Entity");
+		}
+		return copy;
 	}
 
 	Entity EditorContext::FindEntityByName(const std::string& name) const
@@ -293,6 +324,94 @@ namespace Forge {
 		return prefab->Instantiate(m_Scene.get(), usePosition, position);
 	}
 
+	void EditorContext::RecordEntityStateChange(Entity entity, const std::string& before, const std::string& description)
+	{
+		if (!entity)
+			return;
+
+		const std::string after = SceneSerializer::SerializeEntityToString(entity);
+		if (after.empty() || after == before)
+			return;  // nothing changed: there is nothing to undo
+
+		auto command = std::make_unique<EntityStateCommand>(m_Scene.get(), entity.GetUUID(), before, after,
+			[this](Entity target, const std::string& component) { return RemoveComponentQuietly(target, component); });
+		command->SetDescription(description);
+		m_UndoStack.Push(std::move(command));
+	}
+
+	void EditorContext::BeginEntityEdit(Entity entity)
+	{
+		m_EditingEntity = entity;
+		m_EditStateBefore = entity ? SceneSerializer::SerializeEntityToString(entity) : std::string();
+		m_EditStateAfter.clear();
+	}
+
+	void EditorContext::CommitEntityEdit()
+	{
+		if (!m_EditingEntity)
+		{
+			m_EditStateBefore.clear();
+			return;
+		}
+
+		Entity edited = m_EditingEntity;
+		const std::string before = m_EditStateBefore;
+
+		m_EditingEntity = {};
+		m_EditStateBefore.clear();
+
+		// The entity may have been destroyed by the edit itself.
+		Entity found = m_Scene->GetEntityByUUID(edited.GetUUID());
+		if (!found)
+			return;
+
+		RecordEntityStateChange(found, before, "Edit Entity");
+	}
+
+	void EditorContext::RecordTransformChange(Entity entity, const glm::vec3& beforeTranslation,
+		const glm::vec3& beforeRotation, const glm::vec3& beforeScale)
+	{
+		if (!entity || !entity.HasComponent<TransformComponent>())
+			return;
+
+		auto command = std::make_unique<TransformCommand>(m_Scene.get(), entity.GetUUID(),
+			beforeTranslation, beforeRotation, beforeScale);
+		m_UndoStack.Push(std::move(command));
+	}
+
+	bool EditorContext::Undo()
+	{
+		if (!m_UndoStack.CanUndo())
+			return false;
+
+		// The selection is an entity handle, and an undo can replace the
+		// entity it points at. The identity is kept, so the selection
+		// follows the entity it was on.
+		const UUID selected = m_SelectedEntity ? m_SelectedEntity.GetUUID() : UUID(0);
+
+		(void)m_UndoStack.Undo();
+
+		if (selected != UUID(0))
+			m_SelectedEntity = m_Scene->GetEntityByUUID(selected);
+
+		return true;
+	}
+
+	bool EditorContext::Redo()
+	{
+		if (!m_UndoStack.CanRedo())
+			return false;
+
+		const UUID selected = m_SelectedEntity ? m_SelectedEntity.GetUUID() : UUID(0);
+
+		(void)m_UndoStack.Redo();
+
+		if (selected != UUID(0))
+			m_SelectedEntity = m_Scene->GetEntityByUUID(selected);
+
+		return true;
+	}
+
 	std::vector<std::string> EditorContext::GetRegisteredComponentTypes() const
 	{
 		std::vector<std::string> names;
@@ -317,12 +436,17 @@ namespace Forge {
 			return false;
 		}
 
+		// The state before the change, so the undo can take the component
+		// away again.
+		const std::string before = SceneSerializer::SerializeEntityToString(entity);
+
 #define FG_ADD_COMPONENT_BY_NAME(Comp) \
 		if (name == #Comp) \
 		{ \
 			if (entity.HasComponent<Comp>()) \
 				return false; \
 			entity.AddComponent<Comp>(); \
+			RecordEntityStateChange(entity, before, "Add " + std::string(#Comp)); \
 			return true; \
 		}
 
@@ -374,12 +498,17 @@ namespace Forge {
 			return false;
 		}
 
+		// The state before the change, so the undo can put the component
+		// back - with the values it had.
+		const std::string before = SceneSerializer::SerializeEntityToString(entity);
+
 #define FG_REMOVE_COMPONENT_BY_NAME(Comp) \
 		if (name == #Comp) \
 		{ \
 			if (!entity.HasComponent<Comp>()) \
 				return false; \
 			entity.RemoveComponent<Comp>(); \
+			RecordEntityStateChange(entity, before, "Remove " + std::string(#Comp)); \
 			return true; \
 		}
 
@@ -398,6 +527,40 @@ namespace Forge {
 #undef FG_REMOVE_COMPONENT_BY_NAME
 
 		FG_CORE_WARN("EditorContext::RemoveComponentByName: '{0}' is registered but not a removable engine component", name);
+		return false;
+	}
+
+	bool EditorContext::RemoveComponentQuietly(Entity entity, const std::string& name)
+	{
+		// The removal without a command of its own: the caller is a command
+		// that is restoring a state, and a command that pushed another
+		// command would undo itself.
+		if (!entity)
+			return false;
+
+#define FG_QUIETLY_REMOVE_COMPONENT(Comp) \
+		if (name == #Comp) \
+		{ \
+			if (!entity.HasComponent<Comp>()) \
+				return false; \
+			entity.RemoveComponent<Comp>(); \
+			return true; \
+		}
+
+		FG_QUIETLY_REMOVE_COMPONENT(CameraComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(ScriptComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(NativeScriptComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(RigidbodyComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(BoxColliderComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(SphereColliderComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(MeshComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(PBRMaterialComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(LightComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(EnvironmentMapComponent)
+		FG_QUIETLY_REMOVE_COMPONENT(AudioSourceComponent)
+
+#undef FG_QUIETLY_REMOVE_COMPONENT
+
 		return false;
 	}
 

@@ -44,7 +44,7 @@ question is answered differently in C++, in Lua and in the game's input layer.
 - Bindings survive a restart: the map loads from and saves to a text file.
 - The bindings reach Lua and the game's own input layer.
 
-### 2. [ ] Undo/redo in the editor (`Forge/Editor/UndoStack.h`)
+### 2. [x] Undo/redo in the editor (`Forge/Editor/UndoStack.h`)
 
 **Godot has** a full undo/redo stack in the editor: every scene change is a
 command, and Ctrl+Z walks backwards through them.

@@ -3,6 +3,7 @@
 #include "Forge/Core/Base.h"
 #include "Forge/Core/Timestep.h"
 #include "Forge/Editor/Gizmo.h"
+#include "Forge/Editor/UndoStack.h"
 #include "Forge/Renderer/EditorCamera.h"
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Scene.h"
@@ -113,8 +114,54 @@ namespace Forge {
 		// component changed; false means nothing changed (unknown name, already
 		// present, already absent, or a structural component - which every
 		// entity must keep, see the Remove Component menu rules).
+		//
+		// Both are undoable: a component that was added by mistake is one
+		// Ctrl+Z away from not being there.
 		[[nodiscard]] bool AddComponentByName(Entity entity, const std::string& name);
 		[[nodiscard]] bool RemoveComponentByName(Entity entity, const std::string& name);
+
+		// --- Undo / redo ------------------------------------------------------
+
+		// Every change the editor makes goes through a command, so it can be
+		// taken back. The changes that are made outside the editor's own
+		// operations - a property dragged in the inspector, a gizmo drag -
+		// are wrapped by the editor in BeginEntityEdit / CommitEntityEdit.
+		//
+		// False when there was nothing to undo.
+		[[nodiscard]] bool Undo();
+		[[nodiscard]] bool Redo();
+
+		[[nodiscard]] bool CanUndo() const { return m_UndoStack.CanUndo(); }
+		[[nodiscard]] bool CanRedo() const { return m_UndoStack.CanRedo(); }
+
+		// What the menu calls the change that would be undone or redone.
+		[[nodiscard]] std::string GetUndoName() const { return m_UndoStack.GetUndoName(); }
+		[[nodiscard]] std::string GetRedoName() const { return m_UndoStack.GetRedoName(); }
+
+		// The history of the scene. A new scene starts with an empty one:
+		// the commands of the old scene would undo changes to a scene that
+		// is not there.
+		[[nodiscard]] size_t GetUndoCount() const { return m_UndoStack.GetUndoCount(); }
+		[[nodiscard]] size_t GetRedoCount() const { return m_UndoStack.GetRedoCount(); }
+
+		// Wraps an edit that the editor makes to an entity: the inspector
+		// edits the components in place, and there is no other way to know
+		// what the entity looked like before.
+		//
+		// BeginEntityEdit remembers the state, CommitEntityEdit compares it
+		// with the state the edit left behind and pushes a command when they
+		// differ. An edit that changed nothing pushes nothing.
+		void BeginEntityEdit(Entity entity);
+		void CommitEntityEdit();
+
+		// A transform change, as the gizmo makes it. A drag is one change:
+		// the commands of a drag merge with each other.
+		//
+		// Where the entity was is the caller's to say - the gizmo knows
+		// where the entity was when the drag started, and the scene only
+		// knows where it is now.
+		void RecordTransformChange(Entity entity, const glm::vec3& beforeTranslation,
+			const glm::vec3& beforeRotation, const glm::vec3& beforeScale);
 
 	private:
 		Ref<Scene> m_Scene;
@@ -128,6 +175,25 @@ namespace Forge {
 		Gizmo::Mode m_GizmoMode = Gizmo::Mode::Translate;
 		Gizmo::Space m_GizmoSpace = Gizmo::Space::World;
 		float m_TranslationSnap = 0.0f;
+
+		// The history of the scene.
+		UndoStack m_UndoStack;
+
+		// The entity an edit is being made to, and the state it was in
+		// before the edit. The state is empty when no edit is in progress.
+		Entity m_EditingEntity;
+		std::string m_EditStateBefore;
+		std::string m_EditStateAfter;
+
+		// Pushes a command for the entity's current state, if it differs
+		// from the state it was in. The state is the entity's serialized
+		// form, so one command covers every component there is.
+		void RecordEntityStateChange(Entity entity, const std::string& before, const std::string& description);
+
+		// Takes a component off an entity without recording a change of its
+		// own. The caller is a command that is restoring a state, and a
+		// command that pushed another command would undo itself.
+		[[nodiscard]] bool RemoveComponentQuietly(Entity entity, const std::string& name);
 	};
 
 }

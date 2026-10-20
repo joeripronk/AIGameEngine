@@ -571,6 +571,22 @@ namespace Forge {
 			ImGui::EndMenu();
 		}
 
+		if (ImGui::BeginMenu("Edit"))
+		{
+			// The names say what will be taken back, so the menu answers
+			// "what does this undo?" and not only "can I undo?".
+			const std::string undoName = m_Editor.GetUndoName();
+			const std::string redoName = m_Editor.GetRedoName();
+
+			if (ImGui::MenuItem(undoName.empty() ? "Undo" : ("Undo " + undoName).c_str(), "Ctrl+Z", false, m_Editor.CanUndo()))
+				(void)m_Editor.Undo();
+
+			if (ImGui::MenuItem(redoName.empty() ? "Redo" : ("Redo " + redoName).c_str(), "Ctrl+Y", false, m_Editor.CanRedo()))
+				(void)m_Editor.Redo();
+
+			ImGui::EndMenu();
+		}
+
 		if (ImGui::BeginMenu("Scene"))
 		{
 			if (ImGui::MenuItem("Create Empty Entity"))
@@ -757,6 +773,12 @@ namespace Forge {
 
 		Entity entity = m_Editor.GetSelectedEntity();
 
+		// The inspector edits the components in place, and there is no other
+		// way to know what the entity looked like before. The editor
+		// remembers the state, and the change becomes a command when the
+		// panel is done.
+		m_Editor.BeginEntityEdit(entity);
+
 		char nameBuffer[256];
 		CopyToBuffer(nameBuffer, sizeof(nameBuffer), entity.GetName());
 		if (ImGui::InputText("Name", nameBuffer, sizeof(nameBuffer)))
@@ -926,6 +948,10 @@ namespace Forge {
 			if (ImGui::InputText("Class Name##script", scriptBuffer, sizeof(scriptBuffer)))
 				entity.GetComponent<ScriptComponent>().ClassName = scriptBuffer;
 		}
+
+		// The panel is done: whatever the edit changed is now a change that
+		// can be taken back.
+		m_Editor.CommitEntityEdit();
 
 		ImGui::End();
 	}
@@ -1361,6 +1387,12 @@ namespace Forge {
 
 		// Update the entity's transform.
 		entity.GetComponent<TransformComponent>().Translation = newPos;
+
+		// The change is undoable, and a drag is one change: the commands of
+		// a drag merge with each other, so the history holds the position
+		// the entity started at and the position it ended at.
+		const TransformComponent& current = entity.GetComponent<TransformComponent>();
+		m_Editor.RecordTransformChange(entity, g_GizmoStartPos, current.Rotation, current.Scale);
 	}
 
 	void EditorApp::OnGizmoMouseUp(int /*button*/, int /*x*/, int /*y*/)

@@ -591,6 +591,44 @@ editor.Update(Forge::Timestep(1.0f / 60.0f));
 editor.Stop();
 ```
 
+### Undo and redo in the editor
+
+Every change the editor makes goes through a command, so it can be taken
+back. An edit that is not a command cannot be undone, and an edit that cannot
+be undone is a mistake the author has to live with - which matters for an
+agent driving the editor as much as for a person dragging a gizmo.
+
+```cpp
+editor.Undo();          // takes back the last change
+editor.Redo();          // puts it back
+editor.CanUndo();       // a predicate, so it may be polled
+editor.GetUndoName();   // what the menu calls the change
+```
+
+Two kinds of command, and two kinds are enough:
+
+- **The transform**, which is what a gizmo drag changes. It is cheap, and a
+  drag reports a new one every frame - so the commands of a drag merge with
+  each other and the author sees a single change.
+- **The state of an entity**, which is everything else: a property edited in
+  the inspector, a component added or removed, an entity created or
+  destroyed. The state is the entity's serialized form
+  (`SceneSerializer::SerializeEntityToString`), so one command covers every
+  component there is and a component added to the engine tomorrow needs no
+  new command.
+
+The entity keeps its identity through an undo: the state carries the entity's
+UUID, so the entity that comes back is the one that was edited, and the
+scripts that name it by UUID keep naming it. The *handle* is kept too where
+the change allows it: a state that mentions the same components is written
+onto the entity as it is, and only a state that adds or removes a component
+makes the entity again.
+
+`EditorContext::BeginEntityEdit` / `CommitEntityEdit` wrap the edits the
+editor makes in place - the inspector edits the components directly, and
+there is no other way to know what the entity looked like before. An edit
+that changed nothing pushes nothing.
+
 ## Type Registry (RTTI)
 
 `Forge/Core/RTTI` gives the engine a runtime answer to "what component types
