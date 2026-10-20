@@ -4,6 +4,9 @@
 #include "Forge/Renderer/Renderer.h"
 #include "Forge/Debug/Instrumentor.h"
 #include "Forge/Core/InputMap.h"
+#include "Forge/Core/Input.h"
+#include "Forge/Events/KeyEvent.h"
+#include "Forge/Events/MouseEvent.h"
 #include "Forge/Core/Time.h"
 
 #include <algorithm>
@@ -107,6 +110,21 @@ namespace Forge {
 		// and the map's answers ("is 'jump' held?", "was 'jump' pressed
 		// this frame?") are exact because of it.
 		InputMap::OnEvent(e);
+
+		// The platform's own state is fed by them too. A desktop window
+		// keeps that state and is asked directly, so this changes nothing
+		// there; on a platform with no window to ask - the phone - the
+		// events are the state.
+		if (KeyPressedEvent* pressed = e.TryCast<KeyPressedEvent>())
+			Input::SetKeyPressed(static_cast<KeyCode>(pressed->GetKeyCode()), true);
+		else if (KeyReleasedEvent* released = e.TryCast<KeyReleasedEvent>())
+			Input::SetKeyPressed(static_cast<KeyCode>(released->GetKeyCode()), false);
+		else if (MouseButtonPressedEvent* button = e.TryCast<MouseButtonPressedEvent>())
+			Input::SetMouseButtonPressed(static_cast<MouseCode>(button->GetMouseButton()), true);
+		else if (MouseButtonReleasedEvent* button = e.TryCast<MouseButtonReleasedEvent>())
+			Input::SetMouseButtonPressed(static_cast<MouseCode>(button->GetMouseButton()), false);
+		else if (MouseMovedEvent* moved = e.TryCast<MouseMovedEvent>())
+			Input::SetMousePosition(moved->GetX(), moved->GetY());
 
 		EventDispatcher dispatcher(e);
 		dispatcher.Dispatch<WindowCloseEvent>(FG_BIND_EVENT_FN(Application::OnWindowClose));

@@ -2,6 +2,7 @@
 #include "Platform/Vulkan/Device/VkInstance.h"
 
 #include "Platform/Vulkan/Device/VkPhysicalDevice.h"
+#include "Platform/Vulkan/PlatformSurface.h"
 #include "Forge/Core/Log.h"
 
 #include <algorithm>
@@ -27,10 +28,11 @@ bool Instance::Create(const CreateInfo& createInfo)
 		return false;
 	}
 
-	uint32_t glfwCount = 0;
-	const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwCount);
+	// The extensions the platform's surface needs: GLFW's on a desktop, the
+	// loader's Android surface extension on a phone.
+	std::vector<const char*> extensions;
+	GetRequiredInstanceExtensions(extensions);
 
-	std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwCount);
 	for (const char* extension : createInfo.Extensions)
 		extensions.push_back(extension);
 	if (createInfo.EnableDebugMessenger)
@@ -184,23 +186,9 @@ bool Instance::IsExtensionEnabled(const char* name) const
 	return m_EnabledExtensions.find(name) != m_EnabledExtensions.end();
 }
 
-bool Instance::CreateSurface(GLFWwindow* window, ::VkSurfaceKHR& outSurface) const
+bool Instance::CreateSurface(void* window, ::VkSurfaceKHR& outSurface) const
 {
-	outSurface = VK_NULL_HANDLE;
-	if (m_Handle == VK_NULL_HANDLE || !window)
-	{
-		FG_CORE_ERROR("Vulkan: CreateSurface with no instance or no window");
-		return false;
-	}
-
-	const VkResult result = glfwCreateWindowSurface(m_Handle, window, nullptr, &outSurface);
-	if (result != VK_SUCCESS)
-	{
-		FG_CORE_ERROR("Vulkan: glfwCreateWindowSurface failed ({0})", (int)result);
-		outSurface = VK_NULL_HANDLE;
-		return false;
-	}
-	return true;
+	return CreatePlatformSurface(m_Handle, window, outSurface);
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL Instance::DebugMessengerCallback(

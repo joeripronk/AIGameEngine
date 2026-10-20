@@ -35,6 +35,26 @@ namespace Forge {
 		// fired, in an editor that looked like it was listening.
 		static void SetNativeWindow(void* window);
 
+		// The platform's own answer to "is this key down?".
+		//
+		// A desktop window keeps that state itself and is asked directly.
+		// A platform with no window to ask - the phone, where the system's
+		// surface is the window - reports it here, and the queries below
+		// answer from it.
+		static void SetKeyPressed(KeyCode key, bool pressed);
+		static void SetMouseButtonPressed(MouseCode button, bool pressed);
+		static void SetMousePosition(float x, float y);
+
+		// Whether the platform keeps that state and reports it here.
+		//
+		// A desktop window keeps the state itself, so this is false there
+		// and the window is asked directly. A platform with no window to ask
+		// says so, and the queries answer from what it reports.
+		//
+		// With no window and no platform state, the queries report nothing:
+		// a headless tool gets a false, not a stale answer.
+		static void SetPlatformReportsState(bool reports);
+
 		[[nodiscard]]
 		static bool IsKeyPressed(KeyCode key);
 

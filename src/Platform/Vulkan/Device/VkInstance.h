@@ -50,7 +50,9 @@ public:
 	// every layer above asks the same question.
 	[[nodiscard]] const std::vector<Ref<PhysicalDevice>>& GetPhysicalDevices() const { return m_PhysicalDevices; }
 
-	[[nodiscard]] bool CreateSurface(GLFWwindow* window, ::VkSurfaceKHR& outSurface) const;
+	// The surface for the platform's own window: a GLFW window on a
+	// desktop, the system's ANativeWindow on a phone.
+	[[nodiscard]] bool CreateSurface(void* window, ::VkSurfaceKHR& outSurface) const;
 
 private:
 	static VKAPI_ATTR VkBool32 VKAPI_CALL DebugMessengerCallback(

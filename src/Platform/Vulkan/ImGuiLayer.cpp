@@ -6,7 +6,9 @@
 
 #ifndef FG_NO_VULKAN_RUNTIME
 
-#include "backends/imgui_impl_glfw.h"
+#if !defined(FG_PLATFORM_ANDROID)
+	#include "backends/imgui_impl_glfw.h"
+#endif
 #include "backends/imgui_impl_vulkan.h"
 #include "Forge/Renderer/Renderer.h"
 
@@ -111,6 +113,19 @@ namespace Forge {
 		ImGuiLayer::ApplyStyle(ImGui::GetStyle());
 
 #ifndef FG_NO_VULKAN_RUNTIME
+	#if defined(FG_PLATFORM_ANDROID)
+		// There is no GLFW on a phone, and ImGui has no Android platform
+		// backend of its own. The overlay needs one - it is the platform
+		// that tells ImGui how big the screen is and where the pointer is -
+		// so the overlay is off on this platform and the game runs without
+		// it, which is what the layer's contract says a game does when the
+		// backends are not there.
+		(void)nativeWindow;
+		FG_CORE_INFO("ImGuiLayer: no ImGui platform backend for this platform; overlay disabled");
+		ImGui::DestroyContext();
+		m_HasContext = false;
+		return false;
+	#else
 		auto* window = static_cast<GLFWwindow*>(nativeWindow);
 		if (!window)
 		{
@@ -141,6 +156,7 @@ namespace Forge {
 
 		m_Ready = true;
 		return true;
+	#endif
 #else
 		(void)nativeWindow;
 		FG_CORE_INFO("ImGuiLayer: headless build; context only, overlay inert");
@@ -231,7 +247,9 @@ namespace Forge {
 
 #ifndef FG_NO_VULKAN_RUNTIME
 		UnbindVulkanBackend();
+	#if !defined(FG_PLATFORM_ANDROID)
 		ImGui_ImplGlfw_Shutdown();
+	#endif
 #endif
 
 		ImGui::DestroyContext();
@@ -265,7 +283,9 @@ namespace Forge {
 			}
 		}
 
+	#if !defined(FG_PLATFORM_ANDROID)
 		ImGui_ImplGlfw_NewFrame();
+	#endif
 		ImGui_ImplVulkan_NewFrame();
 #endif
 		ImGui::NewFrame();

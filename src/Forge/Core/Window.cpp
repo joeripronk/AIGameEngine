@@ -3,7 +3,9 @@
 
 #if !defined(FG_NO_VULKAN_RUNTIME)
 
-#if defined(FG_PLATFORM_WINDOWS)
+#if defined(FG_PLATFORM_ANDROID)
+	#include "Platform/Android/AndroidWindow.h"
+#elif defined(FG_PLATFORM_WINDOWS)
 	#include "Platform/Vulkan/VulkanWindow.h"
 #elif defined(FG_PLATFORM_LINUX)
 	#include "Platform/Vulkan/VulkanWindow.h"
@@ -17,7 +19,13 @@ namespace Forge {
 
 	Scope<Window> Window::Create(const WindowProps& props)
 	{
-#if defined(FG_PLATFORM_WINDOWS)
+#if defined(FG_PLATFORM_ANDROID)
+		// Android has no window to create: the system's surface is the
+		// window, and the entry point is what the system handed it over
+		// with.
+		(void)props;
+		return CreateScope<AndroidWindow>(Android::GetApp());
+#elif defined(FG_PLATFORM_WINDOWS)
 		return CreateScope<VulkanWindow>(props);
 #elif defined(FG_PLATFORM_LINUX)
 		return CreateScope<VulkanWindow>(props);

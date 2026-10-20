@@ -39,7 +39,6 @@
 	#ifndef FG_PLATFORM_ANDROID
 		#define FG_PLATFORM_ANDROID
 	#endif
-	#error "Android is not supported!"
 #elif defined(__linux__)
 	#ifndef FG_PLATFORM_LINUX
 		#define FG_PLATFORM_LINUX

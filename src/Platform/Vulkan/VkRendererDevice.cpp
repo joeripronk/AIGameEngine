@@ -48,7 +48,7 @@ bool VkRenderer::InitDevice(void* glfwWindow, uint32_t width, uint32_t height)
 	if (!m_Instance.Create(instanceInfo))
 		return false;
 
-	if (!m_Instance.CreateSurface(static_cast<GLFWwindow*>(glfwWindow), m_Surface))
+	if (!m_Instance.CreateSurface(glfwWindow, m_Surface))
 	{
 		m_Instance.Destroy();
 		return false;

@@ -5,6 +5,13 @@
 // The client application (editor or runtime) provides this factory.
 extern Forge::Application* Forge::CreateApplication(Forge::ApplicationCommandLineArgs args);
 
+// The desktop's entry point.
+//
+// Android has its own: the system's glue calls `android_main` with the app
+// it built, and the phone has no `main` to call. The Android build
+// compiles the platform's entry point instead of this one.
+#if !defined(FG_PLATFORM_ANDROID)
+
 int main(int argc, char** argv)
 {
 	Forge::Log::Init();
@@ -18,3 +25,5 @@ int main(int argc, char** argv)
 	// log - and an exit code that says so, not a silent zero.
 	return startupOk ? 0 : 1;
 }
+
+#endif

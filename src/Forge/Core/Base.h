@@ -14,6 +14,12 @@
 	#elif defined(FG_PLATFORM_MACOS)
 		#include <signal.h>
 		#define FG_DEBUGBREAK() raise(SIGTRAP)
+	#elif defined(FG_PLATFORM_ANDROID)
+		// A phone has no debugger to break into and no console to report
+		// to: the assert's message is in the log, and the trap stops the
+		// process the way it does on a desktop.
+		#include <signal.h>
+		#define FG_DEBUGBREAK() raise(SIGTRAP)
 	#else
 		#error "Platform doesn't support debugbreak yet!"
 	#endif
