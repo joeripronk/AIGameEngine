@@ -36,6 +36,8 @@ target_sources(ForgeTetris
         src/TetrisInputLayer.h
         src/TetrisInputLayer.cpp
         src/TetrisInputOverlayLayer.h
+        src/TetrisLightShow.h
+        src/TetrisLightShow.cpp
         src/TetrisManager.h
         src/TetrisManager.cpp
         src/TetrisMusic.h
@@ -112,12 +114,16 @@ target_sources(ForgeTetrisTests
         tests/TetrisTests.cpp
         tests/TetrisAnimationTests.cpp
         tests/TetrisBoardViewTests.cpp
+        tests/TetrisLightShowTests.cpp
         tests/TetrisMusicTests.cpp
         # The rules, the scene-side presenter and the input mapping. Compiled
         # in rather than linked from the game executable: there is no library to
         # link, and the point of the split is which dependencies each file has.
         src/TetrisManager.cpp
         src/TetrisBoardView.cpp
+        # The light show: the lamps over the playfield and the show they put
+        # on. The show itself is pure, so it is assertable here.
+        src/TetrisLightShow.cpp
         # The game's script: the scene names it, and the scene's runtime
         # runs it, so a test can drive the whole thing headless.
         src/TetrisGameScript.cpp
@@ -178,6 +184,7 @@ target_sources(TetrisSceneAuthor
         tools/AuthorScene.cpp
         src/TetrisBoardView.cpp
         src/TetrisGameScript.cpp
+        src/TetrisLightShow.cpp
         src/TetrisManager.cpp
 )
 

@@ -18,6 +18,7 @@
 #include "Forge/Scene/Entity.h"
 #include "TetrisBoardView.h"
 #include "TetrisGameScript.h"
+#include "TetrisLightShow.h"
 
 #include <cstdio>
 #include <string>
@@ -117,6 +118,25 @@ int main(int argc, char** argv)
 			glm::vec3(boardSize.x + border * 2.0f, border, 0.3f), borderColour, 0.6f);
 		AddSlab(editor, "BoardBorderFloor", glm::vec3(0.0f, -halfH - border, -0.2f),
 			glm::vec3(boardSize.x + border * 2.0f, border, 0.3f), borderColour, 0.6f);
+	}
+
+	// --- The light show's lamps ---
+	//
+	// The lamps are the scene's: where they hang is content, like the board
+	// and the camera, and the editor shows them like anything else. The show
+	// itself - the colours, the movement - is the game's, and it drives these
+	// lamps when the game runs.
+	{
+		for (uint32_t index = 0; index < Tetris::LightShow::kLightCount; ++index)
+		{
+			Entity lamp = editor.CreateEntity(Tetris::LightShow::LightName(index));
+			lamp.GetComponent<TransformComponent>().Translation = Tetris::LightShow::LampPosition(index);
+
+			auto& component = lamp.AddComponent<LightComponent>();
+			component.Type = LightComponent::Type::Point;
+			component.Color = glm::vec3(1.0f);
+			component.Intensity = 1.0f;
+		}
 	}
 
 	if (!editor.SaveScene(path))

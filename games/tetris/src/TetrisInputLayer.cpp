@@ -44,6 +44,7 @@ namespace Tetris {
 			{ InputAction::ToggleMusic, Key::M },
 			{ InputAction::MusicNext, Key::N },
 			{ InputAction::MusicPrevious, Key::B },
+			{ InputAction::ToggleLightShow, Key::L },
 		};
 
 	}  // namespace
@@ -136,6 +137,15 @@ namespace Tetris {
 				{
 					if (m_OnMusicSkip)
 						m_OnMusicSkip(-1);
+					continue;
+				}
+
+				// And the light show: the lamps over the playfield go on and
+				// off.
+				if (action == InputAction::ToggleLightShow)
+				{
+					if (m_OnLightShowToggle)
+						m_OnLightShowToggle();
 					continue;
 				}
 

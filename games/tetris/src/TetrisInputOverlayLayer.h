@@ -68,6 +68,12 @@ public:
 		m_InputLayer.SetMusicSkippedCallback(std::move(callback));
 	}
 
+	// Forward the app's light-show callback to the input layer.
+	void SetLightShowToggledCallback(std::function<void()> callback)
+	{
+		m_InputLayer.SetLightShowToggledCallback(std::move(callback));
+	}
+
 	// Let the HUD show which song the music is on.
 	void SetMusic(const TetrisMusic* music)
 	{

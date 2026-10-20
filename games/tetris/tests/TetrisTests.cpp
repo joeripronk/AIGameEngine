@@ -1386,7 +1386,43 @@ TEST_CASE("The rules know the actions, not the keys", "[tetris][input]")
 	// reach the app as a callback and never arrive as a rules action.
 	REQUIRE(RuleActionFor(InputAction::ToggleView) == Action::None);
 	REQUIRE(RuleActionFor(InputAction::ToggleMusic) == Action::None);
+	REQUIRE(RuleActionFor(InputAction::ToggleLightShow) == Action::None);
 	REQUIRE(RuleActionFor("not_an_action") == Action::None);
+}
+
+TEST_CASE("L toggles the light show", "[tetris][input]")
+{
+	Forge::InputMap::Clear();
+	REQUIRE(SetupInputMap());
+
+	// The light show is bound to L, and to nothing else: a key that turns
+	// the lights off by accident is a key the player cannot trust.
+	const std::vector<std::string> actions = Forge::InputMap::GetActionsForKey(Forge::Key::L);
+	REQUIRE(actions.size() == 1);
+	REQUIRE(actions[0] == InputAction::ToggleLightShow);
+
+	TetrisManager manager;
+	manager.StartGame();
+
+	InputLayer layer(manager);
+
+	// The show is the app's business, so the press reaches the app as a
+	// callback - and only the show's.
+	int lightShowToggles = 0;
+	int viewToggles = 0;
+	int musicToggles = 0;
+	layer.SetLightShowToggledCallback([&lightShowToggles] { ++lightShowToggles; });
+	layer.SetViewToggledCallback([&viewToggles] { ++viewToggles; });
+	layer.SetMusicToggledCallback([&musicToggles] { ++musicToggles; });
+
+	Forge::KeyPressedEvent pressed(Forge::Key::L, 0);
+	layer.OnEvent(pressed);
+
+	REQUIRE(lightShowToggles == 1);
+	REQUIRE(viewToggles == 0);
+	REQUIRE(musicToggles == 0);
+
+	Forge::InputMap::Clear();
 }
 
 TEST_CASE("A key press reaches the rules through the input map", "[tetris][input]")

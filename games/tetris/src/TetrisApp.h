@@ -3,6 +3,7 @@
 #include "TetrisBoardView.h"
 #include "TetrisGameScript.h"
 #include "TetrisInputOverlayLayer.h"
+#include "TetrisLightShow.h"
 #include "TetrisMusic.h"
 
 #include "Forge/Core/Application.h"
@@ -91,6 +92,10 @@ private:
 	// an Action.
 	void ToggleMusic();
 
+	// The light show on or off: the lamps over the playfield go dark, and
+	// the scene is lit by its key alone again.
+	void ToggleLightShow();
+
 	// Move to another song in the playlist (N is +1, B is -1). Presentation
 	// for the same reason as the mute.
 	void SkipMusic(int delta);
@@ -110,6 +115,11 @@ private:
 
 	// The theme on the Music bus, driven by the game state each frame.
 	TetrisMusic m_Music;
+
+	// The light show: the coloured lamps over the playfield, and the show
+	// they put on. The show answers the game - a line cleared is a flash -
+	// and it is the game's own: the rules know nothing about light.
+	LightShow m_LightShow;
 
 	// Camera and light kept for the toggle: the entities persist, only their
 	// transforms and parameters change with the mode.

@@ -1,6 +1,6 @@
 Scene: Untitled
 Entities:
-  - Entity: 15891702008599610812
+  - Entity: 12116141589941523141
     TagComponent:
       Tag: MainCamera
     TransformComponent:
@@ -15,7 +15,7 @@ Entities:
       AspectRatio: 1.7777778
       Projection: Perspective
       OrthographicSize: 10
-  - Entity: 6725152904564157609
+  - Entity: 12158363786748446125
     TagComponent:
       Tag: DirectionalLight
     TransformComponent:
@@ -32,7 +32,7 @@ Entities:
       Quadratic: 0.032
       CutOff: 0.976296
       OuterCutOff: 0.95371693
-  - Entity: 5995414383501719608
+  - Entity: 16167611080268337394
     TagComponent:
       Tag: GameController
     TransformComponent:
@@ -41,7 +41,7 @@ Entities:
       Scale: [1, 1, 1]
     NativeScriptComponent:
       ClassName: TetrisGame
-  - Entity: 10711354772432720584
+  - Entity: 17025313182923163901
     TagComponent:
       Tag: BoardBackdrop
     TransformComponent:
@@ -59,7 +59,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 11685907874428591
+  - Entity: 17259543460145373357
     TagComponent:
       Tag: BoardBorderLeft
     TransformComponent:
@@ -77,7 +77,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 9090277597239510954
+  - Entity: 5033602076118282354
     TagComponent:
       Tag: BoardBorderRight
     TransformComponent:
@@ -95,7 +95,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 2280921628180154621
+  - Entity: 246022793132830881
     TagComponent:
       Tag: BoardBorderTop
     TransformComponent:
@@ -113,7 +113,7 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
-  - Entity: 2496233190915916766
+  - Entity: 11357291755284521435
     TagComponent:
       Tag: BoardBorderFloor
     TransformComponent:
@@ -131,3 +131,105 @@ Entities:
     MeshComponent:
       ModelPath: resources/models/cube.glb
       Scale: [1, 1, 1]
+  - Entity: 12571816158878388090
+    TagComponent:
+      Tag: ShowLight_0
+    TransformComponent:
+      Translation: [-3.92, 12.8, 2.76]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 1, 1]
+      Intensity: 1
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693
+  - Entity: 6907527337527920186
+    TagComponent:
+      Tag: ShowLight_1
+    TransformComponent:
+      Translation: [-1.952, 12.8, 2.76]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 1, 1]
+      Intensity: 1
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693
+  - Entity: 7245536780112879793
+    TagComponent:
+      Tag: ShowLight_2
+    TransformComponent:
+      Translation: [0.016000032, 12.8, 2.76]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 1, 1]
+      Intensity: 1
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693
+  - Entity: 6788150051286136253
+    TagComponent:
+      Tag: ShowLight_3
+    TransformComponent:
+      Translation: [1.9840002, 12.8, 2.76]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 1, 1]
+      Intensity: 1
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693
+  - Entity: 5666364316449352236
+    TagComponent:
+      Tag: ShowLight_4
+    TransformComponent:
+      Translation: [3.9520001, 12.8, 2.76]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 1, 1]
+      Intensity: 1
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693
+  - Entity: 8257846835178606238
+    TagComponent:
+      Tag: ShowLight_5
+    TransformComponent:
+      Translation: [5.92, 12.8, 2.76]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    LightComponent:
+      Type: 1
+      Color: [1, 1, 1]
+      Intensity: 1
+      Direction: [0, -1, 0]
+      Constant: 1
+      Linear: 0.09
+      Quadratic: 0.032
+      CutOff: 0.976296
+      OuterCutOff: 0.95371693

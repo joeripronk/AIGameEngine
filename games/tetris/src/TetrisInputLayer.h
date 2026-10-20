@@ -32,6 +32,10 @@ namespace Tetris {
 		inline constexpr const char* ToggleMusic = "toggle_music";
 		inline constexpr const char* MusicNext = "music_next";
 		inline constexpr const char* MusicPrevious = "music_previous";
+
+		// The light show is presentation too: the lamps are the game's
+		// dressing, and the rules know nothing about light.
+		inline constexpr const char* ToggleLightShow = "toggle_light_show";
 	}
 
 	// Puts the game's actions and their default bindings into the engine's
@@ -80,12 +84,17 @@ namespace Tetris {
 		// presentation, so also a callback rather than an Action.
 		void SetMusicSkippedCallback(std::function<void(int)> callback) { m_OnMusicSkip = std::move(callback); }
 
+		// The light show is the last piece of presentation: the lamps over the
+		// playfield go on and off, and the rules know nothing about them.
+		void SetLightShowToggledCallback(std::function<void()> callback) { m_OnLightShowToggle = std::move(callback); }
+
 	private:
 		TetrisManager* m_Manager = nullptr;
 		OverlayLayer* m_Overlay = nullptr;
 		std::function<void()> m_OnViewToggle;
 		std::function<void()> m_OnMusicToggle;
 		std::function<void(int)> m_OnMusicSkip;
+		std::function<void()> m_OnLightShowToggle;
 	};
 
 }  // namespace Tetris

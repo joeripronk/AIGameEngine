@@ -80,6 +80,11 @@ void OverlayLayer::OnImGuiRender()
 		ImGui::Text("  Music:");
 		ImGui::SameLine();
 		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "M mute, N/B skip");
+
+		ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 32.0f);
+		ImGui::Text("  Light show:");
+		ImGui::SameLine();
+		ImGui::TextColored({1.0f, 1.0f, 1.0f, 1.0f}, "L on/off");
 	}
 
 	ImGui::End();

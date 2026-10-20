@@ -169,13 +169,14 @@ TetrisApp::TetrisApp(const Forge::ApplicationCommandLineArgs& args)
 	m_InputOverlayLayer->SetViewToggledCallback([this] { ToggleViewMode(); });
 	m_InputOverlayLayer->SetMusicToggledCallback([this] { ToggleMusic(); });
 	m_InputOverlayLayer->SetMusicSkippedCallback([this](int delta) { SkipMusic(delta); });
+	m_InputOverlayLayer->SetLightShowToggledCallback([this] { ToggleLightShow(); });
 	m_InputOverlayLayer->SetMusic(&m_Music);
 	PushLayer(m_InputOverlayLayer.get());
 
 	if (!InitImGui())
 		FG_INFO("Tetris: continuing without the on-screen controls");
 
-	FG_INFO("Tetris: up. Arrows or WASD to move, Up/X to rotate, Space to drop, P to pause, R to restart, V to switch 2D/3D, M to mute, N/B to skip music.");
+	FG_INFO("Tetris: up. Arrows or WASD to move, Up/X to rotate, Space to drop, P to pause, R to restart, V to switch 2D/3D, M to mute, N/B to skip music, L for the light show.");
 }
 
 TetrisApp::~TetrisApp()
@@ -325,6 +326,10 @@ bool TetrisApp::CreateScene()
 
 	// The preview's parent, in the scene the game just built or loaded.
 	EnsurePreviewRoot();
+
+	// The light show: the lamps over the playfield. The scene may have them
+	// of its own, and the show uses those when it does.
+	m_LightShow.Initialize(m_Scene.get());
 
 	ApplyViewLayout();
 
@@ -534,7 +539,11 @@ void TetrisApp::FitViewToViewport()
 		? centre + glm::vec3(-1.5f, 0.5f, -0.5f)
 		: centre;
 
-	const float margin = m_ThreeDimensional ? 1.4f : 0.5f;
+	// The margin is the room around the playfield. The flat view keeps a
+	// strip of headroom for the light show's lamps, which hang in front of
+	// the top of the board: a lamp cut in half by the frame's edge is a lamp
+	// the player cannot see.
+	const float margin = m_ThreeDimensional ? 1.4f : 1.3f;
 	const float halfHeight = boardSize.y * 0.5f + margin;
 
 	// The preview tray beside the board is content too: the camera has to
@@ -679,10 +688,18 @@ void TetrisApp::ToggleViewMode()
 
 void TetrisApp::ToggleMusic()
 {
-	const bool muted = !m_Music.IsMuted();
+	const bool muted = m_Music.IsMuted();
 	m_Music.SetMuted(muted);
 	FG_INFO("Tetris: music {0}", muted ? "muted" : "unmuted");
 }
+
+void TetrisApp::ToggleLightShow()
+{
+	const bool enabled = !m_LightShow.IsEnabled();
+	m_LightShow.SetEnabled(enabled);
+	FG_INFO("Tetris: light show {0}", enabled ? "on" : "off");
+}
+
 
 void TetrisApp::SkipMusic(int delta)
 {
@@ -1062,6 +1079,20 @@ void TetrisApp::Run()
 		// nothing on screen to pause it.
 		m_Music.Update(GetBoard().GetManager().GetState());
 		SyncPreview(frameTime);
+
+		// The show answers the game: a line cleared is a flash of light.
+		// The impact is the board's, read here rather than invented here -
+		// the same event that shakes the camera lights the lamps.
+		const BoardView::Impact& impact = GetBoard().GetLastImpact();
+		if (impact.LinesCleared > 0)
+		{
+			const float strength = std::min(1.0f, 0.35f + 0.2f * static_cast<float>(impact.LinesCleared));
+			m_LightShow.Flash(strength);
+		}
+
+		// The show itself: the lamps over the playfield, one frame on.
+		m_LightShow.Update(frameTime);
+
 		if (!IsMinimized())
 		{
 			for (Forge::Layer* layer : GetLayerStack())
