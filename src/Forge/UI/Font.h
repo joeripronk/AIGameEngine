@@ -8,8 +8,6 @@
 
 namespace Forge {
 
-	class Texture;
-
 	// A typeface, rasterised into an atlas of glyphs.
 	//
 	// The glyphs are pixels with a coverage, so the text drawn from them is
@@ -51,9 +49,6 @@ namespace Forge {
 		[[nodiscard]] uint32_t GetWidth() const { return m_Width; }
 		[[nodiscard]] uint32_t GetHeight() const { return m_Height; }
 
-		// The atlas as a texture, uploaded the first time it is asked for.
-		[[nodiscard]] Ref<Texture> GetTexture();
-
 		// The glyph for a character. False for a character the font does
 		// not have.
 		[[nodiscard]] bool GetGlyph(char character, Glyph& out) const;
@@ -81,8 +76,6 @@ namespace Forge {
 		// The glyphs, indexed by the character minus the first one the
 		// atlas holds.
 		std::vector<Glyph> m_Glyphs;
-
-		Ref<Texture> m_Texture;
 	};
 
 }  // namespace Forge

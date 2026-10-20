@@ -44,6 +44,11 @@ namespace Forge {
 		// the material falls back to its albedo colour.
 		static Ref<Texture> GetAlbedoTexture(const std::string& path);
 
+		// The atlas of a typeface: one texture per font, uploaded once.
+		// The font holds the pixels and the renderer owns the GPU side of
+		// them - the font is engine core and the texture is the platform's.
+		static Ref<Texture> GetFontTexture(const Ref<class Font>& font);
+
 		static void BeginScene();
 		static void EndScene();
 

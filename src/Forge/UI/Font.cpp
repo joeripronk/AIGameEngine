@@ -3,7 +3,6 @@
 
 #include "Forge/Core/FileSystem.h"
 #include "Forge/Core/Log.h"
-#include "Forge/Renderer/Texture.h"
 
 // stb_truetype rasterises a typeface into bitmaps. The implementation is
 // compiled into this file only, so the header's own symbols stay local.
@@ -170,15 +169,6 @@ namespace Forge {
 				width += glyph.advance;
 		}
 		return width;
-	}
-
-	Ref<Texture> Font::GetTexture()
-	{
-		if (!m_Texture && m_Width > 0 && m_Height > 0)
-		{
-			m_Texture = Texture::Create(m_Width, m_Height, m_Pixels.data());
-		}
-		return m_Texture;
 	}
 
 }  // namespace Forge

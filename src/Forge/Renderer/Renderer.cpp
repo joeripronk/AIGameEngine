@@ -62,6 +62,9 @@ namespace Forge {
 
 		std::unordered_map<std::string, AlbedoCacheEntry> s_AlbedoTextureCache;
 
+		// The atlases of the typefaces, one texture per font.
+		std::unordered_map<const Font*, Ref<Texture>> s_FontTextures;
+
 		RendererStatistics s_Statistics;
 
 		// "No shadow camera this frame" is reported once per outage, not once per
@@ -562,7 +565,7 @@ namespace {
 				if (label.Font)
 				{
 					isText = true;
-					albedoTexture = label.Font->GetTexture();
+					albedoTexture = GetFontTexture(label.Font);
 				}
 			}
 
@@ -851,6 +854,30 @@ namespace {
 	float Renderer::GetRenderScale()
 	{
 		return s_RenderScale;
+	}
+
+	Ref<Texture> Renderer::GetFontTexture(const Ref<Font>& font)
+	{
+		// The atlas of a typeface: one texture per font, uploaded once. The
+		// font holds the pixels and the renderer owns the GPU side of them -
+		// the font is engine core and the texture is the platform's.
+		if (!font)
+			return nullptr;
+
+		auto it = s_FontTextures.find(font.get());
+		if (it != s_FontTextures.end())
+			return it->second;
+
+		if (font->GetWidth() == 0 || font->GetHeight() == 0)
+			return nullptr;
+
+		Ref<Texture> texture = Texture::Create(font->GetWidth(), font->GetHeight(),
+			const_cast<uint8_t*>(font->GetPixels().data()));
+		if (!texture)
+			return nullptr;
+
+		s_FontTextures[font.get()] = texture;
+		return texture;
 	}
 
 	Ref<Texture> Renderer::GetAlbedoTexture(const std::string& path)

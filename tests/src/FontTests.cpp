@@ -154,8 +154,9 @@ TEST_CASE("A label loads its typeface and builds its mesh from it", "[ui][font][
 	REQUIRE(label.MeshData);
 	REQUIRE(entity.GetComponent<MeshComponent>().CpuMeshData);
 
-	// And the atlas is a texture the renderer can bind.
-	REQUIRE(label.Font->GetTexture());
+	// And the atlas is the pixels the renderer turns into a texture.
+	REQUIRE(label.Font->GetWidth() > 0);
+	REQUIRE(label.Font->GetPixels().size() > 0);
 }
 
 TEST_CASE("A label with no typeface uses the engine's built-in font", "[ui][font][label]")
