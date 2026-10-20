@@ -352,6 +352,24 @@ That is why the tetris blocks are a painted plate (`kBlockMetallic = 0.35`,
 `kBlockRoughness = 0.45`) and not a mirror: the map has to reach the diffuse
 term to read as the block's own surface.
 
+### Tweening and easing
+
+The easing curves are the engine's, not a game's: the one game in the
+repository had its own, and a second game would have had a second copy.
+
+```cpp
+Forge::EvaluateCurve(Forge::TweenCurve::Quad, Forge::TweenEase::In, 0.5f);
+Forge::Tweens::Add(Forge::Tween(0.0f, 10.0f, 1.0f,
+    Forge::TweenCurve::Quad, Forge::TweenEase::Out,
+    [](float value) { /* write the value where it belongs */ }));
+```
+
+The curves are Godot's set, and they are pure functions of the point: the
+same point always gives the same value, which is what makes them testable
+and what makes a tween reproducible. The tween service runs them on the
+scene's clock, and a tween writes its value through a callback - so a
+tween cannot outlive the thing it moves.
+
 ### Animations
 
 An animation is a set of tracks: a property, a list of keyframes and how the

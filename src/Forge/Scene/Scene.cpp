@@ -4,6 +4,7 @@
 #include "Forge/Scene/Entity.h"
 
 #include "Forge/Scene/Components.h"
+#include "Forge/Core/Tween.h"
 
 #include <cmath>
 #include "Forge/Renderer/CpuMesh.h"
@@ -184,6 +185,10 @@ namespace Forge {
 			// moves an entity overrides the animation rather than the other
 			// way round.
 			UpdateAnimations(ts);
+
+			// The tweens run on the same clock: a tween is a movement that
+			// takes time, and the frame is what says how much time passed.
+			Tweens::Update(ts);
 
 			// Update scripts
 			{

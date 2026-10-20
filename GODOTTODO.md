@@ -83,7 +83,7 @@ needs to move things over time.
 - The evaluation maths is pure and unit-tested (interpolation, easing,
   sampling before the first and after the last keyframe).
 
-### 4. [ ] Tweening and easing (`Forge/Core/Tween.h`)
+### 4. [x] Tweening and easing (`Forge/Core/Tween.h`)
 
 **Godot has** `Tween` and `create_tween()`: a value interpolated towards a
 target over a duration, with an easing curve, delay, looping and chaining.

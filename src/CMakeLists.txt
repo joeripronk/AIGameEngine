@@ -45,6 +45,8 @@ target_sources(ForgeCore
         Forge/Core/Input.cpp
         Forge/Core/InputMap.h
         Forge/Core/InputMap.cpp
+        Forge/Core/Tween.h
+        Forge/Core/Tween.cpp
         Forge/Core/Layer.h
         Forge/Core/Layer.cpp
         Forge/Core/LayerStack.h
