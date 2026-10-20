@@ -1692,6 +1692,40 @@ component name and a field name, so `entity:SetFloat("BoxCollider", "Friction",
 - Override `OnCreate()`, `OnUpdate(Timestep)`, `OnDestroy()`
 - Bind via `NativeScriptComponent::Bind<T>()`
 
+### A native script is named, the way a Lua script is
+
+A Lua script is a file, so a scene can name one and the file is found when
+the scene runs. A native script is compiled in, so a scene can only name one
+that is **in the binary running it** - and the registry is where a name and
+a type meet:
+
+```cpp
+Forge::RegisterNativeScript<MyScript>("MyScript");   // in the binary that has it
+```
+
+```yaml
+NativeScriptComponent:
+  ClassName: "MyScript"
+```
+
+The name is what the scene holds; the registry is what the binary holds.
+`NativeScriptComponent::Resolve` looks the name up when the scene starts,
+and the script is created there - an entity that has a script has it from
+the first frame, and `OnCreate` sees the scene the way the author wrote it.
+
+**A name that is not registered leaves the component inert**, and the scene
+says so. The editor and a game are different binaries, so a scene can
+legitimately name a script the editor was not built with - and the entity is
+then an entity that does nothing, which is the honest answer rather than a
+crash or a silent nothing.
+
+A name that is taken keeps the type that answered for it: two types under
+one name would make the scene's name ambiguous.
+
+The engine ships one sample (`SampleMover`, registered as "Mover"), so the
+editor's play mode can show a native script running next to the Lua Mover
+doing the same thing.
+
 ### Hot reload
 
 Editing a `.lua` file while the game runs replaces the live behaviour

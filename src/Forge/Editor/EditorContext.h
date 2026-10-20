@@ -111,6 +111,16 @@ namespace Forge {
 		// engine uses, not a list duplicated in tooling.
 		std::vector<std::string> GetRegisteredComponentTypes() const;
 
+		// The native script an entity runs, by name.
+		//
+		// A scene names its native scripts the way it names its Lua ones,
+		// and this is how an agent says which one. The name is not checked
+		// against the registry: the editor and a game are different binaries,
+		// so a name the editor does not know is a name the game's binary
+		// does.
+		bool SetNativeScript(Entity entity, const std::string& name);
+		std::string GetNativeScript(Entity entity) const;
+
 		// Add / remove a component by its registered name. True means the
 		// component changed; false means nothing changed (unknown name, already
 		// present, already absent, or a structural component - which every

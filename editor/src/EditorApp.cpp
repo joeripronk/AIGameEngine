@@ -13,6 +13,7 @@
 #include "Forge/Project/Project.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scripting/ScriptEngine.h"
+#include "Forge/Scripting/NativeScriptRegistry.h"
 
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -241,9 +242,19 @@ namespace Forge {
 		rigidbody.Type = RigidbodyComponent::BodyType::Dynamic;
 		physics.AddComponent<BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
 
+		// Two movers, one in Lua and one in C++, so the play mode shows the
+		// two side by side: the same behaviour, and the same scene naming it.
 		auto scriptEntity = m_Editor.CreateEntity("ScriptEntity");
 		scriptEntity.GetComponent<TransformComponent>().Translation = { 4.0f, 0.5f, 0.0f };
 		scriptEntity.AddComponent<ScriptComponent>().ClassName = "Mover";
+		scriptEntity.AddComponent<MeshComponent>().ModelPath = "resources/models/cube.glb";
+
+		// A native script is named in the scene the way a Lua script is, and
+		// the play mode runs it.
+		auto nativeEntity = m_Editor.CreateEntity("NativeScriptEntity");
+		nativeEntity.GetComponent<TransformComponent>().Translation = { -4.0f, 0.5f, 0.0f };
+		nativeEntity.AddComponent<NativeScriptComponent>().ClassName = "Mover";
+		nativeEntity.AddComponent<MeshComponent>().ModelPath = "resources/models/cube.glb";
 
 		m_Editor.SelectEntity(cube);
 	}
@@ -1005,6 +1016,33 @@ namespace Forge {
 				entity.GetComponent<ScriptComponent>().ClassName = scriptBuffer;
 		}
 
+		if (entity.HasComponent<NativeScriptComponent>())
+		{
+			ImGui::Text("Native Script");
+			char nativeBuffer[128];
+			CopyToBuffer(nativeBuffer, sizeof(nativeBuffer), entity.GetComponent<NativeScriptComponent>().ClassName);
+			if (ImGui::InputText("Class Name##native", nativeBuffer, sizeof(nativeBuffer)))
+				entity.GetComponent<NativeScriptComponent>().ClassName = nativeBuffer;
+
+			// The scripts this binary knows. The editor and a game are
+			// different binaries, so this list is the editor's: a name that
+			// is not in it can still be typed, because the scene it is saved
+			// in is the game's, and the game's binary has it.
+			const auto nativeNames = Forge::NativeScriptRegistry::GetNames();
+			if (!nativeNames.empty())
+			{
+				if (ImGui::BeginCombo("##nativescript", entity.GetComponent<NativeScriptComponent>().ClassName.c_str()))
+				{
+					for (const auto& nativeName : nativeNames)
+					{
+						if (ImGui::Selectable(nativeName.c_str(), entity.GetComponent<NativeScriptComponent>().ClassName == nativeName))
+							entity.GetComponent<NativeScriptComponent>().ClassName = nativeName;
+					}
+					ImGui::EndCombo();
+				}
+			}
+		}
+
 		// The panel is done: whatever the edit changed is now a change that
 		// can be taken back.
 		m_Editor.CommitEntityEdit();
@@ -1051,6 +1089,22 @@ namespace Forge {
 			OfferAddComponent<EnvironmentMapComponent>(entity, "Environment Map");
 			OfferAddComponent<LabelComponent>(entity, "Label");
 			OfferAddComponent<MultiMeshComponent>(entity, "Multi Mesh");
+
+			// A native script is added by name, because a name is what a
+			// scene holds. The names are the scripts this binary has.
+			if (!entity.HasComponent<NativeScriptComponent>() && ImGui::BeginMenu("Native Script"))
+			{
+				const auto nativeNames = Forge::NativeScriptRegistry::GetNames();
+				if (nativeNames.empty())
+					ImGui::TextDisabled("No native scripts registered");
+
+				for (const auto& nativeName : nativeNames)
+				{
+					if (ImGui::MenuItem(nativeName.c_str()))
+						entity.AddComponent<NativeScriptComponent>().ClassName = nativeName;
+				}
+				ImGui::EndMenu();
+			}
 			ImGui::Separator();
 			OfferAddComponent<RigidbodyComponent>(entity, "Rigidbody");
 			OfferAddComponent<BoxColliderComponent>(entity, "Box Collider");
@@ -1070,6 +1124,7 @@ namespace Forge {
 			OfferRemoveComponent<EnvironmentMapComponent>(entity, "Environment Map");
 			OfferRemoveComponent<LabelComponent>(entity, "Label");
 			OfferRemoveComponent<MultiMeshComponent>(entity, "Multi Mesh");
+			OfferRemoveComponent<NativeScriptComponent>(entity, "Native Script");
 			ImGui::Separator();
 			OfferRemoveComponent<RigidbodyComponent>(entity, "Rigidbody");
 			OfferRemoveComponent<BoxColliderComponent>(entity, "Box Collider");

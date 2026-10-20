@@ -168,7 +168,8 @@ namespace Forge {
 				"SphereColliderComponent", "LightComponent",
 				"PBRMaterialComponent", "MeshComponent", "MultiMeshComponent",
 				"LabelComponent",
-				"EnvironmentMapComponent", "AudioSourceComponent"
+				"EnvironmentMapComponent", "AudioSourceComponent",
+				"NativeScriptComponent"
 			};
 
 			for (const char* component : kEntityComponents)
@@ -253,6 +254,15 @@ namespace Forge {
 			out << YAML::Key << "ScriptComponent";
 			out << YAML::BeginMap;
 			out << YAML::Key << "ClassName" << YAML::Value << scriptComponent.ClassName;
+			out << YAML::EndMap;
+		}
+
+		if (entity.HasComponent<NativeScriptComponent>())
+		{
+			auto& nativeScript = entity.GetComponent<NativeScriptComponent>();
+			out << YAML::Key << "NativeScriptComponent";
+			out << YAML::BeginMap;
+			out << YAML::Key << "ClassName" << YAML::Value << nativeScript.ClassName;
 			out << YAML::EndMap;
 		}
 
@@ -658,6 +668,9 @@ namespace Forge {
 		if (HasNode(entityNode, "ScriptComponent"))
 			deserializedEntity.AddOrReplaceComponent<ScriptComponent>().ClassName = GetString(entityNode["ScriptComponent"], "ClassName");
 
+		if (HasNode(entityNode, "NativeScriptComponent"))
+			deserializedEntity.AddOrReplaceComponent<NativeScriptComponent>().ClassName = GetString(entityNode["NativeScriptComponent"], "ClassName");
+
 		if (HasNode(entityNode, "RigidbodyComponent"))
 		{
 			auto& rb = deserializedEntity.AddOrReplaceComponent<RigidbodyComponent>();
@@ -908,6 +921,10 @@ namespace Forge {
 		// are written with it, so the reader knows how much to read.
 		constexpr uint32_t FlagAnimation = BIT(14);
 		constexpr uint32_t FlagMultiMesh = BIT(15);
+		// The native script's payload is its name, which is a string like the
+		// Lua script's - so it gets its own bit, and an old file simply has
+		// none of them set.
+		constexpr uint32_t FlagNativeScript = BIT(16);
 
 		uint32_t GetComponentFlags(Entity entity)
 		{
@@ -932,6 +949,7 @@ namespace Forge {
 				? FlagPBRAlbedoTexture : 0;
 			flags |= entity.HasComponent<AnimationComponent>() ? FlagAnimation : 0;
 			flags |= entity.HasComponent<MultiMeshComponent>() ? FlagMultiMesh : 0;
+			flags |= entity.HasComponent<NativeScriptComponent>() ? FlagNativeScript : 0;
 			return flags;
 		}
 
@@ -1001,6 +1019,9 @@ namespace Forge {
 
 			if (entity.HasComponent<ScriptComponent>())
 				WriteString(stream, entity.GetComponent<ScriptComponent>().ClassName);
+
+			if (entity.HasComponent<NativeScriptComponent>())
+				WriteString(stream, entity.GetComponent<NativeScriptComponent>().ClassName);
 
 			if (entity.HasComponent<RigidbodyComponent>())
 			{
@@ -1201,6 +1222,9 @@ namespace Forge {
 
 			if (flags & FlagScript)
 				ReadString(stream, entity.AddComponent<ScriptComponent>().ClassName);
+
+			if (flags & FlagNativeScript)
+				ReadString(stream, entity.AddComponent<NativeScriptComponent>().ClassName);
 
 			if (flags & FlagRigidbody)
 			{

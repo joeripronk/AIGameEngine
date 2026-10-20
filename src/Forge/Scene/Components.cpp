@@ -2,6 +2,7 @@
 #include "Forge/Scene/Components.h"
 
 #include "Forge/Core/RTTI.h"
+#include "Forge/Scripting/NativeScriptRegistry.h"
 
 namespace Forge {
 
@@ -49,6 +50,28 @@ namespace Forge {
 			return true;
 		}();
 		(void)s_Registered;
+	}
+
+	bool NativeScriptComponent::Resolve()
+	{
+		if (ClassName.empty())
+			return false;
+
+		// Already bound: the name is what the file holds and the binding is
+		// what the binary has, and a component that was bound explicitly
+		// keeps its binding.
+		if (InstantiateScript)
+			return true;
+
+		auto instantiate = NativeScriptRegistry::Find(ClassName);
+		auto destroy = NativeScriptRegistry::FindDestroy(ClassName);
+		if (!instantiate || !destroy)
+			return false;
+
+		InstantiateScript = instantiate;
+		DestroyScript = destroy;
+
+		return true;
 	}
 
 }  // namespace Forge

@@ -19,6 +19,12 @@ using Catch::Approx;
 #include "Forge/Scene/Entity.h"
 #include "Forge/Scene/Components.h"
 #include "Forge/Scripting/ScriptableEntity.h"
+#include "Forge/Scripting/NativeScriptRegistry.h"
+#include "Forge/Scene/SceneSerializer.h"
+#include "Forge/Editor/EditorContext.h"
+
+#include <algorithm>
+#include <filesystem>
 
 namespace {
 
@@ -69,6 +75,13 @@ namespace {
 	struct BindFixture
 	{
 		BindFixture() { g_Counters = Counters{}; }
+	};
+
+	// A second script, so a test can tell two registrations apart.
+	class OtherScript : public Forge::ScriptableEntity
+	{
+	public:
+		void OnCreate() override { g_Counters.Creates += 100; }
 	};
 
 } // namespace
@@ -197,4 +210,175 @@ TEST_CASE("Destroying an entity tears down its native script", "[scripting][nati
 
 	// Stopping must not destroy the same instance a second time.
 	REQUIRE(g_Counters.Destroys == 1);
+}
+
+// A native script is named, the way a Lua script is named.
+//
+// The name is what makes a native script something a scene can hold: a file
+// can hold a name, and a name can be looked up. Before this, the component
+// carried function pointers, so a scene could not say which script it meant
+// and the editor could not show one.
+
+TEST_CASE("A native script is named and the name resolves to its type", "[scripting][native]")
+{
+	Forge::Log::Init();
+	BindFixture reset;
+
+	REQUIRE(Forge::NativeScriptRegistry::Register("NamedScript",
+		[]() -> Forge::ScriptableEntity* { return new TestScript(); },
+		[](Forge::ScriptableEntity* instance) { delete static_cast<TestScript*>(instance); }));
+
+	Forge::Scene scene;
+
+	auto entity = scene.CreateEntity("Named");
+	entity.AddComponent<Forge::NativeScriptComponent>().ClassName = "NamedScript";
+
+	// The name is resolved when the scene starts, and the script is made
+	// there - an entity that has a script has it from the first frame.
+	REQUIRE_NOTHROW(scene.OnRuntimeStart());
+	REQUIRE(g_Counters.Creates == 1);
+	REQUIRE(g_Counters.SawValidEntityOnCreate == true);
+	REQUIRE(g_Counters.NameOnCreate == "Named");
+
+	REQUIRE_NOTHROW(scene.OnUpdateRuntime(Forge::Timestep(0.016f)));
+	REQUIRE(g_Counters.Updates == 1);
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStop());
+	REQUIRE(g_Counters.Destroys == 1);
+}
+
+TEST_CASE("A native script this binary does not have is inert", "[scripting][native]")
+{
+	Forge::Log::Init();
+	BindFixture reset;
+	Forge::Scene scene;
+
+	// The editor and a game are different binaries, so a scene can name a
+	// script the editor was not built with. The entity is then inert, and
+	// nothing crashes.
+	auto entity = scene.CreateEntity("Foreign");
+	entity.AddComponent<Forge::NativeScriptComponent>().ClassName = "SomeGamesScript";
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStart());
+	REQUIRE_NOTHROW(scene.OnUpdateRuntime(Forge::Timestep(0.016f)));
+	REQUIRE(g_Counters.Creates == 0);
+	REQUIRE(g_Counters.Updates == 0);
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStop());
+	REQUIRE(g_Counters.Destroys == 0);
+}
+
+TEST_CASE("A name that is taken keeps the type that answered for it", "[scripting][native]")
+{
+	Forge::Log::Init();
+
+	REQUIRE(Forge::NativeScriptRegistry::Register("TakenName",
+		[]() -> Forge::ScriptableEntity* { return new TestScript(); },
+		[](Forge::ScriptableEntity* instance) { delete static_cast<TestScript*>(instance); }));
+
+	// A second type under the same name is refused: two types under one name
+	// would make the scene's name ambiguous.
+	REQUIRE_FALSE(Forge::NativeScriptRegistry::Register("TakenName",
+		[]() -> Forge::ScriptableEntity* { return new OtherScript(); },
+		[](Forge::ScriptableEntity* instance) { delete static_cast<OtherScript*>(instance); }));
+
+	// And the original still stands.
+	REQUIRE(Forge::NativeScriptRegistry::Find("TakenName") != nullptr);
+	REQUIRE(Forge::NativeScriptRegistry::FindDestroy("TakenName") != nullptr);
+
+	// An unknown name is not known, rather than known and null.
+	REQUIRE(Forge::NativeScriptRegistry::Find("NeverRegistered") == nullptr);
+	REQUIRE(Forge::NativeScriptRegistry::FindDestroy("NeverRegistered") == nullptr);
+}
+
+TEST_CASE("The registered names are the ones that can be chosen", "[scripting][native]")
+{
+	Forge::Log::Init();
+
+	Forge::NativeScriptRegistry::Register("ListedName",
+		[]() -> Forge::ScriptableEntity* { return new TestScript(); },
+		[](Forge::ScriptableEntity* instance) { delete static_cast<TestScript*>(instance); });
+
+	const auto names = Forge::NativeScriptRegistry::GetNames();
+	REQUIRE(std::find(names.begin(), names.end(), std::string("ListedName")) != names.end());
+}
+
+TEST_CASE("A native script's name survives a scene round trip", "[scripting][native][serialization]")
+{
+	Forge::Log::Init();
+
+	std::error_code ec;
+	std::filesystem::create_directories("test_native_roundtrip", ec);
+	const std::string path = "test_native_roundtrip/native.forge";
+
+	{
+		Forge::Ref<Forge::Scene> scene = Forge::CreateRef<Forge::Scene>();
+		auto entity = scene->CreateEntity("Named");
+		entity.AddComponent<Forge::NativeScriptComponent>().ClassName = "NamedScript";
+
+		Forge::SceneSerializer serializer(scene);
+		REQUIRE(serializer.Serialize(path));
+	}
+
+	Forge::Ref<Forge::Scene> reloaded = Forge::CreateRef<Forge::Scene>();
+	Forge::SceneSerializer reader(reloaded);
+	REQUIRE(reader.Deserialize(path));
+
+	Forge::Entity entity = reloaded->FindEntityByName("Named");
+	REQUIRE(entity);
+	REQUIRE(entity.HasComponent<Forge::NativeScriptComponent>());
+	REQUIRE(entity.GetComponent<Forge::NativeScriptComponent>().ClassName == "NamedScript");
+
+	std::filesystem::remove(path);
+}
+
+TEST_CASE("An agent names a native script", "[scripting][native][editor]")
+{
+	Forge::Log::Init();
+
+	Forge::EditorContext editor;
+	auto entity = editor.CreateEntity("Runner");
+
+	REQUIRE(editor.GetNativeScript(entity).empty());
+	REQUIRE(editor.SetNativeScript(entity, "NamedScript"));
+	REQUIRE(editor.GetNativeScript(entity) == "NamedScript");
+	REQUIRE(entity.GetComponent<Forge::NativeScriptComponent>().ClassName == "NamedScript");
+}
+
+TEST_CASE("The engine's sample native script runs from a scene", "[scripting][native]")
+{
+	Forge::Log::Init();
+
+	// The scene's constructor registers the engine's own scripts, the way
+	// it registers the component types.
+	Forge::Scene scene;
+
+	auto entity = scene.CreateEntity("Mover");
+	entity.AddComponent<Forge::NativeScriptComponent>().ClassName = "Mover";
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStart());
+	REQUIRE_NOTHROW(scene.OnUpdateRuntime(Forge::Timestep(0.5f)));
+
+	// It walked along +X, the way the Lua Mover does.
+	REQUIRE(entity.GetComponent<Forge::TransformComponent>().Translation.x == Approx(0.5f));
+
+	REQUIRE_NOTHROW(scene.OnRuntimeStop());
+}
+
+TEST_CASE("The editor's play mode runs a native script", "[scripting][native][editor]")
+{
+	Forge::Log::Init();
+
+	// The editor's play mode is the scene's runtime, so a native script an
+	// author put in a scene runs there exactly as it does in a game.
+	Forge::EditorContext editor;
+	auto entity = editor.CreateEntity("Mover");
+	entity.AddComponent<Forge::NativeScriptComponent>().ClassName = "Mover";
+
+	editor.Play();
+	editor.Update(Forge::Timestep(0.5f));
+
+	REQUIRE(entity.GetComponent<Forge::TransformComponent>().Translation.x == Approx(0.5f));
+
+	editor.Stop();
 }

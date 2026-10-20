@@ -13,6 +13,7 @@
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scripting/ScriptableEntity.h"
 #include "Forge/Scripting/ScriptEngine.h"
+#include "Forge/Scripting/SampleScripts.h"
 #include "Forge/Physics/Physics.h"
 #include "Forge/Audio/AudioEngine.h"
 
@@ -36,6 +37,11 @@ namespace Forge {
 		// the component registry is guaranteed to be populated - by use, not
 		// by hoping a static initialiser survives the static-library link.
 		RegisterEngineComponentTypes();
+
+		// The native scripts the engine ships, for the same reason: the
+		// scene is what every consumer of a script builds, so this is where
+		// the registry is guaranteed to be populated.
+		RegisterEngineNativeScripts();
 	}
 
 	Scene::~Scene()
@@ -75,7 +81,7 @@ namespace Forge {
 				nsc->Instance->OnDestroy();
 
 				if (nsc->DestroyScript)
-					nsc->DestroyScript(nsc);
+					nsc->DestroyScript(nsc->Instance);
 
 				nsc->Instance = nullptr;
 			}
@@ -103,7 +109,7 @@ namespace Forge {
 			nsc.Instance->OnDestroy();
 
 			if (nsc.DestroyScript)
-				nsc.DestroyScript(&nsc);
+				nsc.DestroyScript(nsc.Instance);
 
 			// Cleared, not just destroyed: the component survives a stop/start
 			// cycle, and a stale Instance would be dereferenced on the next run.
@@ -149,6 +155,45 @@ namespace Forge {
 
 		// Scripting: ScriptEngine loads each entity's script and calls OnCreate.
 		ScriptEngine::OnRuntimeStart(this);
+
+		// The native scripts are created here too, and for the same reason: an
+		// entity that has a script has it from the first frame, and OnCreate
+		// sees the scene the way the author wrote it.
+		CreateNativeScriptInstances();
+	}
+
+	void Scene::CreateNativeScriptInstances()
+	{
+		for (auto e : m_Registry.view<NativeScriptComponent>())
+		{
+			auto& nsc = m_Registry.get<NativeScriptComponent>(e);
+
+			if (nsc.Instance)
+				continue;
+
+			// A script this binary does not have cannot run. The editor and a
+			// game are different binaries, so a scene can legitimately name a
+			// script the editor was not built with - and the author needs to
+			// know that the entity is inert rather than watching it do
+			// nothing.
+			if (!nsc.Resolve())
+			{
+				if (!nsc.ClassName.empty())
+					FG_CORE_WARN("Scene: the native script '{0}' is not registered in this binary", nsc.ClassName);
+				continue;
+			}
+
+			nsc.Instance = nsc.InstantiateScript();
+			if (!nsc.Instance)
+				continue;
+
+			// Copied into the instance rather than pointed at: the wrapper
+			// built here is a temporary of this loop, so a pointer to it
+			// would dangle before the next update.
+			Entity owner = { e, this };
+			nsc.Instance->SetEntity(owner);
+			nsc.Instance->OnCreate();
+		}
 	}
 
 	void Scene::OnRuntimeStop()
@@ -220,8 +265,10 @@ namespace Forge {
 						// An unbound component has no factory, and calling through a
 						// null function pointer would jump to nothing. An unbound
 						// native script is inert rather than fatal, matching an
-						// AudioSource with no clip.
-						if (!nsc.InstantiateScript)
+						// AudioSource with no clip. A named one is resolved here,
+						// so a component added while the scene runs works the
+						// same way as one the scene started with.
+						if (!nsc.InstantiateScript && !nsc.Resolve())
 							continue;
 
 						nsc.Instance = nsc.InstantiateScript();

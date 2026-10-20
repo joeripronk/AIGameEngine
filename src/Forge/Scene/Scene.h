@@ -188,6 +188,13 @@ namespace Forge {
 		// from DestroyEntity for the entity being destroyed.
 		void DestroyNativeScriptInstances();
 
+		// Creates the native scripts the scene's entities name.
+		//
+		// A native script is created when the scene starts, the way a Lua
+		// script is: an entity that has a script has it from the first
+		// frame, and OnCreate sees the scene the way the author wrote it.
+		void CreateNativeScriptInstances();
+
 		// Bridges a raw PhysicsBody pair to the owning entities and dispatches to
 		// any registered Scene-level handlers. Static for the callback signature;
 		// the active Scene is tracked in s_CollisionDispatchScene.

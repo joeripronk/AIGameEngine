@@ -126,6 +126,10 @@ target_sources(ForgeCore
         Forge/Scripting/ScriptEngine.cpp
         Forge/Scripting/ScriptableEntity.h
         Forge/Scripting/ScriptableEntity.cpp
+        Forge/Scripting/NativeScriptRegistry.h
+        Forge/Scripting/NativeScriptRegistry.cpp
+        Forge/Scripting/SampleScripts.h
+        Forge/Scripting/SampleScripts.cpp
         Forge/Audio/AudioEngine.h
         Forge/Audio/AudioEngine.cpp
         Forge/Audio/ReverbProcessor.h

@@ -109,19 +109,39 @@ namespace Forge {
 		ScriptComponent(const ScriptComponent&) = default;
 	};
 
+	// A native script is C++ code that belongs to an entity.
+	//
+	// The name is what a scene holds, the way a Lua script is named: a file
+	// can hold a name, and a name can be looked up. A function pointer is
+	// neither, which is why this component could not be serialized before -
+	// a scene could not say which script it meant, so it could not say it
+	// at all.
 	struct NativeScriptComponent
 	{
+		// The name of the script, resolved through the native script
+		// registry. A name that is not registered leaves the component
+		// inert: the scene says so rather than calling through nothing.
+		std::string ClassName;
+
 		class ScriptableEntity* Instance = nullptr;
 
 		ScriptableEntity*(*InstantiateScript)();
-		void (*DestroyScript)(NativeScriptComponent*);
+		void (*DestroyScript)(ScriptableEntity*);
 
 		template<typename T>
 		void Bind()
 		{
 			InstantiateScript = []() { return static_cast<ScriptableEntity*>(new T()); };
-			DestroyScript = [](NativeScriptComponent* nsc) { delete nsc->Instance; nsc->Instance = nullptr; };
+			DestroyScript = [](ScriptableEntity* instance) { delete static_cast<T*>(instance); };
 		}
+
+		// Binds the named script to its type.
+		//
+		// Reports whether the name is known: a scene that names a script the
+		// binary does not have is a scene that cannot run that script, and
+		// saying so is the difference between a broken scene and a scene
+		// that asks for a game this binary was not built with.
+		bool Resolve();
 	};
 
 	// Physics

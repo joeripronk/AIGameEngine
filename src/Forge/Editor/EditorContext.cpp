@@ -385,6 +385,26 @@ namespace Forge {
 		m_UndoStack.Push(std::move(command));
 	}
 
+	bool EditorContext::SetNativeScript(Entity entity, const std::string& name)
+	{
+		if (!entity)
+			return false;
+
+		BeginEntityEdit(entity);
+		entity.AddOrReplaceComponent<NativeScriptComponent>().ClassName = name;
+		CommitEntityEdit();
+
+		return true;
+	}
+
+	std::string EditorContext::GetNativeScript(Entity entity) const
+	{
+		if (!entity || !entity.HasComponent<NativeScriptComponent>())
+			return std::string();
+
+		return entity.GetComponent<NativeScriptComponent>().ClassName;
+	}
+
 	void EditorContext::BeginEntityEdit(Entity entity)
 	{
 		m_EditingEntity = entity;
