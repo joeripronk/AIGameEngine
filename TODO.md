@@ -299,6 +299,12 @@ across Debug/Release/Dist and clean under ASan+UBSan)
       primary camera's frustum corners; culled entities counted, not drawn)
 - [x] Renderer draw statistics (`RendererStatistics`: draw calls, triangles
       submitted, textures bound, frustum-culled) read from the real draw loop
+- [x] Point lights (`LightComponent::Type::Point`): up to eight lamps per
+      frame, read from the scene's lights and uploaded in the frame's uniform
+      buffer, shaded in `pbr.frag` with the classic distance falloff. A
+      scene with more lamps than the shader can take keeps the brightest
+      (`Forge::SelectPointLights`, unit-tested); the lamps do not cast
+      shadows
 
 ### Editor (AI-controllable)
 - [x] Headless EditorContext (scene, selection, play/pause/step, gizmo, save/load)

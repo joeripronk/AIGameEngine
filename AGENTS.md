@@ -1103,6 +1103,35 @@ close the renderer's command list from inside `OnUpdateRuntime` — a second
 the application calls `Renderer::RenderScene`, and the simulation touches no
 renderer state at all.
 
+### Lamps
+
+The engine has one key light — a directional light, the sun, which lights
+everything at once and is the one the shadow map is built from — and up to
+**eight point lights**: lamps that light what is near them and fall off with
+distance. A scene's lamps are the entities with a `LightComponent` of type
+`Point`; their position is their transform's.
+
+The lamps travel in the frame's uniform buffer, so the count is fixed and
+the engine has to decide which ones a frame is drawn with:
+`Forge::SelectPointLights` keeps the **brightest** (a stable sort, so two
+lamps of the same brightness do not swap places from frame to frame and the
+scene does not flicker between two arrangements of the same show). It is a
+pure function and it is unit-tested, and the collection itself
+(`Forge::CollectPointLights`) lives in the headless core so a test can
+build a scene and ask what it lights.
+
+The shading is in `pbr.frag` and nowhere else: a lamp that does not shade
+the surface does not light it. The falloff is the classic one —
+`1 / (constant + linear * d + quadratic * d²)` — and the three numbers
+travel with the lamp. The lamps cast no shadows; the key light's map is the
+only one.
+
+**The uniform block grew, so the C++ payload grew with it.** `CameraData`
+mirrors `pbr.frag`'s block byte for byte, and its `static_assert` is what
+says so: the arrays of point lights are part of the block, and a payload
+that is 208 bytes where the shader reads 608 is a shader reading the
+middle of another member.
+
 ### Shader Types
 
 - **PBR Shader**: Main mesh rendering with PBR materials
@@ -1398,6 +1427,7 @@ The dependency arrows only point one way:
 ```
 TetrisManager      → GLM only. The rules.
 TetrisBoardView    → Forge::Scene. Mirrors the rules into entities.
+TetrisLightShow    → Forge::Scene. The lamps over the playfield, and the show.
 TetrisInputLayer   → Forge events. Maps key codes to actions.
 TetrisMusicTrack   → nothing. The melody, the synth and the tempo curve.
 TetrisMusic        → Forge::Audio. Plays the music playlist; the rules never hear it.
@@ -1427,6 +1457,28 @@ Concretely, that means:
 ./run-tetris.sh
 ./build-tetris/bin/ForgeTetris
 ```
+
+### The light show
+
+The playfield is dressed with a rig of coloured lamps: real point lights in
+the scene, hanging across the top of the board and in front of it, whose
+colours walk the spectrum. **L** turns the show on and off.
+
+The lamps are *content*, so the scene carries them (`ShowLight_0` ...
+`ShowLight_5` in `resources/scenes/Tetris.forge`) and the editor shows them
+like anything else; the show itself - the colours, the movement - is the
+game's, and it drives the scene's lamps when the game runs.
+
+The show is a **pure function of the clock** (`Tetris::LightShow::SampleAt`),
+so it is the same every run, it can be asserted on without a window, and the
+game's test target can hold it to that. It answers the game as well: a line
+cleared is a flash, read from the board's own impact - the same event that
+shakes the camera lights the lamps.
+
+A lamp behind the playfield would light the backs of the blocks, and the
+camera sees the fronts, so the rig hangs in front of the board - and the
+flat view keeps a strip of headroom for it, because a lamp cut in half by
+the frame's edge is a lamp the player cannot see.
 
 ## Audio System
 
