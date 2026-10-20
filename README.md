@@ -193,6 +193,7 @@ cd build/bin
 
 - `FG_ENV_MAP=/path/to/hdri.exr` — override the environment map used for IBL.
 - `FG_CAPTURE_PATH=/tmp/frame.ppm` — have the runtime write out a frame instead of opening a window.
+- `FG_RESIZE_TO=1900x1040` — ask the window to change shape a few frames in (the editor and the game). There is no window manager to drag the window with on a headless machine, and the resize path is the thing that has to work.
 
 If the runtime cannot load the requested scene it logs an error and falls back to a built-in scene rather than exiting.
 

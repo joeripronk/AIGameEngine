@@ -131,15 +131,33 @@ namespace Forge {
 			return false;
 		}
 
-		// The backend keeps the colour-attachment format pointer alive for the
-		// lifetime of the UI, so the state block outlives this function.
+		if (!BindVulkanBackend(Renderer::GetSwapchainImageCount()))
+		{
+			ImGui_ImplGlfw_Shutdown();
+			ImGui::DestroyContext();
+			m_HasContext = false;
+			return false;
+		}
+
+		m_Ready = true;
+		return true;
+#else
+		(void)nativeWindow;
+		FG_CORE_INFO("ImGuiLayer: headless build; context only, overlay inert");
+		return false;
+#endif
+	}
+
+#ifndef FG_NO_VULKAN_RUNTIME
+
+	bool ImGuiLayer::BindVulkanBackend(uint32_t imageCount)
+	{
+		// The backend keeps the colour-attachment format pointer alive for
+		// the lifetime of the UI, so the state block outlives this function.
 		auto* state = new (std::nothrow) VulkanBackendState();
 		if (!state)
 		{
 			FG_CORE_ERROR("ImGuiLayer: out of memory for the Vulkan backend init info");
-			ImGui_ImplGlfw_Shutdown();
-			ImGui::DestroyContext();
-			m_HasContext = false;
 			return false;
 		}
 
@@ -157,8 +175,8 @@ namespace Forge {
 		initInfo.DescriptorPool = VK_NULL_HANDLE;
 		initInfo.DescriptorPoolSize = 256;
 		initInfo.Allocator = nullptr;
-		initInfo.MinImageCount = Renderer::GetSwapchainImageCount();
-		initInfo.ImageCount = Renderer::GetSwapchainImageCount();
+		initInfo.MinImageCount = imageCount;
+		initInfo.ImageCount = imageCount;
 		initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
 		// The overlay draws into the present render pass, which the engine
 		// leaves open for it: BeginFinalPass opens the pass, the overlay
@@ -185,21 +203,26 @@ namespace Forge {
 		{
 			FG_CORE_WARN("ImGuiLayer: Vulkan backend init failed; overlay disabled");
 			delete state;
-			ImGui_ImplGlfw_Shutdown();
-			ImGui::DestroyContext();
-			m_HasContext = false;
 			return false;
 		}
 
 		m_VulkanInitInfo = state;
-		m_Ready = true;
+		m_BackendImageCount = imageCount;
 		return true;
-#else
-		(void)nativeWindow;
-		FG_CORE_INFO("ImGuiLayer: headless build; context only, overlay inert");
-		return false;
-#endif
 	}
+
+	void ImGuiLayer::UnbindVulkanBackend()
+	{
+		if (!m_VulkanInitInfo)
+			return;
+
+		ImGui_ImplVulkan_Shutdown();
+		delete static_cast<VulkanBackendState*>(m_VulkanInitInfo);
+		m_VulkanInitInfo = nullptr;
+		m_BackendImageCount = 0;
+	}
+
+#endif // FG_NO_VULKAN_RUNTIME
 
 	void ImGuiLayer::OnDetach()
 	{
@@ -207,11 +230,8 @@ namespace Forge {
 			return;
 
 #ifndef FG_NO_VULKAN_RUNTIME
-		if (m_Ready)
-			ImGui_ImplVulkan_Shutdown();
+		UnbindVulkanBackend();
 		ImGui_ImplGlfw_Shutdown();
-		delete static_cast<VulkanBackendState*>(m_VulkanInitInfo);
-		m_VulkanInitInfo = nullptr;
 #endif
 
 		ImGui::DestroyContext();
@@ -225,6 +245,26 @@ namespace Forge {
 			return;
 
 #ifndef FG_NO_VULKAN_RUNTIME
+		// The swapchain is rebuilt when the window changes shape, and the
+		// rebuilt swapchain can have a different number of images. The
+		// backend sized its vertex buffers and its descriptor pool for the
+		// count it was given, so it is bound again when the count changes:
+		// a frame still in flight that reuses a buffer the backend has
+		// already written is a torn overlay.
+		const uint32_t imageCount = Renderer::GetSwapchainImageCount();
+		if (imageCount != 0 && imageCount != m_BackendImageCount)
+		{
+			FG_CORE_INFO("ImGuiLayer: the swapchain now has {0} images (was {1}); rebinding the overlay",
+				imageCount, m_BackendImageCount);
+			UnbindVulkanBackend();
+			if (!BindVulkanBackend(imageCount))
+			{
+				FG_CORE_WARN("ImGuiLayer: the overlay could not be rebound; it is off until the next resize");
+				m_Ready = false;
+				return;
+			}
+		}
+
 		ImGui_ImplGlfw_NewFrame();
 		ImGui_ImplVulkan_NewFrame();
 #endif

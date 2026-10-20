@@ -159,3 +159,18 @@ add_test(NAME ForgeTetrisTests COMMAND ForgeTetrisTests)
 set_tests_properties(ForgeTetrisTests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 )
+
+# The resize integration check: the game resizes its own window and the
+# frame it captures afterwards has to be the new size. The unit tests cannot
+# answer that - it needs a real swapchain and a real presentation - and it
+# is the check that would have caught the renderer keeping the size the
+# window started at, which is what the game did on Linux.
+#
+# The script skips gracefully where no window is possible, so it is CI-safe.
+add_test(NAME ResizeCheck
+    COMMAND bash "${CMAKE_SOURCE_DIR}/tests/integration/resize_check.sh" "$<TARGET_FILE:ForgeTetris>"
+)
+set_tests_properties(ResizeCheck PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    TIMEOUT 300
+)

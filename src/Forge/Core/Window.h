@@ -34,6 +34,18 @@ namespace Forge {
 		virtual uint32_t GetWidth() const = 0;
 		virtual uint32_t GetHeight() const = 0;
 
+		// The window's size in pixels - the framebuffer, which on a scaled
+		// display is not the window's size in points. The presentation
+		// surface is this size, so everything that draws into the window
+		// works in these units.
+		virtual uint32_t GetFramebufferWidth() const = 0;
+		virtual uint32_t GetFramebufferHeight() const = 0;
+
+		// Ask the platform to resize the window. The request is
+		// asynchronous: the platform answers with a resize event once the
+		// new size is in effect, and nothing is resized until it is.
+		virtual void SetSize(uint32_t width, uint32_t height) = 0;
+
 		// Window attributes
 		virtual void SetEventCallback(const EventCallbackFn& callback) = 0;
 		virtual void SetVSync(bool enabled) = 0;

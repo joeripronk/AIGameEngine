@@ -26,6 +26,8 @@ namespace Forge {
 		m_Data.Title = props.Title;
 		m_Data.Width = props.Width;
 		m_Data.Height = props.Height;
+		m_Data.FramebufferWidth = props.Width;
+		m_Data.FramebufferHeight = props.Height;
 
 		FG_CORE_INFO("Creating window {0} ({1}, {2})", m_Data.Title, m_Data.Width, m_Data.Height);
 
@@ -64,6 +66,21 @@ namespace Forge {
 
 		glfwSetWindowUserPointer(m_Window, &m_Data);
 
+		// The framebuffer size is the window's size in pixels, which is not
+		// the size the window was asked for on a scaled display: a 1600x900
+		// window on a 150% display has a 2400x1350 framebuffer. It is read
+		// once here and then kept up to date by the callbacks below.
+		{
+			int fbWidth = 0;
+			int fbHeight = 0;
+			glfwGetFramebufferSize(m_Window, &fbWidth, &fbHeight);
+			if (fbWidth > 0 && fbHeight > 0)
+			{
+				m_Data.FramebufferWidth = (uint32_t)fbWidth;
+				m_Data.FramebufferHeight = (uint32_t)fbHeight;
+			}
+		}
+
 		// Set up GLFW callbacks
 		glfwSetWindowCloseCallback(m_Window, [](GLFWwindow* window)
 		{
@@ -72,12 +89,47 @@ namespace Forge {
 			data.EventCallback(event);
 		});
 
+		// The resize event carries both sizes: the window's size in points,
+		// which is what the UI lays itself out in, and the framebuffer's
+		// size in pixels, which is what is presented. On an unscaled display
+		// they are the same number; on a scaled one they are not, and
+		// drawing one in the other's units is how the overlay ends up
+		// oversized.
 		glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
 		{
 			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
 			data.Width = width;
 			data.Height = height;
-			WindowResizeEvent event((uint32_t)width, (uint32_t)height);
+
+			int fbWidth = 0;
+			int fbHeight = 0;
+			glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+			if (fbWidth > 0 && fbHeight > 0)
+			{
+				data.FramebufferWidth = (uint32_t)fbWidth;
+				data.FramebufferHeight = (uint32_t)fbHeight;
+			}
+
+			WindowResizeEvent event((uint32_t)width, (uint32_t)height,
+				data.FramebufferWidth, data.FramebufferHeight);
+			data.EventCallback(event);
+		});
+
+		// The framebuffer can change without the window changing: a display
+		// with a different scale, or a compositor that changed the scale
+		// factor, changes the pixels and not the points. The size callback
+		// does not fire for that, so the framebuffer callback carries it.
+		glfwSetFramebufferSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			if (width <= 0 || height <= 0)
+				return;  // minimised: there is no framebuffer to size
+
+			data.FramebufferWidth = (uint32_t)width;
+			data.FramebufferHeight = (uint32_t)height;
+
+			WindowResizeEvent event(data.Width, data.Height,
+				data.FramebufferWidth, data.FramebufferHeight);
 			data.EventCallback(event);
 		});
 
@@ -197,6 +249,20 @@ namespace Forge {
 		// Vulkan surface, vsync is configured through the presentation mode
 		// chosen at swapchain creation, so we only record the preference here.
 		m_Data.VSync = enabled;
+	}
+
+	void VulkanWindow::SetSize(uint32_t width, uint32_t height)
+	{
+		if (!m_Window || width == 0 || height == 0)
+			return;
+
+		// The request is asynchronous: the platform resizes the window and
+		// answers with a resize event, and the renderer rebuilds its
+		// presentation targets from that event. Nothing here changes the
+		// recorded size - a request that the window manager refuses must
+		// not leave the engine believing the window is the size that was
+		// asked for.
+		glfwSetWindowSize(m_Window, (int)width, (int)height);
 	}
 
 }

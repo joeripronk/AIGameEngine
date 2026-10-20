@@ -828,6 +828,49 @@ A dynamic-rendering pipeline is not: it may only be used inside a
 could not even be created - the device had no `dynamicRendering` feature
 enabled - and the overlay's panels did not draw.
 
+### The window resize contract
+
+A window changes shape at any time - a drag, a maximise, a monitor change -
+and the frame has to follow it. Three rules, each of which was a bug:
+
+**The renderer works in pixels, not in points.** A window's size in points
+and its size in pixels are different numbers on a scaled display: a
+1600x900 window on a 150% display has a 2400x1350 framebuffer. The
+presentation surface is the framebuffer, so the swapchain, the render
+targets and the camera's aspect ratio are all in pixels
+(`Window::GetFramebufferWidth`). The overlay is the exception: ImGui lays
+itself out in points and scales its own output, so the overlay and the
+scene must agree on the *image* they are drawn into - which is why the
+swapchain is built at the framebuffer's size and not at the window's.
+
+**The swapchain's extent is the size that was asked for.** Not the
+surface's `currentExtent`. On X11 the current extent is the window's size,
+which is what was asked for anyway; on Wayland it is the size of the
+buffer the application last presented, so taking it would make every
+rebuild produce the swapchain that already exists - a resize would never
+take effect. `ComputeSwapchainExtent` is the rule, and it is unit-tested.
+
+**A present may set the "rebuild the swapchain" flag, never clear it.**
+This is the one that cost the game its window. The flag is set when the
+resize event arrives; the rebuild is deferred by one frame (a size that
+has not settled is not worth rebuilding a hundred megabyte of targets
+for); and the present at the end of that frame overwrote the flag with
+"the swapchain is fine" - which on X11 it is, because the X11
+presentation path does not report a resize. The flag was then false when
+the rebuild came round, the swapchain stayed at the size it started at,
+and the window showed the old image in the corner with the rest of it
+black - while the overlay, which had already been told about the new
+size, was drawn at the new scale and spilled out of the image it was
+drawn into. The renderer now compares the swapchain's own extent with the
+window's size as well, so the fact that disagrees with the window is
+rebuilt whatever the flag says.
+
+`tests/integration/resize_check.sh` (a `ResizeCheck` ctest) is the check
+that would have caught it: the game resizes its own window (`FG_RESIZE_TO`)
+and the frame it captures afterwards has to be the new size, with the new
+part of it drawn rather than black. It skips gracefully where no window is
+possible, so it is CI-safe.
+
 ## Build Configurations
 
 Three configurations, all of which must build and pass the full suite:

@@ -18,6 +18,11 @@ namespace Forge {
 		uint32_t GetWidth() const override { return m_Data.Width; }
 		uint32_t GetHeight() const override { return m_Data.Height; }
 
+		uint32_t GetFramebufferWidth() const override { return m_Data.FramebufferWidth; }
+		uint32_t GetFramebufferHeight() const override { return m_Data.FramebufferHeight; }
+
+		void SetSize(uint32_t width, uint32_t height) override;
+
 		void SetEventCallback(const EventCallbackFn& callback) override { m_Data.EventCallback = callback; }
 		void SetVSync(bool enabled) override;
 		bool IsVSync() const override { return m_Data.VSync; }
@@ -40,6 +45,12 @@ namespace Forge {
 			std::string Title;
 			uint32_t Width;
 			uint32_t Height;
+			// The window's size in pixels. It is not the width and height
+			// above: on a scaled display the window is measured in points and
+			// the framebuffer - the thing that is actually presented - is
+			// measured in pixels.
+			uint32_t FramebufferWidth;
+			uint32_t FramebufferHeight;
 			bool VSync = true;
 			EventCallbackFn EventCallback;
 			double ScrollOffsetX = 0.0;

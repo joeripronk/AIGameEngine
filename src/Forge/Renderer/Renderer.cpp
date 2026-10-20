@@ -161,6 +161,16 @@ namespace {
 		{
 			s_Width = s_InitialWidth;
 			s_Height = s_InitialHeight;
+
+			// The window's size is known before any resize event arrives:
+			// the swapchain is built at it. Recording it here is what lets
+			// the renderer compare the swapchain's own extent with the
+			// window's size instead of trusting a flag that a present can
+			// clear.
+			s_WindowWidth = s_Width;
+			s_WindowHeight = s_Height;
+			s_SettledWidth = s_Width;
+			s_SettledHeight = s_Height;
 		}
 
 		if (void* windowHandle = GetActiveWindowHandle())
@@ -672,6 +682,12 @@ namespace {
 		// window's old size: the frame size was only corrected when a
 		// swapchain happened to fail, and a driver that keeps handing out the
 		// old images never fails.
+		//
+		// The size is in pixels - the framebuffer's, which is the size of the
+		// image that is presented. On a scaled display it is not the window's
+		// size in points, and building the targets at the point size is what
+		// left the overlay drawn at the wrong scale and spilling out of the
+		// window it was drawn into.
 		if (width == 0 || height == 0)
 			return;
 
@@ -722,7 +738,18 @@ namespace {
 		// the same picture without the churn.
 		const bool sizeSettled = s_WindowWidth == s_SettledWidth &&
 			s_WindowHeight == s_SettledHeight;
-		if (s_SwapchainNeedsRecreate && sizeSettled)
+
+		// A swapchain that is not the size the window is draws the frame
+		// into a corner of the window with the rest of it black, so the size
+		// is checked against the swapchain itself as well as against the
+		// flag. The flag records that a resize arrived; the swapchain's own
+		// extent is the fact, and a fact that disagrees with the window is
+		// rebuilt whatever the flag says.
+		const bool swapchainIsWrongSize =
+			renderer.GetPresentWidth() != s_WindowWidth ||
+			renderer.GetPresentHeight() != s_WindowHeight;
+
+		if ((s_SwapchainNeedsRecreate || swapchainIsWrongSize) && sizeSettled)
 		{
 			s_SwapchainNeedsRecreate = false;
 			if (renderer.RecreateSwapchain(s_WindowWidth, s_WindowHeight))
@@ -764,7 +791,21 @@ namespace {
 		}
 
 		Vulkan::VkRenderer::Get().EndFrame(imageIndex);
-		s_SwapchainNeedsRecreate = Vulkan::VkRenderer::Get().SwapchainNeedsRebuild();
+
+		// The present can say that the swapchain has gone out of date - the
+		// surface moved under it. That sets the flag; it never clears it.
+		//
+		// Assigning the present's answer to the flag threw a resize away:
+		// the flag was set when the resize event arrived, the rebuild was
+		// deferred by one frame (a size that has not settled is not worth
+		// rebuilding for), and the present at the end of that frame
+		// overwrote the flag with "the swapchain is fine" - which on X11 it
+		// is, because the X11 presentation path does not notice a resize.
+		// The flag was then false when the rebuild came round, the
+		// swapchain stayed at the size it started at, and the window showed
+		// the old image in the corner with the rest of it black.
+		if (Vulkan::VkRenderer::Get().SwapchainNeedsRebuild())
+			s_SwapchainNeedsRecreate = true;
 	}
 
 	void Renderer::BeginShadowPass(class Scene* scene, const glm::mat4& shadowViewProjection)

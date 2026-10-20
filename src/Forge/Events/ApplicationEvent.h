@@ -7,16 +7,31 @@ namespace Forge {
 	class WindowResizeEvent : public Event
 	{
 	public:
-		WindowResizeEvent(unsigned int width, unsigned int height)
-			: m_Width(width), m_Height(height) {}
+		// The window's size in points and its size in pixels. The two are
+		// the same number on an unscaled display and different numbers on a
+		// scaled one: a 1600x900 window on a 150% display has a 2400x1350
+		// framebuffer, and the framebuffer is what is presented.
+		//
+		// The pixel size defaults to the window size, so an event raised
+		// without one still describes a window that is its own size.
+		WindowResizeEvent(unsigned int width, unsigned int height,
+			unsigned int framebufferWidth = 0, unsigned int framebufferHeight = 0)
+			: m_Width(width), m_Height(height),
+			  m_FramebufferWidth(framebufferWidth != 0 ? framebufferWidth : width),
+			  m_FramebufferHeight(framebufferHeight != 0 ? framebufferHeight : height) {}
 
 		unsigned int GetWidth() const { return m_Width; }
 		unsigned int GetHeight() const { return m_Height; }
+
+		unsigned int GetFramebufferWidth() const { return m_FramebufferWidth; }
+		unsigned int GetFramebufferHeight() const { return m_FramebufferHeight; }
 
 		std::string ToString() const override
 		{
 			std::stringstream ss;
 			ss << "WindowResizeEvent: " << m_Width << ", " << m_Height;
+			if (m_FramebufferWidth != m_Width || m_FramebufferHeight != m_Height)
+				ss << " (framebuffer " << m_FramebufferWidth << ", " << m_FramebufferHeight << ")";
 			return ss.str();
 		}
 
@@ -24,6 +39,7 @@ namespace Forge {
 		FG_EVENT_CLASS_CATEGORY(EventCategoryApplication)
 	private:
 		unsigned int m_Width, m_Height;
+		unsigned int m_FramebufferWidth, m_FramebufferHeight;
 	};
 
 	class WindowCloseEvent : public Event

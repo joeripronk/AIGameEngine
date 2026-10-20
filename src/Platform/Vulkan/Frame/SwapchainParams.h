@@ -26,6 +26,24 @@ namespace Forge { namespace Vulkan {
 // when the surface caps it (0 = uncapped).
 [[nodiscard]] uint32_t ComputeMinImageCount(VkPresentModeKHR presentMode, uint32_t minImageCount, uint32_t maxImageCount);
 
+// The extent of the swapchain: the size the application asked for, clamped
+// to what the surface allows.
+//
+// The surface's current extent is NOT the answer, and taking it is what
+// froze the window at the size it started at. On X11 the current extent is
+// the window's size, which is what the application asked for anyway; on
+// Wayland it is the size of the buffer the application last presented, so
+// taking it would make every rebuild produce the swapchain that already
+// exists - a resize would never take effect, the scene would keep
+// rendering into the old targets, and everything outside the old size
+// would stay black.
+//
+// The current extent is the fallback for a request that says nothing: a
+// surface whose size the window manager drives and the application does
+// not know.
+[[nodiscard]] VkExtent2D ComputeSwapchainExtent(uint32_t requestedWidth, uint32_t requestedHeight,
+	const VkExtent2D& minExtent, const VkExtent2D& maxExtent, const VkExtent2D& currentExtent);
+
 // The acquire/present result tells the frame loop what to do; flattening
 // OUT_OF_DATE into a failure loses the distinction between "rebuild" and
 // "the device is gone".

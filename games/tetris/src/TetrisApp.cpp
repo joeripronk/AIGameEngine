@@ -15,6 +15,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cctype>
+#include <cstdio>
 #include <string>
 #include <chrono>
 #include <thread>
@@ -313,17 +314,21 @@ void TetrisApp::FitViewToViewport()
 	if (!m_CameraEntity)
 		return;
 
-	const uint32_t width = GetWindow().GetWidth();
-	const uint32_t height = GetWindow().GetHeight();
+	// The framebuffer is what is drawn: its size is the size of the image
+	// the scene is rendered into, and on a scaled display it is not the
+	// window's size in points. The projection takes the framebuffer's
+	// shape, so the image is never stretched.
+	const uint32_t width = GetWindow().GetFramebufferWidth();
+	const uint32_t height = GetWindow().GetFramebufferHeight();
 	if (width == 0 || height == 0)
 		return;  // minimised: there is no shape to fit to
 
 	auto& cameraComponent = m_CameraEntity.GetComponent<Forge::CameraComponent>();
 	auto& cameraTransform = m_CameraEntity.GetComponent<Forge::TransformComponent>();
 
-	// The projection takes the window's shape. A fixed 16:9 in a window of
-	// another shape stretches the image: the blocks come out wider than they
-	// are tall, and the playfield is not the shape the player is looking at.
+	// The projection takes the image's shape. A fixed 16:9 in an image of
+	// another shape stretches it: the blocks come out wider than they are
+	// tall, and the playfield is not the shape the player is looking at.
 	cameraComponent.AspectRatio =
 		static_cast<float>(width) / static_cast<float>(height);
 
@@ -377,6 +382,12 @@ void TetrisApp::FitViewToViewport()
 
 	m_FittedWidth = width;
 	m_FittedHeight = height;
+
+	// The fit is worth saying out loud: it is the difference between "the
+	// playfield scales with the window" and "the playfield is the size it
+	// was when the game started", and only the log says which happened.
+	FG_INFO("Tetris: view fitted to {0}x{1} (camera {2} units back)",
+		width, height, distance);
 }
 
 void TetrisApp::CreateDecor()
@@ -820,13 +831,34 @@ void TetrisApp::Run()
 		}
 		// A window can change shape at any time - a drag, a maximise, a
 		// monitor change - and the view has to follow it: the projection takes
-		// the window's shape and the camera stands back far enough for the
+		// the image's shape and the camera stands back far enough for the
 		// playfield to stay in frame. It is fitted before the shake, so the
 		// shake is applied on top of the fitted camera and a resize during a
 		// landing does not strand the offset.
-		if (GetWindow().GetWidth() != m_FittedWidth ||
-			GetWindow().GetHeight() != m_FittedHeight)
+		//
+		// The framebuffer is the thing that is drawn, so that is the size
+		// the view is fitted to.
+		if (GetWindow().GetFramebufferWidth() != m_FittedWidth ||
+			GetWindow().GetFramebufferHeight() != m_FittedHeight)
 			FitViewToViewport();
+
+		// DIAGNOSTIC ONLY: FG_RESIZE_TO=<w>x<h> asks the window to change
+		// shape a few frames in. A window manager is not always there to
+		// drag the window with - a headless check, an automated capture -
+		// and the resize path is exactly the thing that has to work.
+		if (m_FrameCount == 30)
+		{
+			if (const char* resizeTo = std::getenv("FG_RESIZE_TO"))
+			{
+				unsigned int w = 0;
+				unsigned int h = 0;
+				if (std::sscanf(resizeTo, "%ux%u", &w, &h) == 2 && w > 0 && h > 0)
+				{
+					FG_INFO("Tetris: asking the window for {0}x{1}", w, h);
+					GetWindow().SetSize(w, h);
+				}
+			}
+		}
 
 		// The landing animation is written onto the scene by the view; the
 		// camera answers to the same impact, so the strike and the shake are

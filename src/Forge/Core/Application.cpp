@@ -33,8 +33,12 @@ namespace Forge {
 		// Hand the native window to the renderer so it can create the Vulkan
 		// surface and presentation swapchain, along with its size so every
 		// render target is created at the size the swapchain will really be.
+		//
+		// The size is the framebuffer's - in pixels. The renderer draws into
+		// the surface, and the surface is the framebuffer; the window's size
+		// in points is what the user interface lays itself out in.
 		Renderer::SetActiveWindowHandle(m_Window->GetNativeWindow());
-		Renderer::SetActiveWindowSize(m_Window->GetWidth(), m_Window->GetHeight());
+		Renderer::SetActiveWindowSize(m_Window->GetFramebufferWidth(), m_Window->GetFramebufferHeight());
 
 		// Profiling is opt-in (the Hazel rule: a session is explicit, not
 		// recorded silently on every launch): --profile writes profile.json,
@@ -168,7 +172,13 @@ namespace Forge {
 		m_Minimized = false;
 
 		// Keep the renderer's presentation target in sync with the window.
-		Renderer::OnWindowResize(e.GetWidth(), e.GetHeight());
+		// The renderer works in pixels - the framebuffer is what is
+		// presented, and on a scaled display it is not the window's size in
+		// points. Handing it the point size is what left the overlay
+		// oversized and the scene at the old size: the overlay lays itself
+		// out in the window's size and the scene is drawn at the
+		// framebuffer's, and the two only agree on an unscaled display.
+		Renderer::OnWindowResize(e.GetFramebufferWidth(), e.GetFramebufferHeight());
 		return false;
 	}
 

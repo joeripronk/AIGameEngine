@@ -108,3 +108,46 @@ TEST_CASE("Frame loop: the acquire semaphore ring rotates independently of the f
 	empty.Advance();
 	REQUIRE(empty.Index() == 0);
 }
+
+TEST_CASE("Swapchain: the extent is the size that was asked for, not the surface's current extent", "[frame]")
+{
+	const VkExtent2D minExtent{ 1, 1 };
+	const VkExtent2D maxExtent{ 8192, 8192 };
+
+	// The surface still says the size the swapchain had. Taking that as
+	// the answer is what froze the window at the size it started at: every
+	// rebuild produced the swapchain that already existed, so a resize
+	// never took effect and everything outside the old size stayed black.
+	const VkExtent2D staleExtent{ 1600, 900 };
+	const VkExtent2D resized = ComputeSwapchainExtent(1900, 1040, minExtent, maxExtent, staleExtent);
+	REQUIRE(resized.width == 1900);
+	REQUIRE(resized.height == 1040);
+
+	// The request is clamped to what the surface allows.
+	const VkExtent2D clamped = ComputeSwapchainExtent(10000, 10000, minExtent, VkExtent2D{ 4096, 4096 }, staleExtent);
+	REQUIRE(clamped.width == 4096);
+	REQUIRE(clamped.height == 4096);
+
+	// A request that says nothing is answered by the surface - the one
+	// case where the surface knows the size and the application does not.
+	const VkExtent2D fromSurface = ComputeSwapchainExtent(0, 0, minExtent, maxExtent, staleExtent);
+	REQUIRE(fromSurface.width == 1600);
+	REQUIRE(fromSurface.height == 900);
+
+	// The surface's answer is clamped like any other: a surface that
+	// cannot do the size it reports is raised to the smallest it can.
+	const VkExtent2D raised = ComputeSwapchainExtent(0, 0, VkExtent2D{ 1920, 1080 }, maxExtent, staleExtent);
+	REQUIRE(raised.width == 1920);
+	REQUIRE(raised.height == 1080);
+
+	// A surface that says "the application decides" (UINT32_MAX) has no
+	// answer to give, so the request stands.
+	const VkExtent2D unbounded = ComputeSwapchainExtent(1200, 700, minExtent, maxExtent, VkExtent2D{ UINT32_MAX, UINT32_MAX });
+	REQUIRE(unbounded.width == 1200);
+	REQUIRE(unbounded.height == 700);
+
+	// A maximum of UINT32_MAX is no upper bound at all.
+	const VkExtent2D huge = ComputeSwapchainExtent(16384, 16384, minExtent, VkExtent2D{ UINT32_MAX, UINT32_MAX }, staleExtent);
+	REQUIRE(huge.width == 16384);
+	REQUIRE(huge.height == 16384);
+}

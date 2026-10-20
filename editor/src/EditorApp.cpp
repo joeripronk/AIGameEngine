@@ -25,6 +25,7 @@
 #include <glm/gtc/matrix_inverse.hpp>
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace Forge {
 
@@ -270,6 +271,7 @@ namespace Forge {
 		AssetRegistry::Scan();
 		WatchWatchedAssets();
 
+		uint64_t frameCount = 0;
 		float lastFrameTime = 0.0f;
 		while (IsRunning())
 		{
@@ -284,6 +286,25 @@ namespace Forge {
 			ExecuteMainThreadQueue();
 			if (!IsRunning())
 				break;
+
+			// DIAGNOSTIC ONLY: FG_RESIZE_TO=<w>x<h> asks the window to
+			// change shape a few frames in, so the resize path can be
+			// exercised where there is no window manager to drag the window
+			// with.
+			if (frameCount == 30)
+			{
+				if (const char* resizeTo = std::getenv("FG_RESIZE_TO"))
+				{
+					unsigned int w = 0;
+					unsigned int h = 0;
+					if (std::sscanf(resizeTo, "%ux%u", &w, &h) == 2 && w > 0 && h > 0)
+					{
+						FG_INFO("Editor: asking the window for {0}x{1}", w, h);
+						GetWindow().SetSize(w, h);
+					}
+				}
+			}
+			++frameCount;
 
 			float time = (float)Time::GetTime();
 			Timestep timestep = time - lastFrameTime;

@@ -3,6 +3,8 @@
 
 #include "Forge/Core/Log.h"
 
+#include <algorithm>
+
 namespace Forge { namespace Vulkan {
 
 VkSurfaceFormatKHR SelectSurfaceFormat(std::span<const VkSurfaceFormatKHR> candidates, VkSurfaceFormatKHR preferred)
@@ -43,6 +45,42 @@ uint32_t ComputeMinImageCount(VkPresentModeKHR presentMode, uint32_t minImageCou
 		count = maxImageCount;
 
 	return count;
+}
+
+VkExtent2D ComputeSwapchainExtent(uint32_t requestedWidth, uint32_t requestedHeight,
+	const VkExtent2D& minExtent, const VkExtent2D& maxExtent, const VkExtent2D& currentExtent)
+{
+	uint32_t width = requestedWidth;
+	uint32_t height = requestedHeight;
+
+	// A request that says nothing is answered by the surface's current
+	// extent - the one case where the surface knows the size and the
+	// application does not. UINT32_MAX is the surface saying "the
+	// application decides", which is no answer at all.
+	if (width == 0 || height == 0)
+	{
+		if (currentExtent.width != UINT32_MAX && currentExtent.height != UINT32_MAX)
+		{
+			width = currentExtent.width;
+			height = currentExtent.height;
+		}
+		else
+		{
+			width = 1;
+			height = 1;
+		}
+	}
+
+	// Clamp to what the surface allows. A maximum of UINT32_MAX is "no
+	// upper bound", and a minimum above the maximum is a surface that says
+	// nothing sensible: the minimum wins, because it is the one number the
+	// surface cannot do without.
+	const uint32_t maxWidth = maxExtent.width == UINT32_MAX ? UINT32_MAX : maxExtent.width;
+	const uint32_t maxHeight = maxExtent.height == UINT32_MAX ? UINT32_MAX : maxExtent.height;
+	const uint32_t minWidth = std::min(minExtent.width, maxWidth);
+	const uint32_t minHeight = std::min(minExtent.height, maxHeight);
+
+	return VkExtent2D{ std::clamp(width, minWidth, maxWidth), std::clamp(height, minHeight, maxHeight) };
 }
 
 AcquireOutcome ClassifyAcquire(VkResult result)

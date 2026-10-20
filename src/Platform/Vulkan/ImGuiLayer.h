@@ -83,6 +83,23 @@ namespace Forge {
 		// only in Vulkan builds; void* keeps this header free of vulkan.h so
 		// headless targets can include it.
 		void* m_VulkanInitInfo = nullptr;
+
+		// The number of swapchain images the Vulkan backend was bound with.
+		// The swapchain is rebuilt when the window changes shape, and the
+		// rebuilt swapchain can have a different number of images - the
+		// backend sizes its vertex buffers and its descriptor pool for the
+		// count it was given, so it is bound again when the count changes.
+		uint32_t m_BackendImageCount = 0;
+
+#ifndef FG_NO_VULKAN_RUNTIME
+		// Bind the Vulkan backend to the current swapchain, with the given
+		// number of images. Returns false and logs the reason when the
+		// backend refuses.
+		bool BindVulkanBackend(uint32_t imageCount);
+
+		// Release the Vulkan backend. Safe to call when it is not bound.
+		void UnbindVulkanBackend();
+#endif
 	};
 
 }  // namespace Forge

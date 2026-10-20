@@ -56,16 +56,32 @@ bool Swapchain::Create(const PhysicalDevice& physicalDevice, Device& device, con
 	m_PresentMode = SelectPresentMode(std::span<const VkPresentModeKHR>(modes.data(), modes.size()), createInfo.PreferredPresentMode);
 	const uint32_t imageCount = ComputeMinImageCount(m_PresentMode, capabilities.minImageCount, capabilities.maxImageCount);
 
-	// 0 means "inherit the current extent" - the classic rule for surfaces
-	// whose size the window manager drives.
-	if (capabilities.currentExtent.width != UINT32_MAX)
+	// The extent is the size the application asked for - the window's
+	// framebuffer, in pixels - clamped to what the surface allows.
+	//
+	// The surface's current extent is deliberately not the answer. On X11 it
+	// is the window's size, which is what was asked for anyway; on Wayland
+	// it is the size of the buffer the application last presented, so
+	// taking it would make every rebuild produce the swapchain that
+	// already exists: a resize would never take effect, the scene would
+	// keep rendering into the old targets, and everything outside the old
+	// size would stay black. It is the fallback for a request that says
+	// nothing.
+	m_Extent = ComputeSwapchainExtent(createInfo.Width, createInfo.Height,
+		capabilities.minImageExtent, capabilities.maxImageExtent, capabilities.currentExtent);
+
+	if (capabilities.currentExtent.width != UINT32_MAX &&
+		(capabilities.currentExtent.width != m_Extent.width ||
+			capabilities.currentExtent.height != m_Extent.height))
 	{
-		m_Extent = capabilities.currentExtent;
-	}
-	else
-	{
-		m_Extent.width = std::clamp(createInfo.Width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-		m_Extent.height = std::clamp(createInfo.Height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+		// The surface and the application disagree about the size. The
+		// application's answer is the one that is used - it is the size of
+		// the window's framebuffer - but the disagreement is worth seeing:
+		// it is the difference between "the window is a different size" and
+		// "the surface is somewhere else entirely".
+		FG_CORE_TRACE("Swapchain: surface extent {0}x{1}, using {2}x{3}",
+			capabilities.currentExtent.width, capabilities.currentExtent.height,
+			m_Extent.width, m_Extent.height);
 	}
 
 	// PreTransform: identity when the compositor allows it, otherwise the

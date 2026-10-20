@@ -408,6 +408,32 @@ TEST_CASE("Logging before Init reports nothing instead of crashing", "[core][log
     REQUIRE_NOTHROW(FG_ERROR("logging is back"));
 }
 
+TEST_CASE("A resize carries the window's size in points and in pixels", "[core][events]")
+{
+	// An unscaled display: the two sizes are the same number.
+	Forge::WindowResizeEvent plain(1600, 900);
+	REQUIRE(plain.GetWidth() == 1600);
+	REQUIRE(plain.GetHeight() == 900);
+	REQUIRE(plain.GetFramebufferWidth() == 1600);
+	REQUIRE(plain.GetFramebufferHeight() == 900);
+
+	// A scaled display: the window is measured in points and the
+	// framebuffer - the thing that is presented - in pixels. The renderer
+	// works in pixels, and the overlay lays itself out in points, so the
+	// event has to carry both.
+	Forge::WindowResizeEvent scaled(1600, 900, 2400, 1350);
+	REQUIRE(scaled.GetWidth() == 1600);
+	REQUIRE(scaled.GetHeight() == 900);
+	REQUIRE(scaled.GetFramebufferWidth() == 2400);
+	REQUIRE(scaled.GetFramebufferHeight() == 1350);
+	CHECK(scaled.ToString().find("2400") != std::string::npos);
+
+	// The event type and category are what the dispatcher routes on.
+	REQUIRE(scaled.GetEventType() == Forge::EventType::WindowResize);
+	REQUIRE(std::string(scaled.GetName()) == "WindowResize");
+	REQUIRE(scaled.GetCategoryFlags() & Forge::EventCategoryApplication);
+}
+
 TEST_CASE("A dropped file arrives as a window event carrying its path", "[core][events]")
 {
 	Forge::WindowDropEvent event("resources/scenes/EngineTest.forge");
