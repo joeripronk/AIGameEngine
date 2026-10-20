@@ -94,7 +94,14 @@ set_tests_properties(ForgeTests PROPERTIES
 # Startup integration check: launches the real editor binary and classifies
 # startup failures with hints. Skips gracefully where no window is possible,
 # so it is CI-safe. Needs the editor target, which CI builds.
-add_test(NAME StartupCheck COMMAND bash "${CMAKE_SOURCE_DIR}/tests/integration/startup_check.sh")
+#
+# The binary is passed rather than guessed: the script's default is
+# "build/bin/ForgeEditor", and a build directory named anything else made
+# the check skip itself - a check that silently does nothing is worse than
+# no check, because it reads as a pass.
+add_test(NAME StartupCheck
+    COMMAND bash "${CMAKE_SOURCE_DIR}/tests/integration/startup_check.sh" "$<TARGET_FILE:ForgeEditor>"
+)
 set_tests_properties(StartupCheck PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     TIMEOUT 120
