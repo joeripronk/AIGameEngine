@@ -1,10 +1,9 @@
 #include "fgpch.h"
 #include "Forge/Renderer/EditorCamera.h"
 #include "Platform/Vulkan/VulkanWindow.h"
-#include "Forge/Events/MouseEvent.h"
-#include "Forge/Events/KeyEvent.h"
 #include "Forge/Core/Application.h"
 #include "Forge/Core/Input.h"
+#include "Forge/Core/MouseCodes.h"
 
 namespace Forge {
 
@@ -71,66 +70,76 @@ namespace Forge {
 		m_ViewProjectionMatrix = m_ProjectionMatrix * m_ViewMatrix;
 	}
 
-	void EditorCamera::OnUpdate(Timestep timestep)
+	void EditorCamera::OnUpdate(Timestep timestep, bool acceptInput)
 	{
 		const float ts = timestep.GetSeconds();
+		const float zoomSpeed = 2.0f * ts;
 
-		// Camera movement (WASD + Q/E)
-		float speed = 5.0f * ts;
-		float zoomSpeed = 2.0f * ts;
+		// The pointer's position, tracked every frame: the mouse look is the
+		// distance the pointer travelled since the last frame.
+		const glm::vec2 pointer = Input::GetMousePosition();
+		const bool hadPointer = m_HasLastPointerPosition;
 
-		// Movement direction based on camera rotation (yaw)
-		float yaw = glm::radians(m_Rotation.y);
-		glm::vec3 forward = glm::vec3(-sin(yaw), 0.0f, -cos(yaw));
-		glm::vec3 right = glm::vec3(cos(yaw), 0.0f, -sin(yaw));
+		if (acceptInput)
+		{
+			// Camera movement (WASD + Q/E)
+			const float speed = 5.0f * ts;
 
-		if (Input::IsKeyPressed(Key::W))
-			m_Position += speed * forward;
-		if (Input::IsKeyPressed(Key::S))
-			m_Position -= speed * forward;
-		if (Input::IsKeyPressed(Key::A))
-			m_Position -= speed * right;
-		if (Input::IsKeyPressed(Key::D))
-			m_Position += speed * right;
-		if (Input::IsKeyPressed(Key::Q))
-			m_Position.y -= speed;
-		if (Input::IsKeyPressed(Key::E))
-			m_Position.y += speed;
+			// The movement is in the camera's own frame: W goes where the
+			// camera looks, which is not the same as "north" once the camera
+			// is pitched over.
+			const glm::quat orientation = glm::quat(glm::radians(m_Rotation));
+			const glm::vec3 forward = orientation * glm::vec3(0.0f, 0.0f, -1.0f);
+			const glm::vec3 right = orientation * glm::vec3(1.0f, 0.0f, 0.0f);
+
+			if (Input::IsKeyPressed(Key::W))
+				m_Position += speed * forward;
+			if (Input::IsKeyPressed(Key::S))
+				m_Position -= speed * forward;
+			if (Input::IsKeyPressed(Key::A))
+				m_Position -= speed * right;
+			if (Input::IsKeyPressed(Key::D))
+				m_Position += speed * right;
+			if (Input::IsKeyPressed(Key::Q))
+				m_Position.y -= speed;
+			if (Input::IsKeyPressed(Key::E))
+				m_Position.y += speed;
+
+			// Mouse look: the right button turns the camera. The pointer's
+			// movement since the last frame is the turn, which is why the
+			// position is remembered rather than read once.
+			//
+			// The view follows the pointer: dragging right looks right, and
+			// dragging down looks down. The pitch is the engine's own
+			// convention - positive is up, the way TransformComponent::Rotation
+			// is - so the pointer moving down lowers the pitch.
+			if (Input::IsMouseButtonPressed(Mouse::ButtonRight) && hadPointer)
+			{
+				const float dx = pointer.x - m_LastPointerPosition.x;
+				const float dy = pointer.y - m_LastPointerPosition.y;
+				m_Rotation.y -= dx * 0.1f;
+				m_Rotation.x = glm::clamp(m_Rotation.x - dy * 0.1f, -89.0f, 89.0f);
+			}
+		}
+
+		m_LastPointerPosition = pointer;
+		m_HasLastPointerPosition = true;
 
 		// Zoom (callback-based scroll offset). There may be no Application at all
 		// when the camera is driven headlessly (tools, unit tests), and
 		// Application::Get() dereferences a null or destroyed instance.
-		if (!Application::HasInstance())
+		if (Application::HasInstance())
 		{
-			Recalculate();
-			return;
+			glm::vec2 scrollOffset = { 0.0f, 0.0f };
+			auto& vkWindowScope = Application::Get().GetWindowScope();
+			if (vkWindowScope)
+				scrollOffset = static_cast<VulkanWindow&>(*vkWindowScope).GetScrollOffset();
+
+			if (acceptInput && scrollOffset.y != 0.0f)
+				SetZoomLevel(m_ZoomLevel - zoomSpeed * scrollOffset.y);
 		}
 
-		glm::vec2 scrollOffset = { 0.0f, 0.0f };
-		auto& vkWindowScope = Application::Get().GetWindowScope();
-		if (vkWindowScope)
-			scrollOffset = static_cast<VulkanWindow&>(*vkWindowScope).GetScrollOffset();
-
-		if (scrollOffset.y != 0.0f)
-			SetZoomLevel(m_ZoomLevel - zoomSpeed * scrollOffset.y);
-		else
-			Recalculate();
-	}
-
-	void EditorCamera::OnEvent(Event& event)
-	{
-		// Mouse look
-		if (auto* mouseEvent = event.TryCast<MouseEvent>())
-		{
-			if (mouseEvent->GetButton() == Mouse::ButtonRight)
-			{
-				float dx = mouseEvent->GetXOffset();
-				float dy = mouseEvent->GetYOffset();
-				m_Rotation.y += dx * 0.1f;
-				m_Rotation.x += dy * 0.1f;
-				m_Rotation.x = glm::clamp(m_Rotation.x, -89.0f, 89.0f);
-			}
-		}
+		Recalculate();
 	}
 
 }

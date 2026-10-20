@@ -26,8 +26,14 @@ namespace Forge {
 		const glm::mat4& GetProjectionMatrix() const { return m_ProjectionMatrix; }
 		const glm::mat4& GetViewProjectionMatrix() const { return m_ViewProjectionMatrix; }
 
-		void OnUpdate(Timestep ts);
-		void OnEvent(class Event& event);
+		// Moves the camera: WASD and Q/E fly it, the right mouse button turns
+		// it and the scroll wheel zooms it.
+		//
+		// `acceptInput` is the caller's answer to "is the pointer on the 3D
+		// view". The keys belong to the viewport, the way they do in every
+		// other editor: a camera that flies while the author is typing a name
+		// into the inspector is a camera that has been misfiled.
+		void OnUpdate(Timestep ts, bool acceptInput = true);
 
 		// A multiplier on the field of view: 1 is the authored FOV, 2 is half
 		// it (narrower, so closer). It is applied in Recalculate rather than
@@ -60,6 +66,12 @@ namespace Forge {
 		float m_Fov = 45.0f;
 		float m_NearClip = 0.1f;
 		float m_FarClip = 1000.0f;
+
+		// The pointer's last position, and whether there has been one. The
+		// mouse look is the distance the pointer travelled since the last
+		// frame, so the first frame has nothing to compare against.
+		glm::vec2 m_LastPointerPosition = glm::vec2(0.0f);
+		bool m_HasLastPointerPosition = false;
 	};
 
 }

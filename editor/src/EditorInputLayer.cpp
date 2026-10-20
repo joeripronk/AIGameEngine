@@ -109,19 +109,23 @@ namespace Forge {
 				}
 				break;
 			}
-			case Key::W:
+			case Key::D1:
 			{
+				// The gizmo modes are 1/2/3 and not W/E/R: W and E fly the
+				// camera, and a key that flies the camera cannot also choose
+				// the tool - pressing E to rise would leave the gizmo in the
+				// rotate mode.
 				if (!typing)
 					editor.SetGizmoMode(Gizmo::Mode::Translate);
 				break;
 			}
-			case Key::E:
+			case Key::D2:
 			{
 				if (!typing)
 					editor.SetGizmoMode(Gizmo::Mode::Rotate);
 				break;
 			}
-			case Key::R:
+			case Key::D3:
 			{
 				if (!typing)
 					editor.SetGizmoMode(Gizmo::Mode::Scale);

@@ -53,6 +53,20 @@ namespace Forge {
 		// from it is the tail of a drag and must not select.
 		int g_MouseDownX = 0;
 		int g_MouseDownY = 0;
+
+		// Whether the left button went down in the viewport, and whether the
+		// pointer has since moved far enough to be a drag rather than a click.
+		bool g_PressedInViewport = false;
+		bool g_DragStarted = false;
+
+		// How far the pointer may travel before a press becomes a drag, in
+		// pixels. Without it every click on an entity is also a drag, and a
+		// click that moves the thing it clicked is not a click.
+		constexpr int kDragThreshold = 4;
+
+		// How near the selection a press has to be to be a grab of the gizmo,
+		// in pixels.
+		constexpr int kGizmoGrabRadius = 28;
 	}
 
 	EditorApp::EditorApp(const ApplicationCommandLineArgs& args)
@@ -169,7 +183,10 @@ namespace Forge {
 		}
 
 		m_Editor.GetCamera().SetPosition({ 0.0f, 5.0f, 12.0f });
-		m_Editor.GetCamera().SetRotation({ 20.0f, 0.0f, 0.0f });
+		// Twenty degrees down: the engine's convention is that a positive
+		// pitch looks up, and a camera that looks at the horizon shows the
+		// author the sky instead of the scene.
+		m_Editor.GetCamera().SetRotation({ -20.0f, 0.0f, 0.0f });
 
 		m_Viewport.Init(800, 600);
 
@@ -224,6 +241,10 @@ namespace Forge {
 
 		auto camera = m_Editor.CreateEntity("MainCamera");
 		camera.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, 12.0f };
+		// The scene camera looks down at the scene. Its rotation is a
+		// transform, so its angles are radians - and a positive pitch is up,
+		// so the camera looks down with a negative one.
+		camera.GetComponent<TransformComponent>().Rotation = { glm::radians(-20.0f), 0.0f, 0.0f };
 		camera.AddComponent<CameraComponent>().Primary = true;
 
 		auto light = m_Editor.CreateEntity("DirectionalLight");
@@ -231,32 +252,55 @@ namespace Forge {
 		lightComponent.Type = LightComponent::Type::Directional;
 		lightComponent.Direction = { -0.5f, -1.0f, -0.3f };
 
+		// The cube is a thing to look at, to click and to move: it has
+		// geometry, so it is drawn, and it can be picked.
+		//
+		// A path on a mesh component is not geometry - the geometry is
+		// imported from it - so the path is set and then imported. A mesh
+		// with a path and no geometry is not drawn at all, which is how the
+		// default scene used to be empty.
 		auto cube = m_Editor.CreateEntity("Cube");
 		auto& cubeTransform = cube.GetComponent<TransformComponent>();
 		cubeTransform.Translation = { 0.0f, 0.5f, 0.0f };
 		cube.AddComponent<PBRMaterialComponent>().Albedo = { 0.8f, 0.3f, 0.3f };
+		SetMeshModel(cube, "resources/models/cube.glb");
 
 		auto physics = m_Editor.CreateEntity("PhysicsBox");
 		physics.GetComponent<TransformComponent>().Translation = { 0.0f, 5.0f, 0.0f };
 		auto& rigidbody = physics.AddComponent<RigidbodyComponent>();
 		rigidbody.Type = RigidbodyComponent::BodyType::Dynamic;
 		physics.AddComponent<BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+		SetMeshModel(physics, "resources/models/cube.glb");
 
 		// Two movers, one in Lua and one in C++, so the play mode shows the
 		// two side by side: the same behaviour, and the same scene naming it.
 		auto scriptEntity = m_Editor.CreateEntity("ScriptEntity");
 		scriptEntity.GetComponent<TransformComponent>().Translation = { 4.0f, 0.5f, 0.0f };
 		scriptEntity.AddComponent<ScriptComponent>().ClassName = "Mover";
-		scriptEntity.AddComponent<MeshComponent>().ModelPath = "resources/models/cube.glb";
+		SetMeshModel(scriptEntity, "resources/models/cube.glb");
 
 		// A native script is named in the scene the way a Lua script is, and
 		// the play mode runs it.
 		auto nativeEntity = m_Editor.CreateEntity("NativeScriptEntity");
 		nativeEntity.GetComponent<TransformComponent>().Translation = { -4.0f, 0.5f, 0.0f };
 		nativeEntity.AddComponent<NativeScriptComponent>().ClassName = "Mover";
-		nativeEntity.AddComponent<MeshComponent>().ModelPath = "resources/models/cube.glb";
+		SetMeshModel(nativeEntity, "resources/models/cube.glb");
 
 		m_Editor.SelectEntity(cube);
+	}
+
+	void EditorApp::SetMeshModel(Entity entity, const std::string& path)
+	{
+		// The component is added here: a mesh is a component and a path, and
+		// an entity with only a path is an entity with nothing.
+		auto& mesh = entity.AddOrReplaceComponent<MeshComponent>();
+		mesh.ModelPath = path;
+
+		// The import is what turns the path into geometry, and it has to be
+		// asked for: a path that is only assigned is a name the entity does
+		// not answer to.
+		if (!m_Editor.GetScene()->ImportMeshData(entity))
+			FG_CORE_WARN("Editor: '{0}' could not import '{1}'", entity.GetName(), path);
 	}
 
 	void EditorApp::SyncEditorCamera()
@@ -266,13 +310,39 @@ namespace Forge {
 		if (m_Editor.IsSimulate())
 			return;
 
-		// Follow the primary camera so the viewport matches the scene.
+		// Follow the primary camera - but only while it is being changed.
+		//
+		// The camera was mirrored into the editor camera every frame, which
+		// meant that the author could never move it: the keys moved the
+		// camera and the next frame put it back. So the scene camera is
+		// followed when the author edits *it*, and the editor camera is left
+		// alone when the author flies *it*.
 		auto cameraEntity = m_Editor.GetScene()->GetPrimaryCameraEntity();
-		if (cameraEntity)
+		if (!cameraEntity)
 		{
-			auto& tc = cameraEntity.GetComponent<TransformComponent>();
+			m_HasSceneCamera = false;
+			return;
+		}
+
+		const auto& tc = cameraEntity.GetComponent<TransformComponent>();
+		const bool changed = !m_HasSceneCamera
+			|| tc.Translation != m_SceneCameraPosition
+			|| tc.Rotation != m_SceneCameraRotation;
+
+		if (changed)
+		{
 			m_Editor.GetCamera().SetPosition(tc.Translation);
-			m_Editor.GetCamera().SetRotation(tc.Rotation);
+
+			// The scene's rotation is in radians (it is a transform, and a
+			// transform's angles are radians) and the editor camera's is in
+			// degrees. Copying one into the other without converting made the
+			// editor's view turn fifteen times too fast for every degree the
+			// scene camera turned.
+			m_Editor.GetCamera().SetRotation(glm::degrees(tc.Rotation));
+
+			m_SceneCameraPosition = tc.Translation;
+			m_SceneCameraRotation = tc.Rotation;
+			m_HasSceneCamera = true;
 		}
 	}
 
@@ -328,6 +398,16 @@ namespace Forge {
 				for (Layer* layer : GetLayerStack())
 					layer->OnUpdate(timestep);
 
+				// The camera flies while the pointer is on the 3D view. It is
+				// driven here rather than by a layer: the editor camera is
+				// not a layer, and a camera that nobody updates is a camera
+				// that does not move.
+				//
+				// A field with the keyboard focus owns the keyboard: typing
+				// a name into the inspector must not fly the camera.
+				const bool cameraInput = m_PointerOverViewport && !ImGui::IsAnyItemActive();
+				m_Editor.GetCamera().OnUpdate(timestep, cameraInput);
+
 				SyncEditorCamera();
 				m_Editor.Update(timestep);
 
@@ -369,7 +449,6 @@ namespace Forge {
 
 					DrawMenuBar();
 					DrawGizmoToolbar();
-					DrawGizmoInteraction();
 					DrawHierarchyPanel();
 					DrawInspectorPanel();
 					DrawViewportPanel();
@@ -494,6 +573,9 @@ namespace Forge {
 		ImGui::SameLine();
 		ImGui::Text("|  Selected: %s", m_Editor.HasSelection() ? m_Editor.GetSelectedEntity().GetName().c_str() : "None");
 		ImGui::SameLine();
+		const glm::vec3 cameraPosition = m_Editor.GetCamera().GetPosition();
+		ImGui::Text("|  Camera: (%.1f, %.1f, %.1f)", cameraPosition.x, cameraPosition.y, cameraPosition.z);
+		ImGui::SameLine();
 		ImGui::Text("|  Draw calls: %u  Culled: %u", stats.DrawCalls3D, stats.FrustumCulled);
 
 		ImGui::End();
@@ -613,6 +695,10 @@ namespace Forge {
 				auto cube = m_Editor.CreateEntity("Cube");
 				cube.GetComponent<TransformComponent>().Translation = { 0.0f, 0.5f, 0.0f };
 				cube.AddComponent<PBRMaterialComponent>();
+				// The geometry comes with it: a cube with a material and no
+				// mesh is not drawn, and an object that cannot be seen cannot
+				// be clicked either.
+				SetMeshModel(cube, "resources/models/cube.glb");
 				m_Editor.SelectEntity(cube);
 			}
 			if (ImGui::MenuItem("Create Sphere"))
@@ -620,6 +706,7 @@ namespace Forge {
 				auto sphere = m_Editor.CreateEntity("Sphere");
 				sphere.GetComponent<TransformComponent>().Translation = { 0.0f, 0.5f, 0.0f };
 				sphere.AddComponent<PBRMaterialComponent>();
+				SetMeshModel(sphere, "resources/models/sphere.glb");
 				m_Editor.SelectEntity(sphere);
 			}
 			if (ImGui::MenuItem("Create Audio Source"))
@@ -744,13 +831,13 @@ namespace Forge {
 		ImGui::Begin("Gizmo", nullptr, ImGuiWindowFlags_NoDocking);
 		ImGui::Text("Mode:");
 		ImGui::SameLine();
-		if (ImGui::RadioButton("Move", m_Editor.GetGizmoMode() == Gizmo::Mode::Translate))
+		if (ImGui::RadioButton("Move (1)", m_Editor.GetGizmoMode() == Gizmo::Mode::Translate))
 			m_Editor.SetGizmoMode(Gizmo::Mode::Translate);
 		ImGui::SameLine();
-		if (ImGui::RadioButton("Rotate", m_Editor.GetGizmoMode() == Gizmo::Mode::Rotate))
+		if (ImGui::RadioButton("Rotate (2)", m_Editor.GetGizmoMode() == Gizmo::Mode::Rotate))
 			m_Editor.SetGizmoMode(Gizmo::Mode::Rotate);
 		ImGui::SameLine();
-		if (ImGui::RadioButton("Scale", m_Editor.GetGizmoMode() == Gizmo::Mode::Scale))
+		if (ImGui::RadioButton("Scale (3)", m_Editor.GetGizmoMode() == Gizmo::Mode::Scale))
 			m_Editor.SetGizmoMode(Gizmo::Mode::Scale);
 
 		ImGui::Text("Snap:");
@@ -849,13 +936,26 @@ namespace Forge {
 			char modelBuffer[256];
 			CopyToBuffer(modelBuffer, sizeof(modelBuffer), mesh.ModelPath);
 			if (ImGui::InputText("Model##mesh", modelBuffer, sizeof(modelBuffer)))
+			{
 				mesh.ModelPath = modelBuffer;
+
+				// The geometry follows the path: a path that names a file is
+				// imported as it is typed, so the author sees the model they
+				// named. A path that names nothing yet - half typed - is left
+				// alone, because the import reports a failure for every
+				// keystroke otherwise.
+				if (std::filesystem::exists(modelBuffer))
+					(void)m_Editor.GetScene()->ImportMeshData(entity);
+			}
 
 			if (ImGui::Button("Browse##mesh"))
 			{
 				const std::string chosen = FileDialog::OpenFile("Forge Model", "glb,gltf,obj,fbx");
 				if (!chosen.empty())
+				{
 					mesh.ModelPath = chosen;
+					(void)m_Editor.GetScene()->ImportMeshData(entity);
+				}
 			}
 		}
 
@@ -1181,11 +1281,27 @@ namespace Forge {
 				}
 
 				ImGui::Image(m_ViewportTextureId, size);
+
+				// The image's rectangle is the viewport: the ray a click
+				// builds is unprojected through this rectangle, so the
+				// picture and the pick have to agree on where the picture
+				// is.
+				m_ViewportImageSize = ImGui::GetItemRectSize();
+
+				// The pointer over the picture is the pointer over the 3D
+				// view, and that is where the camera flies from.
+				m_PointerOverViewport = ImGui::IsItemHovered();
+
+				// A click here selects what is under it; a drag moves the
+				// selection.
+				HandleViewportInteraction();
 			}
 		}
 		else
 		{
 			ImGui::Text("Viewport not initialized");
+			m_PointerOverViewport = false;
+			m_ViewportImageSize = ImVec2(0.0f, 0.0f);
 		}
 
 		ImGui::End();
@@ -1401,10 +1517,22 @@ namespace Forge {
 		// The editor camera's projection is sized to the viewport panel (see
 		// DrawViewportPanel), so the unprojection below is the same mapping the
 		// frame was drawn with.
+		//
+		// The pixel is counted in the *image's* own pixels: the image is the
+		// picture the ray has to cross, and its size is the picture's size.
+		// The panel's content region was used here before, which is the same
+		// number for as long as the image fills the panel - and the wrong
+		// number the moment it does not.
 		const glm::mat4 vp = m_Editor.GetCamera().GetViewProjectionMatrix();
-		const ImVec2 viewportSize = ImGui::GetContentRegionAvail();
-		const float ndcX = (2.0f * x / viewportSize.x) - 1.0f;
-		const float ndcY = 1.0f - (2.0f * y / viewportSize.y);
+		if (m_ViewportImageSize.x <= 0.0f || m_ViewportImageSize.y <= 0.0f)
+		{
+			origin = glm::vec3(0.0f);
+			direction = glm::vec3(0.0f, 0.0f, -1.0f);
+			return;
+		}
+
+		const float ndcX = (2.0f * x / m_ViewportImageSize.x) - 1.0f;
+		const float ndcY = 1.0f - (2.0f * y / m_ViewportImageSize.y);
 
 		const glm::mat4 invVP = glm::inverse(vp);
 		glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
@@ -1425,17 +1553,57 @@ namespace Forge {
 		// end of a camera move, and losing the selection at the end of a drag
 		// is not what anyone asked for. The answer is intentionally not
 		// surfaced as a notification - a miss is not an event.
-		void(m_Editor.SelectEntityAtRay(origin, direction));
+		if (m_Editor.SelectEntityAtRay(origin, direction))
+			FG_CORE_INFO("Viewport: selected '{0}'", m_Editor.GetSelectedEntity().GetName());
 	}
 
-	void EditorApp::OnGizmoMouseDown(int button, int x, int y)
+	bool EditorApp::ProjectToViewport(const glm::vec3& world, ImVec2& outLocal)
+	{
+		if (m_ViewportImageSize.x <= 0.0f || m_ViewportImageSize.y <= 0.0f)
+			return false;
+
+		const glm::mat4 vp = m_Editor.GetCamera().GetViewProjectionMatrix();
+		const glm::vec4 clip = vp * glm::vec4(world, 1.0f);
+		if (clip.w <= 0.0f)
+			return false;  // behind the camera: no place on the picture for it
+
+		const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+		outLocal = ImVec2(
+			(ndc.x * 0.5f + 0.5f) * m_ViewportImageSize.x,
+			(0.5f - ndc.y * 0.5f) * m_ViewportImageSize.y);
+		return true;
+	}
+
+	bool EditorApp::IsNearSelectedEntity(float x, float y)
 	{
 		if (!m_Editor.HasSelection())
-			return;
+			return false;
 
 		Entity entity = m_Editor.GetSelectedEntity();
 		if (!entity.HasComponent<TransformComponent>())
-			return;
+			return false;
+
+		ImVec2 local;
+		if (!ProjectToViewport(entity.GetComponent<TransformComponent>().Translation, local))
+			return false;
+
+		// The gizmo is at the entity, so a drag has to start near it. A drag
+		// that starts anywhere in the viewport would move whatever happens to
+		// be selected, and dragging across empty space is not a request to
+		// move things.
+		const float dx = x - local.x;
+		const float dy = y - local.y;
+		return (dx * dx + dy * dy) <= static_cast<float>(kGizmoGrabRadius * kGizmoGrabRadius);
+	}
+
+	bool EditorApp::OnGizmoMouseDown(int button, int x, int y)
+	{
+		if (!m_Editor.HasSelection())
+			return false;
+
+		Entity entity = m_Editor.GetSelectedEntity();
+		if (!entity.HasComponent<TransformComponent>())
+			return false;
 
 		// Get the entity's world position.
 		auto& tc = entity.GetComponent<TransformComponent>();
@@ -1447,16 +1615,25 @@ namespace Forge {
 		g_GizmoStartPos = worldPos;
 		g_GizmoStartValue = worldPos;
 
-		// Check which axis the mouse is over (simple axis picking).
-		// For now, we'll pick the axis closest to the ray direction.
+		// Which axis did the author take hold of? The one whose line passes
+		// nearest the cursor.
+		//
+		// The rule this replaces picked the axis most parallel to the *view
+		// direction*, which names the axis pointing away from the camera - the
+		// one an author is least likely to be reaching for, and the one whose
+		// movement is hardest to see.
 		glm::vec3 axes[] = { glm::vec3(1, 0, 0), glm::vec3(0, 1, 0), glm::vec3(0, 0, 1) };
-		float maxDot = 0.0f;
+		float closest = 0.0f;
 		for (int i = 0; i < 3; ++i)
 		{
-			float dot = glm::abs(glm::dot(g_GizmoRayDirection, axes[i]));
-			if (dot > maxDot)
+			glm::vec3 point;
+			float distance = 0.0f;
+			if (!Gizmo::ClosestPointOnAxis(g_GizmoRayOrigin, g_GizmoRayDirection, worldPos, axes[i], point, distance))
+				continue;  // the cursor looks straight down this axis
+
+			if (g_GizmoAxis < 0 || distance < closest)
 			{
-				maxDot = dot;
+				closest = distance;
 				g_GizmoAxis = i;
 			}
 		}
@@ -1465,7 +1642,12 @@ namespace Forge {
 		{
 			FG_CORE_INFO("Gizmo: started dragging axis {0} at ({1}, {2}, {3})",
 				g_GizmoAxis, worldPos.x, worldPos.y, worldPos.z);
+			return true;
 		}
+
+		// No axis at all: the drag has nothing to drag.
+		g_GizmoButton = -1;
+		return false;
 	}
 
 	void EditorApp::OnGizmoMouseMove(int x, int y)
@@ -1489,15 +1671,18 @@ namespace Forge {
 		case 2: axisDir = glm::vec3(0, 0, 1); break;
 		}
 
-		// Project the ray onto the axis to get the movement amount.
-		float dot = glm::dot(rayDir, axisDir);
-		if (glm::abs(dot) < 0.001f)
-			return;  // Ray is perpendicular to axis
+		// Where the cursor's ray passes closest to the axis: that is where the
+		// entity follows it to. The old maths projected the *drag start* ray
+		// onto the axis and mixed it with the current direction, which moved
+		// the entity by an amount that had nothing to do with the cursor.
+		glm::vec3 closestPoint;
+		float distance = 0.0f;
+		if (!Gizmo::ClosestPointOnAxis(rayOrigin, rayDir, g_GizmoStartPos, axisDir, closestPoint, distance))
+			return;  // the ray runs along the axis: nothing to follow
 
-		// Calculate the movement along the axis.
-		glm::vec3 toRay = g_GizmoRayOrigin - g_GizmoStartPos;
-		float t = glm::dot(toRay, axisDir) / dot;
-		glm::vec3 newPos = g_GizmoStartPos + axisDir * t;
+		// The movement along the axis, measured from where the drag started.
+		const float along = glm::dot(closestPoint - g_GizmoStartPos, axisDir);
+		glm::vec3 newPos = g_GizmoStartPos + axisDir * along;
 
 		// Apply snap if enabled.
 		float snap = m_Editor.GetTranslationSnap();
@@ -1522,46 +1707,63 @@ namespace Forge {
 		g_GizmoAxis = -1;
 	}
 
-	void EditorApp::DrawGizmoInteraction()
+	void EditorApp::HandleViewportInteraction()
 	{
-		if (!m_Editor.HasSelection())
-			return;
+		// The image is the thing the pointer is over, so its rectangle is the
+		// viewport: the origin is its top-left corner and its size is its
+		// size. Everything below is counted in the image's own pixels.
+		const ImVec2 rectMin = ImGui::GetItemRectMin();
+		const ImVec2 rectMax = ImGui::GetItemRectMax();
+		const ImVec2 mouse = ImGui::GetMousePos();
 
-		// Check if mouse is in the viewport area (simple heuristic).
-		ImGui::SetCursorPos(ImVec2(0, 0));
-		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
-		ImVec2 viewportSize = ImGui::GetContentRegionAvail();
+		const float mx = mouse.x - rectMin.x;
+		const float my = mouse.y - rectMin.y;
+		const bool inside = mx >= 0.0f && my >= 0.0f
+			&& mx <= rectMax.x - rectMin.x && my <= rectMax.y - rectMin.y;
 
-		ImGui::PushID("gizmo_interaction");
-		ImGui::InvisibleButton("gizmo_area", viewportSize);
-
-		if (ImGui::IsItemHovered())
+		if (inside && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
-			const int mx = static_cast<int>(ImGui::GetMousePos().x - cursorPos.x);
-			const int my = static_cast<int>(ImGui::GetMousePos().y - cursorPos.y);
+			g_MouseDownX = static_cast<int>(mx);
+			g_MouseDownY = static_cast<int>(my);
+			g_PressedInViewport = true;
+		}
 
-			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+		// A drag is a drag and a click is a click. The drag only begins once
+		// the pointer has moved, so that a click on an entity selects it
+		// instead of nudging it along an axis.
+		if (g_PressedInViewport && ImGui::IsMouseDown(ImGuiMouseButton_Left) && !g_DragStarted)
+		{
+			const int dx = static_cast<int>(mx) - g_MouseDownX;
+			const int dy = static_cast<int>(my) - g_MouseDownY;
+			if (glm::abs(dx) > kDragThreshold || glm::abs(dy) > kDragThreshold)
 			{
-				g_MouseDownX = mx;
-				g_MouseDownY = my;
-			}
-
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && g_GizmoButton < 0)
-				OnGizmoMouseDown(0, mx, my);
-
-			if (g_GizmoButton >= 0)
-				OnGizmoMouseMove(mx, my);
-
-			if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
-			{
-				if (g_GizmoButton >= 0)
-					OnGizmoMouseUp(0, mx, my);
-				else if (glm::abs(mx - g_MouseDownX) <= 4 && glm::abs(my - g_MouseDownY) <= 4)
-					PickAtScreenPoint(mx, my);
+				// The drag has to have started on the gizmo: the gizmo is
+				// at the entity, and a drag that started anywhere else is
+				// not a drag of anything.
+				const bool grabbed = IsNearSelectedEntity(static_cast<float>(g_MouseDownX), static_cast<float>(g_MouseDownY));
+				g_DragStarted = grabbed && OnGizmoMouseDown(0, static_cast<int>(mx), static_cast<int>(my));
 			}
 		}
 
-		ImGui::PopID();
+		if (g_DragStarted)
+			OnGizmoMouseMove(static_cast<int>(mx), static_cast<int>(my));
+
+		if (g_PressedInViewport && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+		{
+			if (g_DragStarted)
+			{
+				OnGizmoMouseUp(0, static_cast<int>(mx), static_cast<int>(my));
+			}
+			else if (inside)
+			{
+				// A click that did not drag is a request to select what is
+				// under the cursor.
+				PickAtScreenPoint(static_cast<int>(mx), static_cast<int>(my));
+			}
+
+			g_DragStarted = false;
+			g_PressedInViewport = false;
+		}
 	}
 
 	void EditorApp::WatchWatchedAssets()

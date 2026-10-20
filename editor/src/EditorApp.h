@@ -36,6 +36,13 @@ namespace Forge {
 		// Public for the input layer, which runs the Ctrl+N shortcut.
 		void CreateDefaultScene();
 
+		// Points an entity's mesh at a model and imports it.
+		//
+		// The path alone is not the geometry: the importer runs when the path
+		// is set, so a mesh whose path was assigned after the component was
+		// added has a path and no geometry - and is not drawn at all.
+		void SetMeshModel(Entity entity, const std::string& path);
+
 	private:
 		// How long a notification stays on screen, in frames (~4s at 60fps).
 		static constexpr int kNotificationFrames = 240;
@@ -81,17 +88,39 @@ namespace Forge {
 		void DrawStatusBar();
 
 		// Mirrors the currently playing scene's camera into the editor camera.
+		//
+		// Only while that camera is being *changed*: the scene camera is
+		// followed when the author edits it, and left alone when the author
+		// flies the editor camera - a camera that is overwritten every frame
+		// is a camera that cannot be moved.
 		void SyncEditorCamera();
 
 		// Gizmo pointer interaction.
-		void OnGizmoMouseDown(int button, int x, int y);
+		bool OnGizmoMouseDown(int button, int x, int y);
 		void OnGizmoMouseMove(int x, int y);
 		void OnGizmoMouseUp(int button, int x, int y);
-		void DrawGizmoInteraction();
+
+		// The pointer interaction on the viewport image: a click selects what
+		// is under it, a drag moves the selection.
+		//
+		// It runs here, on the image itself, because the ray is built from
+		// the image's rectangle: an overlay somewhere else in the window picks
+		// against a rectangle that is not the picture, and every pick lands
+		// somewhere else.
+		void HandleViewportInteraction();
 
 		// The world-space ray through a viewport pixel (editor camera's
 		// view-projection), shared by gizmo dragging and click-to-select.
 		void ViewportRay(int x, int y, glm::vec3& origin, glm::vec3& direction);
+
+		// Where a world point lands in the viewport, in the image's own
+		// pixels. False when the point is behind the camera: there is no
+		// place on the picture for it.
+		bool ProjectToViewport(const glm::vec3& world, ImVec2& outLocal);
+
+		// Whether a press at that pixel is close enough to the selection to
+		// be a grab of the gizmo.
+		bool IsNearSelectedEntity(float x, float y);
 
 		// Click-to-select in the viewport (the Hazel SceneTree pattern).
 		void PickAtScreenPoint(int x, int y);
@@ -125,6 +154,24 @@ namespace Forge {
 		// from the asset browser and the project, and Ctrl+S has to write back
 		// where the work came from, not where the last session left it.
 		std::string m_CurrentScenePath = "resources/scenes/editor.forge";
+
+		// The viewport image's size, in the image's own pixels. The ray a
+		// click builds is unprojected through this rectangle, so it has to be
+		// the picture's size and not the panel's.
+		ImVec2 m_ViewportImageSize = ImVec2(0.0f, 0.0f);
+
+		// Whether the pointer is over the 3D view. The camera flies while it
+		// is: the keys belong to the viewport, the way they do in every other
+		// editor, and a key that moves the camera while the author is typing
+		// a name into the inspector is a key that has been misfiled.
+		bool m_PointerOverViewport = false;
+
+		// The scene camera's transform as it was last seen. The editor camera
+		// follows the scene camera while that transform changes, and is left
+		// alone otherwise - otherwise flying the camera is undone every frame.
+		glm::vec3 m_SceneCameraPosition = glm::vec3(0.0f);
+		glm::vec3 m_SceneCameraRotation = glm::vec3(0.0f);
+		bool m_HasSceneCamera = false;
 
 		// The DockBuilder initial layout runs exactly once per session, and
 		// only when the .ini has no saved layout to honor.
