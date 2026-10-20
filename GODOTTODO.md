@@ -115,7 +115,7 @@ about the world's static geometry. Nothing walks.
 
 ## P2 - the things a bigger game needs
 
-### 6. [ ] Navigation and pathfinding (`Forge/Navigation/AStar.h`)
+### 6. [x] Navigation and pathfinding (`Forge/Navigation/AStar.h`)
 
 **Godot has** `NavigationServer3D`, `NavigationMesh` and `AStarGrid2D/3D`:
 agents find their way around a world, and the editor bakes a navigation mesh.
@@ -129,7 +129,7 @@ cannot path anywhere is an agent that walks into walls.
 - The search is pure and unit-tested (the shortest path, the unreachable
   case, the blocked cell).
 
-### 7. [ ] Localization (`Forge/Localization/`)
+### 7. [x] Localization (`Forge/Localization/`)
 
 **Godot has** `TranslationServer`, `Translation` resources and a CSV importer:
 the game's text is looked up by key, and the player's language chooses the

@@ -106,6 +106,10 @@ target_sources(ForgeCore
         Forge/Project/Project.cpp
         Forge/Project/ProjectSerializer.h
         Forge/Project/ProjectSerializer.cpp
+        Forge/Localization/Localization.h
+        Forge/Localization/Localization.cpp
+        Forge/Navigation/AStar.h
+        Forge/Navigation/AStar.cpp
         Forge/Physics/Physics.h
         Forge/Physics/CharacterController.h
         Forge/Physics/CharacterController.cpp

@@ -679,6 +679,43 @@ editor makes in place - the inspector edits the components directly, and
 there is no other way to know what the entity looked like before. An edit
 that changed nothing pushes nothing.
 
+## Localization
+
+The game's text is looked up by key, and the player's language chooses the
+table (the Godot TranslationServer model).
+
+```cpp
+Forge::Localization::LoadFromFile("resources/text/game.txt");
+Forge::Localization::SetLanguage("fr");
+const std::string text = Forge::Localization::Translate("greeting");
+```
+
+A key that is not in the table answers with itself: a missing translation
+shows the text the author wrote, in the language they wrote it in, rather
+than an empty space. The file is read whole before anything changes, so a
+file that cannot be read leaves the tables exactly as they were - half a
+translation table is worse than the one that was there.
+
+## Navigation and pathfinding
+
+The world's walkable area as a grid, and A* over it.
+
+```cpp
+Forge::NavigationGrid grid(64, 64);
+grid.Block(10, 10);                       // a wall
+
+const std::vector<Forge::GridPoint> path =
+    Forge::AStar::FindPath(grid, { 0, 0 }, { 63, 63 });
+const std::vector<Forge::GridPoint> smooth =
+    Forge::AStar::SmoothPath(grid, path);
+```
+
+- **A diagonal step does not cut a corner.** A character that walks through
+  the corner of a wall is not walking, it is clipping.
+- **The path is smoothed.** The cells that are not needed are taken out, so
+  the path goes in a straight line where it can - but the corners of a wall
+  stay, because the line of sight is what decides.
+
 ## Type Registry (RTTI)
 
 `Forge/Core/RTTI` gives the engine a runtime answer to "what component types
