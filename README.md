@@ -200,12 +200,30 @@ opens (`resources/scenes/Tetris.forge`), so the editor can open the game and
 edit it:
 
 ```bash
+# From the repository root, where the engine's own resources/ live:
 ./build/bin/ForgeEditor --project Tetris.forgeproject
+
+# Or from build/bin/, where the copied resources/ live:
+cd build/bin && ./ForgeEditor --project ../../Tetris.forgeproject
 ```
+
+Opening a project opens the scene it names, so the editor comes up on the
+game's camera, its light and its board, with `GameController` - the entity
+that names the game's C++ - in the hierarchy. The editor is a different
+binary and does not have the game, so that entity is inert there; the game
+binary runs it. The editor's own menu path is **File > Open Project...**.
 
 The scene is authored with the editor's own model
 (`games/tetris/tools/AuthorScene.cpp`), so what the tool writes is what the
-editor would write.
+editor would write. Re-author it with:
+
+```bash
+./build/bin/TetrisSceneAuthor resources/scenes/Tetris.forge
+```
+
+If the editor's panels look squeezed, delete `imgui.ini` next to the
+binary: it holds the saved dock layout, and a layout saved by a small
+window does not suit a large one.
 
 If the runtime cannot load the requested scene it logs an error and falls back to a built-in scene rather than exiting.
 
