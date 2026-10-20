@@ -158,6 +158,13 @@ placed in a scene.
 - A font is rasterised into an atlas (freetype or stb_truetype), a text mesh
   is built from it, and a component places it in the world.
 
+**Why it is not done yet.** The font and the mesh are the easy half. The
+hard half is the *alpha*: a glyph is a shape with a transparent
+background, and the engine's one material path is opaque - there is no
+blending and no alpha test, and the vertex layout has no colour field to
+carry a glyph's coverage in. So this is a renderer change (a second
+pipeline, or a vertex layout every mesh shares) and not a text feature.
+
 ### 9. [ ] Instanced rendering (`MultiMesh`)
 
 **Godot has** `MultiMeshInstance3D`: one mesh, many transforms, one draw call.
@@ -167,6 +174,13 @@ placed in a scene.
 **Done when**
 - The renderer draws a mesh with many transforms in one call, and the
   statistics report it as one draw.
+
+**Why it is not done yet.** The per-object data (the model matrix) comes
+from the object uniform buffer, one slot per draw. An instance buffer
+means the transforms arrive as a vertex attribute, which means the PBR
+shader reads them, which means a second shader and a second pipeline -
+and the shaders are compiled ahead of time, so the change is in the
+shader sources and the pipeline creation, not only in the renderer.
 
 ### 10. [x] Level of detail
 
