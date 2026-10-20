@@ -2,6 +2,7 @@
 
 #include "Forge/Core/UUID.h"
 #include "Forge/Renderer/Texture.h"
+#include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Scene/Animation.h"
 #include "Forge/Physics/CharacterController.h"
 #include "Forge/Audio/AudioEngine.h"
@@ -193,6 +194,19 @@ namespace Forge {
 		Ref<class Mesh> Mesh;
 
 		glm::vec3 Scale = { 1.0f, 1.0f, 1.0f };
+
+		// The lower-detail versions of the mesh, and the distances at which
+		// they take over.
+		//
+		// A mesh that is far away is drawn with fewer triangles: the
+		// difference between the levels cannot be seen at that distance, and
+		// the triangles that are not drawn are not paid for. The levels are
+		// ordered from the most detailed to the least.
+		std::vector<std::string> LODModelPaths;
+		std::vector<float> LODSwitchDistances;
+
+		// The imported geometry of the levels, parallel to the paths.
+		std::vector<Ref<class CpuMesh>> LODCpuMeshData;
 
 		MeshComponent() = default;
 		MeshComponent(const MeshComponent&) = default;

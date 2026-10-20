@@ -900,6 +900,22 @@ replaced was sized for no particular map: large enough to peter-pan a fine map,
 too small to clear a grazing surface on a coarse one - which is a checkerboard
 of lit and shadowed blocks, and reads as textures appearing on random cells.
 
+### Level of detail
+
+A mesh that is far away is drawn with fewer triangles: the difference
+between the levels cannot be seen at that distance, and the triangles that
+are not drawn are not paid for.
+
+```cpp
+mesh.LODModelPaths = { "tree_high.glb", "tree_low.glb" };
+mesh.LODSwitchDistances = { 40.0f };   // the low level takes over at 40 units
+```
+
+The levels are ordered from the most detailed to the least, and the
+distances say where each one takes over. `LOD::ChooseLevel` is the rule,
+and it is unit-tested: the choice is a fact about the distance, not
+something the draw path decides on its way past.
+
 ### Who draws
 
 The application draws, not the scene. `Scene::RenderScene` used to open and

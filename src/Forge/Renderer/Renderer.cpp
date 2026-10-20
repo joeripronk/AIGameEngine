@@ -6,6 +6,7 @@
 
 #include "Forge/Renderer/RenderCommand.h"
 #include "Forge/Renderer/Texture.h"
+#include "Forge/Renderer/LOD.h"
 #include "Forge/Renderer/Mesh.h"
 #include "Forge/Renderer/CpuMesh.h"
 #include "Forge/Renderer/CpuTexture.h"
@@ -385,6 +386,26 @@ namespace {
 			return component.Mesh;
 		};
 
+		// The uploaded mesh of a level of detail. The levels are uploaded
+		// like any other mesh - the cache is keyed by the path - so a level
+		// that is never drawn is never uploaded.
+		auto uploadLevel = [](const std::string& path, const Ref<CpuMesh>& cpuMesh) -> Ref<Mesh>
+		{
+			if (!cpuMesh)
+				return nullptr;
+
+			auto it = s_UploadedMeshes.find(path);
+			if (it != s_UploadedMeshes.end() && it->second.Source == cpuMesh)
+				return it->second.Upload;
+
+			Ref<Mesh> uploaded = Mesh::CreateFromCpu(cpuMesh.get(), Material{});
+			if (!uploaded)
+				return nullptr;
+
+			s_UploadedMeshes[path] = UploadedMesh{ cpuMesh, uploaded };
+			return uploaded;
+		};
+
 		struct DrawRecord
 		{
 			Ref<Mesh> MeshHandle;
@@ -417,14 +438,39 @@ namespace {
 			if (!mesh)
 				continue;
 
+			// The level of detail: a mesh that is far away is drawn with
+			// fewer triangles, because the difference between the levels
+			// cannot be seen at that distance.
+			const Ref<CpuMesh>* geometry = &meshComponent.CpuMeshData;
+			if (!meshComponent.LODModelPaths.empty() && !meshComponent.LODSwitchDistances.empty())
+			{
+				const float distance = glm::length(transform.Translation - cameraTransform.Translation);
+				const size_t level = LOD::ChooseLevel(meshComponent.LODSwitchDistances, distance);
+
+				if (level > 0 && level - 1 < meshComponent.LODModelPaths.size() &&
+					level - 1 < meshComponent.LODCpuMeshData.size())
+				{
+					const size_t index = level - 1;
+					if (const Ref<CpuMesh>& lodMesh = meshComponent.LODCpuMeshData[index])
+					{
+						Ref<Mesh> uploaded = uploadLevel(meshComponent.LODModelPaths[index], lodMesh);
+						if (uploaded)
+						{
+							mesh = uploaded;
+							geometry = &lodMesh;
+						}
+					}
+				}
+			}
+
 			glm::mat4 model = transform.GetTransform()
 				* glm::scale(glm::mat4(1.0f), meshComponent.Scale);
 
 			// Frustum culling: a mesh whose transformed bounding box is on the
 			// outer side of one plane cannot cover a single pixel, and the draw
 			// that would produce nothing costs a full pipeline draw.
-			glm::vec3 boundsMin = meshComponent.CpuMeshData ? meshComponent.CpuMeshData->GetMin() : DefaultCubeMin();
-			glm::vec3 boundsMax = meshComponent.CpuMeshData ? meshComponent.CpuMeshData->GetMax() : DefaultCubeMax();
+			glm::vec3 boundsMin = (*geometry) ? (*geometry)->GetMin() : DefaultCubeMin();
+			glm::vec3 boundsMax = (*geometry) ? (*geometry)->GetMax() : DefaultCubeMax();
 			glm::vec3 worldMin, worldMax;
 			TransformAABB(boundsMin, boundsMax, model, worldMin, worldMax);
 			if (!Frustum::IntersectsAABB(frustum, worldMin, worldMax))

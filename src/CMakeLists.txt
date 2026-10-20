@@ -58,6 +58,8 @@ target_sources(ForgeCore
         Forge/Events/ApplicationEvent.h
         Forge/Events/KeyEvent.h
         Forge/Events/MouseEvent.h
+        Forge/Renderer/LOD.h
+        Forge/Renderer/LOD.cpp
         Forge/Renderer/Camera.h
         Forge/Renderer/Camera.cpp
         Forge/Renderer/EditorCamera.h

@@ -168,7 +168,7 @@ placed in a scene.
 - The renderer draws a mesh with many transforms in one call, and the
   statistics report it as one draw.
 
-### 10. [ ] Level of detail and occlusion culling
+### 10. [x] Level of detail
 
 **Godot has** `LODMesh` and `OccluderInstance3D`.
 
@@ -177,7 +177,9 @@ however far away it is.
 
 **Done when**
 - A mesh switches to a lower-detail version with distance, and the choice
-  is unit-tested.
+  is unit-tested. (Occlusion culling is not in this list: it is a
+  different question - what is *hidden* - and the renderer has no depth
+  prepass to build one from.)
 
 ---
 

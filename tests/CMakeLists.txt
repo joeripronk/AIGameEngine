@@ -20,6 +20,7 @@ target_sources(ForgeTests
         src/CharacterControllerTests.cpp
         src/AStarTests.cpp
         src/LocalizationTests.cpp
+        src/LODTests.cpp
         src/SceneTests.cpp
         src/ComprehensiveTests.cpp
         src/EngineFeatureTests.cpp

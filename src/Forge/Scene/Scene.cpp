@@ -423,6 +423,24 @@ namespace Forge {
 
 		FG_CORE_INFO("Entity '{0}': imported '{1}' ({2} vertices)",
 			entity.GetName(), component.ModelPath, component.CpuMeshData->GetVertices().size());
+
+		// The lower-detail levels are imported the same way: a level that
+		// cannot be imported is not a failure of the whole import, it is a
+		// level that is not there.
+		component.LODCpuMeshData.clear();
+		component.LODCpuMeshData.reserve(component.LODModelPaths.size());
+		for (const std::string& path : component.LODModelPaths)
+		{
+			Ref<CpuMesh> lod = CpuMesh::LoadFromFile(path);
+			if (!lod)
+			{
+				FG_CORE_WARN("Entity '{0}': could not import level of detail '{1}'", entity.GetName(), path);
+				component.LODCpuMeshData.push_back(nullptr);
+				continue;
+			}
+			component.LODCpuMeshData.push_back(lod);
+		}
+
 		return true;
 	}
 
