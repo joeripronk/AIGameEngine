@@ -573,6 +573,38 @@ TEST_CASE("FindEntityOnRay respects maxDistance and misses cleanly", "[scene][pi
     REQUIRE(!scene.FindEntityOnRay({ 10.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f));
 }
 
+TEST_CASE("FindEntityOnRay picks what was drawn, not only what collides", "[scene][picking]")
+{
+    Forge::Scene scene;
+
+    // A mesh with no collider: the entity is drawn, so it can be clicked.
+    // A scene whose objects have no colliders - which is most of what an
+    // author makes before the physics is written - would otherwise be a
+    // scene in which nothing can be selected.
+    Forge::Entity drawn = scene.CreateEntity("DrawnCube");
+    drawn.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -5.0f };
+    drawn.AddComponent<Forge::MeshComponent>();
+
+    Forge::Entity hit = scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f);
+    REQUIRE(hit);
+    REQUIRE(hit.GetName() == "DrawnCube");
+
+    // The mesh's own bounds decide: a ray that passes beside the cube misses
+    // it, and one that reaches it hits it.
+    REQUIRE(!scene.FindEntityOnRay({ 5.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f));
+    REQUIRE(scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 5.6f));
+    REQUIRE(!scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 4.0f));
+
+    // The nearer of two is the answer, whichever kind it is.
+    Forge::Entity nearer = scene.CreateEntity("NearerCollider");
+    nearer.GetComponent<Forge::TransformComponent>().Translation = { 0.0f, 0.0f, -2.0f };
+    nearer.AddComponent<Forge::BoxColliderComponent>().Size = { 1.0f, 1.0f, 1.0f };
+
+    hit = scene.FindEntityOnRay({ 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, -1.0f }, 100.0f);
+    REQUIRE(hit);
+    REQUIRE(hit.GetName() == "NearerCollider");
+}
+
 TEST_CASE("FindEntityOnRay reads the collider offset", "[scene][picking]")
 {
     Forge::Scene scene;

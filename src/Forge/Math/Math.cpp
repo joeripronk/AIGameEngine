@@ -3,6 +3,8 @@
 
 #include <glm/gtc/epsilon.hpp>
 
+#include <limits>
+
 namespace Forge::Math {
 
 	// Ported from Hazel (Hazel/src/Hazel/Math/Math.cpp), which is in turn the
@@ -59,6 +61,24 @@ namespace Forge::Math {
 		}
 
 		return true;
+	}
+
+	void WorldAABB(const glm::vec3& min, const glm::vec3& max, const glm::mat4& model,
+		glm::vec3& outMin, glm::vec3& outMax)
+	{
+		outMin = glm::vec3(std::numeric_limits<float>::max());
+		outMax = glm::vec3(std::numeric_limits<float>::lowest());
+
+		for (int i = 0; i < 8; ++i)
+		{
+			const glm::vec3 corner(
+				(i & 1) ? max.x : min.x,
+				(i & 2) ? max.y : min.y,
+				(i & 4) ? max.z : min.z);
+			const glm::vec3 world(model * glm::vec4(corner, 1.0f));
+			outMin = glm::min(outMin, world);
+			outMax = glm::max(outMax, world);
+		}
 	}
 
 }

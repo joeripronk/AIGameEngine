@@ -511,6 +511,16 @@ namespace Forge {
 
 	namespace Primitives {
 
+		void DefaultCubeBounds(glm::vec3& outMin, glm::vec3& outMax)
+		{
+			// One cube, built once: the fallback is asked for per entity per
+			// frame, and a mesh built per question is a mesh thrown away per
+			// question.
+			static const Ref<CpuMesh> cube = CreateCube(1.0f);
+			outMin = cube->GetMin();
+			outMax = cube->GetMax();
+		}
+
 		Ref<CpuMesh> CreateCube(float size)
 		{
 			const float h = size * 0.5f;

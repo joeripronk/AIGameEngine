@@ -219,6 +219,17 @@ namespace Forge {
 		// rather than silently on some later frame.
 		Ref<class CpuMesh> CpuMeshData;
 
+		// The path the geometry in CpuMeshData was imported from.
+		//
+		// The path is what the entity renders, so a path that changes has to
+		// bring its geometry with it. Without this the importer could not tell
+		// "already imported" from "imported the other model", and a mesh
+		// pointed at a new model kept drawing the old one.
+		//
+		// Runtime state, like CpuMeshData and Mesh: it is not authored data
+		// and it is not written to either scene format.
+		std::string ImportedModelPath;
+
 		// The uploaded mesh. Filled in by the renderer from CpuMeshData, which
 		// is the only part of this that needs a graphics device - and is
 		// therefore not something the engine can do headlessly.

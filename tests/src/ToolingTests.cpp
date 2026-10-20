@@ -56,6 +56,41 @@ TEST_CASE("Gizmo axis projection", "[gizmo][tooling]")
 	REQUIRE(t == Approx(3.0f));
 }
 
+TEST_CASE("Gizmo finds the point of an axis nearest the ray", "[gizmo][tooling]")
+{
+	glm::vec3 point;
+	float distance = 0.0f;
+
+	// A ray down the Z axis, crossing the X axis at the origin: the closest
+	// point of the axis is the origin, and the distance is the ray's own
+	// distance from it.
+	const bool found = Forge::Gizmo::ClosestPointOnAxis(
+		{ 0.0f, 0.0f, 5.0f }, { 0.0f, 0.0f, -1.0f },
+		{ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f },
+		point, distance);
+	REQUIRE(found);
+	REQUIRE(point.x == Approx(0.0f));
+	REQUIRE(distance == Approx(0.0f));
+
+	// A ray that passes beside the axis: the closest point of the axis is
+	// where the ray's own line comes nearest, and the distance says how far
+	// off it was.
+	const bool beside = Forge::Gizmo::ClosestPointOnAxis(
+		{ 0.0f, 2.0f, 5.0f }, { 0.0f, 0.0f, -1.0f },
+		{ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f },
+		point, distance);
+	REQUIRE(beside);
+	REQUIRE(point.x == Approx(0.0f));
+	REQUIRE(distance == Approx(2.0f));
+
+	// A ray running along the axis has no single closest point.
+	const bool parallel = Forge::Gizmo::ClosestPointOnAxis(
+		{ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f },
+		{ 0.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f },
+		point, distance);
+	REQUIRE_FALSE(parallel);
+}
+
 TEST_CASE("Gizmo snapping", "[gizmo][tooling]")
 {
 	REQUIRE(Forge::Gizmo::Snap(1.3f, 0.5f) == Approx(1.5f));

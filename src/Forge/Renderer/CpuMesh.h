@@ -86,6 +86,14 @@ namespace Forge {
 		Ref<CpuMesh> CreatePlane(float size = 1.0f);
 		Ref<CpuMesh> CreateSphere(float radius = 0.5f, uint32_t slices = 16, uint32_t stacks = 16);
 
+		// The bounds of the fallback cube the renderer draws for an entity
+		// that has a mesh component but no imported geometry.
+		//
+		// The scene's picking uses the same box, so what the author clicks is
+		// what was drawn - the two answers cannot drift apart, because there
+		// is only one answer.
+		void DefaultCubeBounds(glm::vec3& outMin, glm::vec3& outMax);
+
 	}
 
 }

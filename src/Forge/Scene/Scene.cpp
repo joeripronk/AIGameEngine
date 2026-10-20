@@ -5,6 +5,7 @@
 
 #include "Forge/Scene/Components.h"
 #include "Forge/Core/Tween.h"
+#include "Forge/Math/Math.h"
 #include "Forge/UI/Font.h"
 #include "Forge/UI/Label.h"
 #include "Forge/Physics/CharacterController.h"
@@ -519,15 +520,20 @@ namespace Forge {
 		if (component.ModelPath.empty())
 			return false;
 
-		if (component.CpuMeshData)
+		// Already imported, and from this path: nothing to do.
+		if (component.CpuMeshData && component.ImportedModelPath == component.ModelPath)
 			return true;
 
+		// The path names a different model than the geometry in hand: the old
+		// geometry is the wrong geometry, and keeping it would make the path a
+		// name the entity does not answer to.
 		component.CpuMeshData = CpuMesh::LoadFromFile(component.ModelPath);
 		if (!component.CpuMeshData)
 		{
 			FG_CORE_ERROR("Entity '{0}': could not import model '{1}'", entity.GetName(), component.ModelPath);
 			return false;
 		}
+		component.ImportedModelPath = component.ModelPath;
 
 		// A new import invalidates whatever was uploaded from the old one.
 		component.Mesh = nullptr;
@@ -788,7 +794,7 @@ namespace Forge {
 			const glm::vec3 half = collider.Size * 0.5f;
 
 			const float distance = RayBoxEntryDistance(origin, invDirection, center - half, center + half);
-			if (distance >= 0.0f && distance <= bestDistance)
+			if (distance >= 0.0f && distance < bestDistance)
 			{
 				bestDistance = distance;
 				best = Entity{ handle, this };
@@ -802,7 +808,49 @@ namespace Forge {
 			const auto& transform = sphereView.get<TransformComponent>(handle);
 
 			const float distance = RaySphereEntryDistance(origin, dir, transform.Translation + collider.Offset, collider.Radius);
-			if (distance >= 0.0f && distance <= bestDistance)
+			if (distance >= 0.0f && distance < bestDistance)
+			{
+				bestDistance = distance;
+				best = Entity{ handle, this };
+			}
+		}
+
+		// What is drawn is what can be clicked.
+		//
+		// A collider is the precise answer, but a scene whose objects have no
+		// colliders - which is most of what an author makes before the physics
+		// is written - would then be a scene in which nothing can be selected.
+		// The mesh's own bounds are the box the renderer drew, so they are the
+		// box the author clicked, and the nearest hit wins: the collider of an
+		// entity is usually on that entity, and a collider that is nearer than
+		// the mesh it belongs to is the more precise answer.
+		auto meshView = m_Registry.view<MeshComponent, TransformComponent>();
+		for (auto handle : meshView)
+		{
+			const auto& mesh = meshView.get<MeshComponent>(handle);
+			const auto& transform = meshView.get<TransformComponent>(handle);
+
+			glm::vec3 boundsMin, boundsMax;
+			if (mesh.CpuMeshData)
+			{
+				boundsMin = mesh.CpuMeshData->GetMin();
+				boundsMax = mesh.CpuMeshData->GetMax();
+			}
+			else
+			{
+				// The fallback cube the renderer draws for a mesh that was
+				// never imported: the same box, so the click lands on what
+				// was drawn.
+				Primitives::DefaultCubeBounds(boundsMin, boundsMax);
+			}
+
+			// The same matrix the renderer draws with, bounds included.
+			const glm::mat4 model = transform.GetTransform() * glm::scale(glm::mat4(1.0f), mesh.Scale);
+			glm::vec3 worldMin, worldMax;
+			Math::WorldAABB(boundsMin, boundsMax, model, worldMin, worldMax);
+
+			const float distance = RayBoxEntryDistance(origin, invDirection, worldMin, worldMax);
+			if (distance >= 0.0f && distance < bestDistance)
 			{
 				bestDistance = distance;
 				best = Entity{ handle, this };

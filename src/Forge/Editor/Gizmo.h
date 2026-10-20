@@ -24,6 +24,22 @@ namespace Forge {
 		// Distance in world units from a ray to a point (used for axis picking).
 		static float RayPointDistance(const glm::vec3& origin, const glm::vec3& direction, const glm::vec3& point);
 
+		// The point of the axis line (axisOrigin + t * axisDirection) that
+		// lies closest to the ray, and how far that point is from the ray.
+		//
+		// This is what says which axis a drag took hold of: the axis whose
+		// line passes nearest the cursor is the axis the author grabbed. The
+		// rule it replaced - the axis most parallel to the view direction -
+		// named the axis pointing away from the camera, which is the one an
+		// author is least likely to mean.
+		//
+		// False when the ray is parallel to the axis: there is no single
+		// closest point then, and a drag along an axis the cursor looks down
+		// is not a drag anyone can see.
+		static bool ClosestPointOnAxis(const glm::vec3& rayOrigin, const glm::vec3& rayDirection,
+			const glm::vec3& axisOrigin, const glm::vec3& axisDirection,
+			glm::vec3& outPoint, float& outDistance);
+
 		// Projects a world-space point onto an axis line and returns the
 		// signed distance along the axis from `axisOrigin`.
 		static float ProjectOntoAxis(const glm::vec3& point, const glm::vec3& axisOrigin, const glm::vec3& axisDirection);

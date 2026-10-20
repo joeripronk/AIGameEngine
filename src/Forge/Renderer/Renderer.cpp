@@ -15,6 +15,7 @@
 #include "Forge/Renderer/Camera.h"
 #include "Forge/Renderer/RendererStats.h"
 #include "Forge/Renderer/ShadowCamera.h"
+#include "Forge/Math/Math.h"
 
 #include "Forge/Assets/AssetWatcher.h"
 #include "Forge/Debug/Instrumentor.h"
@@ -85,39 +86,20 @@ namespace Forge {
 		bool s_DiagEnded = false;
 
 		// The AABB of the shared fallback cube, so a meshless entity is culled
-		// against the box it is actually drawn as.
+		// against the box it is actually drawn as. The scene's picking asks the
+		// same question and gets the same answer.
 		glm::vec3 DefaultCubeMin()
 		{
-			static const Ref<CpuMesh> cube = Primitives::CreateCube(1.0f);
-			return cube->GetMin();
+			glm::vec3 min, max;
+			Primitives::DefaultCubeBounds(min, max);
+			return min;
 		}
 
 		glm::vec3 DefaultCubeMax()
 		{
-			static const Ref<CpuMesh> cube = Primitives::CreateCube(1.0f);
-			return cube->GetMax();
-		}
-
-		// The world-space AABB of a mesh's bounds drawn under `model`: the
-		// bounding box is not axis-aligned after a rotation, so it is the AABB
-		// of the transformed corners - a box culled against that is a box that
-		// is *provably* off-screen for every pixel.
-		void TransformAABB(const glm::vec3& min, const glm::vec3& max, const glm::mat4& model,
-			glm::vec3& outMin, glm::vec3& outMax)
-		{
-			outMin = glm::vec3(std::numeric_limits<float>::max());
-			outMax = glm::vec3(std::numeric_limits<float>::lowest());
-
-			for (int i = 0; i < 8; ++i)
-			{
-				const glm::vec3 corner(
-					(i & 1) ? max.x : min.x,
-					(i & 2) ? max.y : min.y,
-					(i & 4) ? max.z : min.z);
-				const glm::vec3 world(model * glm::vec4(corner, 1.0f));
-				outMin = glm::min(outMin, world);
-				outMax = glm::max(outMax, world);
-			}
+			glm::vec3 min, max;
+			Primitives::DefaultCubeBounds(min, max);
+			return max;
 		}
 
 		[[nodiscard]] uint32_t ScaledSize(uint32_t presentSize)
@@ -316,7 +298,7 @@ namespace {
 			const glm::vec3 boundsMax = shadowMesh.CpuMeshData ? shadowMesh.CpuMeshData->GetMax() : DefaultCubeMax();
 
 			glm::vec3 worldMin, worldMax;
-			TransformAABB(boundsMin, boundsMax, model, worldMin, worldMax);
+			Math::WorldAABB(boundsMin, boundsMax, model, worldMin, worldMax);
 			shadowBoxes.emplace_back(worldMin, worldMax);
 		}
 
@@ -342,7 +324,7 @@ namespace {
 			{
 				glm::vec3 instanceMin;
 				glm::vec3 instanceMax;
-				TransformAABB(boundsMin, boundsMax, group * instance, instanceMin, instanceMax);
+				Math::WorldAABB(boundsMin, boundsMax, group * instance, instanceMin, instanceMax);
 				worldMin = glm::min(worldMin, instanceMin);
 				worldMax = glm::max(worldMax, instanceMax);
 			}
@@ -524,7 +506,7 @@ namespace {
 			glm::vec3 boundsMin = (*geometry) ? (*geometry)->GetMin() : DefaultCubeMin();
 			glm::vec3 boundsMax = (*geometry) ? (*geometry)->GetMax() : DefaultCubeMax();
 			glm::vec3 worldMin, worldMax;
-			TransformAABB(boundsMin, boundsMax, model, worldMin, worldMax);
+			Math::WorldAABB(boundsMin, boundsMax, model, worldMin, worldMax);
 			if (!Frustum::IntersectsAABB(frustum, worldMin, worldMax))
 			{
 				s_Statistics.AddFrustumCulled();
@@ -618,7 +600,7 @@ namespace {
 			{
 				glm::vec3 instanceMin;
 				glm::vec3 instanceMax;
-				TransformAABB(boundsMin, boundsMax, instance, instanceMin, instanceMax);
+				Math::WorldAABB(boundsMin, boundsMax, instance, instanceMin, instanceMax);
 				worldMin = glm::min(worldMin, instanceMin);
 				worldMax = glm::max(worldMax, instanceMax);
 			}
